@@ -1,6 +1,6 @@
 # CRM Salão / Barbearia
 
-Node + Express + Postgres (backend) e React (painel). Login por salão, agenda individual por barbeiro,
+Node + Express + Postgres (backend) e React (painel). Login por salão, agenda individual por profissional,
 CRM de leads/clientes, retorno de inativos, dashboard, tema claro/escuro e logotipo customizável.
 
 ## Rodar no Coolify
@@ -16,7 +16,7 @@ Mesmas rotas do painel, em `/n8n/...`, com os headers:
 
 Principais rotas:
 - `GET  /n8n/services` — serviços com preço e duração
-- `GET  /n8n/barbers` — barbeiros e horários
+- `GET  /n8n/barbers` — profissionais e horários
 - `GET  /n8n/availability?date=2026-10-01&service_id=1[&barber_id=2]` — horários livres
 - `POST /n8n/customers` `{name, phone, chat_id, source:"ia"}` — cria/atualiza o lead pelo telefone
 - `GET  /n8n/customers/by-phone/:phone`

@@ -3,6 +3,14 @@ import { q } from './db.js';
 import { runImport } from './importer.js';
 
 const digits = (s) => String(s || '').replace(/\D/g, '');
+// Telefone digitado só com DDD (10 ou 11 dígitos): põe o 55 e tira o 9 extra do celular,
+// que é como o WhatsApp/UAZAPI entrega o número ao agente (55 + DDD + 8 dígitos).
+const custPhone = (s) => {
+  const d = digits(s);
+  if (d.length === 11 && d[2] === '9') return '55' + d.slice(0, 2) + d.slice(3);
+  if (d.length === 10 || d.length === 11) return '55' + d;
+  return d;
+};
 const wrap = (fn) => (req, res) => fn(req, res).catch((e) => {
   if (e.code === '23P01') return res.status(409).json({ error: 'Horário indisponível (conflito de agenda)' });
   if (e.code === '23505') return res.status(409).json({ error: 'Registro duplicado' });
@@ -79,7 +87,7 @@ async function checkWaitlist(snap) {
 }
 const normName = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 
-// Limite de barbeiros ativos por salão (salons.max_barbers; NULL = sem limite)
+// Limite de profissionais ativos por salão (salons.max_barbers; NULL = sem limite)
 async function barberLimitReached(salonId, excludeId = null) {
   const { rows } = await q(
     `SELECT s.max_barbers,
@@ -244,16 +252,17 @@ export function buildRouter() {
   }));
   // Upsert por telefone: o agente de IA chama isso quando um lead novo conversa
   r.post('/customers', wrap(async (req, res) => {
-    const { name, phone, chat_id, source = 'manual', notes } = req.body;
+    const { name, phone, chat_id, source = 'manual', notes, status } = req.body;
+    if (status !== undefined && !['lead', 'client'].includes(status)) return res.status(400).json({ error: 'Tipo inválido' });
     const { rows } = await q(
-      `INSERT INTO customers (salon_id,name,phone,chat_id,source,notes)
-       VALUES ($1,$2,$3,$4,$5,$6)
+      `INSERT INTO customers (salon_id,name,phone,chat_id,source,notes,status)
+       VALUES ($1,$2,$3,$4,$5,$6,COALESCE($7,'lead'))
        ON CONFLICT (salon_id,phone) DO UPDATE SET
          name=COALESCE(EXCLUDED.name,customers.name),
          chat_id=COALESCE(EXCLUDED.chat_id,customers.chat_id),
          notes=COALESCE(EXCLUDED.notes,customers.notes)
        RETURNING *`,
-      [req.user.salonId, name, digits(phone), chat_id, source, notes]);
+      [req.user.salonId, name, custPhone(phone), chat_id, source, notes, status ?? null]);
     res.status(201).json(rows[0]);
   }));
   r.get('/customers/by-phone/:phone', wrap(async (req, res) => {
@@ -270,12 +279,29 @@ export function buildRouter() {
     res.json({ ...c.rows[0], history: h.rows });
   }));
   r.put('/customers/:id', wrap(async (req, res) => {
-    const { name, phone, notes } = req.body;
+    const { name, phone, notes, status } = req.body;
+    if (status !== undefined && !['lead', 'client'].includes(status)) return res.status(400).json({ error: 'Tipo inválido' });
+    if (phone !== undefined && digits(phone).length < 10) return res.status(400).json({ error: 'Telefone inválido (use DDD + número)' });
     const { rows } = await q(
-      `UPDATE customers SET name=COALESCE($3,name), phone=COALESCE($4,phone), notes=COALESCE($5,notes)
+      `UPDATE customers SET name=COALESCE($3,name), phone=COALESCE($4,phone), notes=COALESCE($5,notes),
+       status=COALESCE($6,status)
        WHERE id=$1 AND salon_id=$2 RETURNING *`,
-      [req.params.id, req.user.salonId, name, phone ? digits(phone) : null, notes]);
+      [req.params.id, req.user.salonId, name, phone ? custPhone(phone) : null, notes, status ?? null]);
     rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Não encontrado' });
+  }));
+  // Exclui o cliente/lead junto com seus agendamentos e entradas na fila de espera.
+  // Eventos espelhados no Google Agenda são apagados via N8N.
+  r.delete('/customers/:id', wrap(async (req, res) => {
+    const c = await q('SELECT id FROM customers WHERE id=$1 AND salon_id=$2', [req.params.id, req.user.salonId]);
+    if (!c.rows[0]) return res.status(404).json({ error: 'Não encontrado' });
+    const ids = (await q('SELECT id FROM appointments WHERE customer_id=$1 AND salon_id=$2', [req.params.id, req.user.salonId])).rows;
+    const snaps = [];
+    for (const a of ids) snaps.push(await apptSnapshot(req.user.salonId, a.id));
+    await q('DELETE FROM waitlist WHERE customer_id=$1 AND salon_id=$2', [req.params.id, req.user.salonId]);
+    await q('DELETE FROM appointments WHERE customer_id=$1 AND salon_id=$2', [req.params.id, req.user.salonId]);
+    await q('DELETE FROM customers WHERE id=$1 AND salon_id=$2', [req.params.id, req.user.salonId]);
+    res.json({ ok: true, appointments_deleted: snaps.length });
+    snaps.forEach((sn) => notifyN8n('deleted', sn));
   }));
 
   // ---------- INATIVOS ----------
@@ -326,7 +352,7 @@ export function buildRouter() {
       `SELECT (SELECT 1 FROM barbers WHERE id=$1 AND salon_id=$3 AND active) AS b,
               (SELECT 1 FROM customers WHERE id=$2 AND salon_id=$3) AS c`,
       [barber_id, customer_id, req.user.salonId]);
-    if (!ok.rows[0].b || !ok.rows[0].c) return res.status(400).json({ error: 'Barbeiro ou cliente inválido' });
+    if (!ok.rows[0].b || !ok.rows[0].c) return res.status(400).json({ error: 'Profissional ou cliente inválido' });
     const does = await q(`SELECT ${BARBER_DOES.replaceAll('%B%', '$1').replaceAll('%S%', '$2')} AS ok`, [barber_id, service_id]);
     if (!does.rows[0].ok) return res.status(400).json({ error: 'Este profissional não realiza esse serviço' });
     const { rows } = await q(

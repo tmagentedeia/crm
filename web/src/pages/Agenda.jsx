@@ -26,7 +26,7 @@ export default function Agenda() {
   return (
     <>
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: 16 }}>
-        <div><h1>Agenda</h1><p className="muted">Uma agenda individual por barbeiro</p></div>
+        <div><h1>Agenda</h1><p className="muted">Uma agenda individual por profissional</p></div>
         <div className="row">
           <button className="btn" onClick={() => setDate(shift(date, -1))}>←</button>
           <input type="date" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} style={{ width: 'auto' }} />
@@ -35,7 +35,7 @@ export default function Agenda() {
           <button className="btn primary" onClick={() => setModal({ barber_id: barbers[0]?.id })}>+ Agendar</button>
         </div>
       </div>
-      {!barbers.length && <div className="card muted">Cadastre um barbeiro para começar a usar a agenda.</div>}
+      {!barbers.length && <div className="card muted">Cadastre um profissional para começar a usar a agenda.</div>}
       <div className="agenda">
         {barbers.map((b) => {
           const mine = appts.filter((a) => a.barber_id === b.id);
@@ -101,7 +101,7 @@ function NewAppointment({ init, date, barbers, onClose, onSaved }) {
       <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={save}>
         <h2>Novo agendamento</h2>
         {err && <div className="error">{err}</div>}
-        <div className="field"><label>Barbeiro</label>
+        <div className="field"><label>Profissional</label>
           <select value={f.barber_id} onChange={set('barber_id')} required>{barbers.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select></div>
         <div className="field"><label>Serviço</label>
           <select value={f.service_id} onChange={set('service_id')} required><option value="">Selecione…</option>

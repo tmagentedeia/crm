@@ -61,8 +61,8 @@ export default function Barbeiros() {
   return (
     <>
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: 16 }}>
-        <div><h1>Barbeiros</h1><p className="muted">Cada profissional cadastrado ganha sua própria agenda{max !== null && ` · ${ativos} de ${max} profissionais ativos`}</p></div>
-        <button className="btn primary" onClick={openNew} disabled={cheio} title={cheio ? 'Limite do plano atingido' : ''} style={cheio ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}>+ Novo barbeiro</button>
+        <div><h1>Profissionais</h1><p className="muted">Cada profissional cadastrado ganha sua própria agenda{max !== null && ` · ${ativos} de ${max} profissionais ativos`}</p></div>
+        <button className="btn primary" onClick={openNew} disabled={cheio} title={cheio ? 'Limite do plano atingido' : ''} style={cheio ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}>+ Novo profissional</button>
       </div>
       <div className="grid cols-4">
         {list.map((b) => (
@@ -84,13 +84,13 @@ export default function Barbeiros() {
             </div>
           </div>
         ))}
-        {!list.length && <p className="muted">Nenhum barbeiro cadastrado.</p>}
+        {!list.length && <p className="muted">Nenhum profissional cadastrado.</p>}
       </div>
 
       {edit && (
         <div className="modal-bg" onClick={() => setEdit(null)}>
           <form className="modal" style={{ maxWidth: 640 }} onClick={(e) => e.stopPropagation()} onSubmit={save}>
-            <h2>{edit.id ? 'Editar barbeiro' : 'Novo barbeiro'}</h2>
+            <h2>{edit.id ? 'Editar profissional' : 'Novo profissional'}</h2>
             {err && <div className="error">{err}</div>}
             <div className="row">
               <div className="field" style={{ flex: 3 }}><label>Nome</label><input value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} required /></div>

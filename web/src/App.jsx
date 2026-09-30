@@ -29,7 +29,7 @@ const BASE_MENU = [
   { id: 'fila', label: 'Fila de espera', icon: '⏳', comp: Fila },
   { id: 'clientes', label: 'Clientes e Leads', icon: '👥', comp: Clientes },
   { id: 'inativos', label: 'Retorno de inativos', icon: '🔁', comp: Inativos },
-  { id: 'barbeiros', label: 'Barbeiros', icon: '✂️', comp: Barbeiros },
+  { id: 'barbeiros', label: 'Profissionais', icon: '✂️', comp: Barbeiros },
   { id: 'servicos', label: 'Serviços', icon: '💈', comp: Servicos },
   { id: 'importar', label: 'Importar planilha', icon: '📥', comp: Importar },
   { id: 'config', label: 'Configurações', icon: '⚙️', comp: Config },
