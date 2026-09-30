@@ -46,21 +46,25 @@ app.post('/api/auth/register', async (req, res) => {
 
 // ---------- Configurações do salão ----------
 app.get('/api/salon', requireUser, async (req, res) => {
-  const { rows } = await q('SELECT id,name,phone,inactive_days,logo,max_barbers FROM salons WHERE id=$1', [req.user.salonId]);
+  const { rows } = await q('SELECT id,name,phone,inactive_days,logo,max_barbers,reminder_minutes FROM salons WHERE id=$1', [req.user.salonId]);
   res.json(rows[0]);
 });
 
 app.put('/api/salon', requireUser, async (req, res) => {
-  const { name, phone, inactive_days, logo } = req.body;
+  const { name, phone, inactive_days, logo, reminder_minutes } = req.body;
+  if (reminder_minutes != null && (!Number.isInteger(Number(reminder_minutes)) || Number(reminder_minutes) < 30 || Number(reminder_minutes) > 4320))
+    return res.status(400).json({ error: 'Antecedência do lembrete deve ficar entre 30 minutos e 72 horas' });
   // logo: data URL de imagem, ou null para remover (string vazia = remover)
   if (logo && (!/^data:image\/(png|jpeg|webp|svg\+xml);base64,/.test(logo) || logo.length > 700000))
     return res.status(400).json({ error: 'Logotipo inválido ou grande demais' });
   const { rows } = await q(
     `UPDATE salons SET name=COALESCE($2,name), phone=COALESCE($3,phone),
      inactive_days=COALESCE($4,inactive_days),
-     logo = CASE WHEN $5::boolean THEN NULLIF($6,'') ELSE logo END
-     WHERE id=$1 RETURNING id,name,phone,inactive_days,logo,max_barbers`,
-    [req.user.salonId, name, phone, inactive_days, logo !== undefined, logo ?? null]);
+     logo = CASE WHEN $5::boolean THEN NULLIF($6,'') ELSE logo END,
+     reminder_minutes = CASE WHEN $7::boolean THEN $8::int ELSE reminder_minutes END
+     WHERE id=$1 RETURNING id,name,phone,inactive_days,logo,max_barbers,reminder_minutes`,
+    [req.user.salonId, name, phone, inactive_days, logo !== undefined, logo ?? null,
+     reminder_minutes !== undefined, reminder_minutes == null ? null : Number(reminder_minutes)]);
   res.json(rows[0]);
 });
 

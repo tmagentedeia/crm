@@ -67,13 +67,22 @@ export default function Config() {
           </div>
           <p className="muted" style={{ marginTop: 8 }}>PNG, JPG, WEBP ou SVG. Aparece no menu lateral.</p>
         </div>
-        <form className="card" onSubmit={(e) => { e.preventDefault(); save({ name: s.name, phone: s.phone, inactive_days: Number(s.inactive_days) }); }}>
+        <form className="card" onSubmit={(e) => { e.preventDefault(); save({ name: s.name, phone: s.phone, inactive_days: Number(s.inactive_days), reminder_minutes: s.reminder_minutes ? Number(s.reminder_minutes) : null }); }}>
           <h2>Dados do salão</h2>
           <div className="field"><label>Nome</label><input value={s.name || ''} onChange={(e) => setS({ ...s, name: e.target.value })} required /></div>
           <div className="field"><label>Telefone</label><input value={s.phone || ''} onChange={(e) => setS({ ...s, phone: e.target.value })} /></div>
           <div className="field">
             <label>Considerar cliente inativo após (dias)</label>
             <input type="number" min="1" value={s.inactive_days} onChange={(e) => setS({ ...s, inactive_days: e.target.value })} />
+          </div>
+          <div className="field">
+            <label>Lembrete por WhatsApp ao cliente agendado</label>
+            <select value={s.reminder_minutes || ''} onChange={(e) => setS({ ...s, reminder_minutes: e.target.value })}>
+              <option value="">Desligado</option>
+              {[[60, '1 hora antes'], [120, '2 horas antes'], [180, '3 horas antes'], [240, '4 horas antes'], [720, '12 horas antes'], [1440, '24 horas antes'], [2880, '48 horas antes']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              {s.reminder_minutes && ![60, 120, 180, 240, 720, 1440, 2880].includes(Number(s.reminder_minutes)) && <option value={s.reminder_minutes}>{s.reminder_minutes} minutos antes</option>}
+            </select>
+            <p className="muted" style={{ marginTop: 4 }}>Um aviso só. Quem agenda com menos de {s.reminder_minutes ? Math.round((Number(s.reminder_minutes) + 60) / 6) / 10 : '—'}h de antecedência não recebe (acabou de marcar).</p>
           </div>
           <button className="btn primary">Salvar</button>
         </form>

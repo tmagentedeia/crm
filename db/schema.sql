@@ -14,6 +14,7 @@ CREATE TABLE salons (
   timezone        TEXT NOT NULL DEFAULT 'America/Sao_Paulo',
   logo            TEXT,                         -- logotipo do salão (data URL, redimensionado no painel)
   max_barbers     INT,                          -- limite de barbeiros ativos (NULL = sem limite)
+  reminder_minutes INT DEFAULT 120,             -- lembrete ao cliente X min antes (NULL = desligado)
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
