@@ -12,6 +12,19 @@ try {
     await pool.query('ALTER TABLE salons ADD COLUMN IF NOT EXISTS logo TEXT');
     await pool.query('ALTER TABLE salons ADD COLUMN IF NOT EXISTS max_barbers INT');
     await pool.query('ALTER TABLE salons ADD COLUMN IF NOT EXISTS reminder_minutes INT DEFAULT 120');
+    await pool.query('ALTER TABLE salons ADD COLUMN IF NOT EXISTS agent_name TEXT');
+    await pool.query(`CREATE TABLE IF NOT EXISTS agent_commands (
+      id BIGSERIAL PRIMARY KEY,
+      salon_id BIGINT NOT NULL REFERENCES salons(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK (kind IN ('off','on','pause','resume')),
+      phrase TEXT NOT NULL, phrase_norm TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (salon_id, phrase_norm))`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS agent_attendants (
+      id BIGSERIAL PRIMARY KEY,
+      salon_id BIGINT NOT NULL REFERENCES salons(id) ON DELETE CASCADE,
+      name TEXT NOT NULL, name_norm TEXT NOT NULL,
+      UNIQUE (salon_id, name_norm))`);
     await pool.query('ALTER TABLE barbers ADD COLUMN IF NOT EXISTS google_calendar_id TEXT');
     await pool.query('ALTER TABLE appointments ADD COLUMN IF NOT EXISTS google_event_id TEXT');
     await pool.query('ALTER TABLE appointments ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMPTZ');

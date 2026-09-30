@@ -609,5 +609,94 @@ export function buildRouter() {
     });
   }));
 
+
+  // ---------- Comandos do agente (pausar / retomar / ligar / desligar) ----------
+  // O dono manda mensagens pelo próprio WhatsApp; o N8N pergunta aqui o que a frase significa.
+  // Ações: off (desliga), on (liga), pause (pausa), resume (retoma) ou none.
+  const LIMITS = { off: 5, on: 5, pause: 10, resume: 10 };
+  const KINDS = Object.keys(LIMITS);
+  const normCmd = (t) => String(t ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+    .replace(/[,!.?;:]+/g, ' ').replace(/\s+/g, ' ').trim();
+  // "/off" e "/on" mantêm a barra (a pontuação acima não a remove)
+  async function agentCommandSet(salonId) {
+    const [sal, cmds, atts] = await Promise.all([
+      q('SELECT agent_name FROM salons WHERE id=$1', [salonId]),
+      q('SELECT id,kind,phrase,phrase_norm FROM agent_commands WHERE salon_id=$1 ORDER BY id', [salonId]),
+      q('SELECT id,name,name_norm FROM agent_attendants WHERE salon_id=$1 ORDER BY id', [salonId]),
+    ]);
+    const agent = sal.rows[0]?.agent_name || '';
+    const auto = [{ kind: 'off', phrase: '/off', fixed: true }, { kind: 'on', phrase: '/on', fixed: true }];
+    for (const a of atts.rows) auto.push({ kind: 'pause', phrase: `${a.name} aqui`, attendant_id: a.id });
+    if (agent) auto.push({ kind: 'resume', phrase: `segue com a ${agent}`, from_agent: true });
+    return { agent, custom: cmds.rows, attendants: atts.rows, auto };
+  }
+  const allPhrases = (set) => [
+    ...set.auto.map((x) => ({ kind: x.kind, norm: normCmd(x.phrase) })),
+    ...set.custom.map((x) => ({ kind: x.kind, norm: x.phrase_norm })),
+  ];
+  r.get('/agent-config', wrap(async (req, res) => {
+    const set = await agentCommandSet(req.user.salonId);
+    res.json({ agent_name: set.agent, attendants: set.attendants.map(({ id, name }) => ({ id, name })),
+      commands: set.custom.map(({ id, kind, phrase }) => ({ id, kind, phrase })),
+      automatic: set.auto.map(({ kind, phrase, fixed }) => ({ kind, phrase, fixed: !!fixed })),
+      limits: LIMITS });
+  }));
+  r.put('/agent-config', wrap(async (req, res) => {
+    const name = String(req.body?.agent_name ?? '').trim();
+    if (name.length > 40) return res.status(400).json({ error: 'Nome do agente muito longo' });
+    await q('UPDATE salons SET agent_name=$2 WHERE id=$1', [req.user.salonId, name || null]);
+    res.json({ ok: true });
+  }));
+  // limite por tipo conta frases próprias (+ atendentes, no caso de "pause")
+  async function checkCommand(salonId, kind, norm) {
+    if (norm.length < 3) return 'Frase muito curta (mínimo 3 letras)';
+    const set = await agentCommandSet(salonId);
+    const clash = allPhrases(set).find((x) => x.norm === norm);
+    if (clash) return `Essa frase já é usada em "${clash.kind}"`;
+    const used = set.custom.filter((c) => c.kind === kind).length + (kind === 'pause' ? set.attendants.length : 0);
+    if (used >= LIMITS[kind]) return `Limite de ${LIMITS[kind]} frases para este tipo atingido`;
+    return null;
+  }
+  r.post('/agent-commands', wrap(async (req, res) => {
+    const kind = req.body?.kind, phrase = String(req.body?.phrase ?? '').trim();
+    if (!KINDS.includes(kind)) return res.status(400).json({ error: 'Tipo inválido' });
+    const norm = normCmd(phrase);
+    const bad = await checkCommand(req.user.salonId, kind, norm);
+    if (bad) return res.status(400).json({ error: bad });
+    const { rows } = await q('INSERT INTO agent_commands (salon_id,kind,phrase,phrase_norm) VALUES ($1,$2,$3,$4) RETURNING id,kind,phrase',
+      [req.user.salonId, kind, phrase, norm]);
+    res.status(201).json(rows[0]);
+  }));
+  r.delete('/agent-commands/:id', wrap(async (req, res) => {
+    await q('DELETE FROM agent_commands WHERE id=$1 AND salon_id=$2', [req.params.id, req.user.salonId]);
+    res.json({ ok: true });
+  }));
+  r.post('/agent-attendants', wrap(async (req, res) => {
+    const name = String(req.body?.name ?? '').trim();
+    if (name.length > 40) return res.status(400).json({ error: 'Nome muito longo' });
+    const bad = await checkCommand(req.user.salonId, 'pause', normCmd(`${name} aqui`));
+    if (bad) return res.status(400).json({ error: bad });
+    const { rows } = await q('INSERT INTO agent_attendants (salon_id,name,name_norm) VALUES ($1,$2,$3) RETURNING id,name',
+      [req.user.salonId, name, normCmd(name)]);
+    res.status(201).json(rows[0]);
+  }));
+  r.delete('/agent-attendants/:id', wrap(async (req, res) => {
+    await q('DELETE FROM agent_attendants WHERE id=$1 AND salon_id=$2', [req.params.id, req.user.salonId]);
+    res.json({ ok: true });
+  }));
+  // Body: { text }. Resposta: { action: 'off'|'on'|'pause'|'resume'|'none', phrase }
+  // Casa quando o texto COMEÇA com a frase (palavra inteira); vence a frase mais longa.
+  r.post('/agent-commands/classify', wrap(async (req, res) => {
+    const text = normCmd(req.body?.text);
+    if (!text) return res.json({ action: 'none' });
+    const set = await agentCommandSet(req.user.salonId);
+    let best = null;
+    for (const x of allPhrases(set)) {
+      if (!x.norm) continue;
+      if ((text === x.norm || text.startsWith(x.norm + ' ')) && (!best || x.norm.length > best.norm.length)) best = x;
+    }
+    res.json(best ? { action: best.kind, phrase: best.norm } : { action: 'none' });
+  }));
+
   return r;
 }

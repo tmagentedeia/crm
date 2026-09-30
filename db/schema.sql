@@ -14,6 +14,7 @@ CREATE TABLE salons (
   timezone        TEXT NOT NULL DEFAULT 'America/Sao_Paulo',
   logo            TEXT,                         -- logotipo do salão (data URL, redimensionado no painel)
   max_barbers     INT,                          -- limite de barbeiros ativos (NULL = sem limite)
+  agent_name       TEXT,                        -- nome do agente de IA (usado nos comandos de pausa)
   reminder_minutes INT DEFAULT 120,             -- lembrete ao cliente X min antes (NULL = desligado)
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -205,3 +206,22 @@ SELECT a.salon_id, a.starts_at, a.status, a.price,
 FROM appointments a
 JOIN services sv ON sv.id = a.service_id
 JOIN barbers b   ON b.id = a.barber_id;
+
+-- Comandos do dono para pausar/retomar/ligar/desligar o agente (kind: off | on | pause | resume)
+CREATE TABLE agent_commands (
+  id         BIGSERIAL PRIMARY KEY,
+  salon_id   BIGINT NOT NULL REFERENCES salons(id) ON DELETE CASCADE,
+  kind       TEXT NOT NULL CHECK (kind IN ('off','on','pause','resume')),
+  phrase     TEXT NOT NULL,
+  phrase_norm TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (salon_id, phrase_norm)
+);
+-- Atendentes que podem pausar: cada nome gera a frase "<nome> aqui"
+CREATE TABLE agent_attendants (
+  id         BIGSERIAL PRIMARY KEY,
+  salon_id   BIGINT NOT NULL REFERENCES salons(id) ON DELETE CASCADE,
+  name       TEXT NOT NULL,
+  name_norm  TEXT NOT NULL,
+  UNIQUE (salon_id, name_norm)
+);
