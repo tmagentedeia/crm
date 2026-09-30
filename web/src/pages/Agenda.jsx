@@ -53,6 +53,7 @@ export default function Agenda() {
                   <div>{a.customer_name || a.customer_phone}</div>
                   <div className="muted">{a.service_name} · {money(a.price)}</div>
                   <div className="row" style={{ marginTop: 8 }}>
+                    {a.status === 'scheduled' && <button className="btn sm" onClick={() => setStatus(a.id, 'cancelled')}>Cancelar</button>}
                     {a.status !== 'attended' && <button className="btn sm ok" onClick={() => setStatus(a.id, 'attended')}>Compareceu</button>}
                     {a.status !== 'no_show' && <button className="btn sm bad" onClick={() => setStatus(a.id, 'no_show')}>Faltou</button>}
                     {a.status !== 'scheduled' && <button className="btn sm" onClick={() => setStatus(a.id, 'scheduled')}>Reabrir</button>}

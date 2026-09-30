@@ -348,7 +348,8 @@ export function buildRouter() {
     res.json(rows[0]);
     apptSnapshot(req.user.salonId, rows[0].id).then((s) => {
       notifyN8n('updated', s);
-      if (status === 'cancelled') checkWaitlist(s);
+      // cancelado ou faltou = horário liberado (só sai aviso se o horário ainda for futuro)
+      if (status === 'cancelled' || status === 'no_show') checkWaitlist(s);
     }).catch(() => {});
   }));
   // guarda o id do evento espelhado no Google Agenda (string vazia = remove)
