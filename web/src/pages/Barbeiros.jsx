@@ -37,7 +37,7 @@ export default function Barbeiros() {
       weekday: s.weekday, start_time: s.start_time, end_time: s.end_time,
       break_start: s.break_start || null, break_end: s.break_end || null,
     }));
-    const body = { name: edit.name, color: edit.color, phone: edit.phone, schedules };
+    const body = { name: edit.name, color: edit.color, phone: edit.phone, google_calendar_id: edit.google_calendar_id || '', schedules };
     try {
       if (edit.id) await api('/barbers/' + edit.id, { method: 'PUT', body });
       else await api('/barbers', { method: 'POST', body });
@@ -83,6 +83,7 @@ export default function Barbeiros() {
               <div className="field"><label>Cor</label><input type="color" value={edit.color} onChange={(e) => setEdit({ ...edit, color: e.target.value })} style={{ padding: 3, height: 40 }} /></div>
             </div>
             <div className="field"><label>Telefone (opcional)</label><input value={edit.phone || ''} onChange={(e) => setEdit({ ...edit, phone: e.target.value })} /></div>
+            <div className="field"><label>ID da agenda Google (opcional)</label><input value={edit.google_calendar_id || ''} onChange={(e) => setEdit({ ...edit, google_calendar_id: e.target.value })} placeholder="ex.: nome@gmail.com ou xxxx@group.calendar.google.com" /></div>
             <label>Horários de trabalho</label>
             <div className="sched-row muted"><span>Dia</span><span>Entrada</span><span>Saída</span><span>Pausa de</span><span>até</span></div>
             {edit.sched.map((s, i) => (

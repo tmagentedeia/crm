@@ -47,6 +47,7 @@ CREATE TABLE barbers (
   color           TEXT NOT NULL DEFAULT '#3B82F6',  -- cor de destaque na agenda
   phone           TEXT,
   active          BOOLEAN NOT NULL DEFAULT true,
+  google_calendar_id TEXT,                          -- agenda Google do profissional (espelho opcional)
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -101,6 +102,7 @@ CREATE TABLE appointments (
   status          TEXT NOT NULL DEFAULT 'scheduled'
                   CHECK (status IN ('scheduled','attended','no_show','cancelled')),
   source          TEXT NOT NULL DEFAULT 'ia' CHECK (source IN ('ia','manual')),
+  google_event_id TEXT,                               -- evento espelhado no Google Agenda (opcional)
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   CHECK (ends_at > starts_at),
   -- impede dois agendamentos ativos sobrepostos para o mesmo barbeiro

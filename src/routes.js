@@ -62,12 +62,12 @@ export function buildRouter() {
     res.json(rows);
   }));
   r.post('/barbers', wrap(async (req, res) => {
-    const { name, color = '#3B82F6', phone, schedules = [] } = req.body;
+    const { name, color = '#3B82F6', phone, google_calendar_id, schedules = [] } = req.body;
     const limit = await barberLimitReached(req.user.salonId);
     if (limit !== null) return res.status(403).json({ error: `Limite de ${limit} profissionais do seu plano atingido` });
     const { rows } = await q(
-      'INSERT INTO barbers (salon_id,name,color,phone) VALUES ($1,$2,$3,$4) RETURNING *',
-      [req.user.salonId, name, color, phone]);
+      'INSERT INTO barbers (salon_id,name,color,phone,google_calendar_id) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+      [req.user.salonId, name, color, phone, (google_calendar_id || '').trim() || null]);
     const b = rows[0];
     for (const s of schedules) {
       await q(`INSERT INTO barber_schedules (barber_id,weekday,start_time,end_time,break_start,break_end)
@@ -77,16 +77,19 @@ export function buildRouter() {
     res.status(201).json(b); // agenda individual = appointments filtrados por barber_id
   }));
   r.put('/barbers/:id', wrap(async (req, res) => {
-    const { name, color, phone, active, schedules } = req.body;
+    const { name, color, phone, active, schedules, google_calendar_id } = req.body;
     if (active === true) {
       const limit = await barberLimitReached(req.user.salonId, req.params.id);
       if (limit !== null) return res.status(403).json({ error: `Limite de ${limit} profissionais do seu plano atingido` });
     }
+    // google_calendar_id: undefined = não mexe; string vazia = remove
     const { rows } = await q(
       `UPDATE barbers SET name=COALESCE($3,name), color=COALESCE($4,color),
-       phone=COALESCE($5,phone), active=COALESCE($6,active)
+       phone=COALESCE($5,phone), active=COALESCE($6,active),
+       google_calendar_id = CASE WHEN $7::boolean THEN NULLIF(trim($8),'') ELSE google_calendar_id END
        WHERE id=$1 AND salon_id=$2 RETURNING *`,
-      [req.params.id, req.user.salonId, name, color, phone, active]);
+      [req.params.id, req.user.salonId, name, color, phone, active,
+       google_calendar_id !== undefined, google_calendar_id ?? null]);
     if (!rows[0]) return res.status(404).json({ error: 'Não encontrado' });
     if (Array.isArray(schedules)) {
       await q('DELETE FROM barber_schedules WHERE barber_id=$1', [req.params.id]);
@@ -163,10 +166,12 @@ export function buildRouter() {
 
   // ---------- AGENDAMENTOS ----------
   r.get('/appointments', wrap(async (req, res) => {
-    const { from, to, barber_id } = req.query;
+    // filtros opcionais: from, to, barber_id, phone (do cliente), status, google_event_id
+    const { from, to, barber_id, phone, status, google_event_id } = req.query;
     const { rows } = await q(
       `SELECT a.*, c.name AS customer_name, c.phone AS customer_phone,
-              sv.name AS service_name, b.name AS barber_name, b.color AS barber_color
+              sv.name AS service_name, b.name AS barber_name, b.color AS barber_color,
+              b.google_calendar_id AS barber_google_calendar_id
        FROM appointments a
        JOIN customers c ON c.id=a.customer_id
        JOIN services sv ON sv.id=a.service_id
@@ -175,8 +180,12 @@ export function buildRouter() {
          AND ($2::timestamptz IS NULL OR a.starts_at >= $2)
          AND ($3::timestamptz IS NULL OR a.starts_at < $3)
          AND ($4::bigint IS NULL OR a.barber_id = $4)
+         AND ($5::text IS NULL OR c.phone = $5)
+         AND ($6::text IS NULL OR a.status = $6)
+         AND ($7::text IS NULL OR a.google_event_id = $7)
        ORDER BY a.starts_at`,
-      [req.user.salonId, from || null, to || null, barber_id || null]);
+      [req.user.salonId, from || null, to || null, barber_id || null,
+       phone ? digits(phone) : null, status || null, google_event_id || null]);
     res.json(rows);
   }));
   r.post('/appointments', wrap(async (req, res) => {
@@ -203,6 +212,15 @@ export function buildRouter() {
       return res.status(400).json({ error: 'Status inválido' });
     const { rows } = await q('UPDATE appointments SET status=$3 WHERE id=$1 AND salon_id=$2 RETURNING *',
       [req.params.id, req.user.salonId, status]);
+    rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Não encontrado' });
+  }));
+  // guarda o id do evento espelhado no Google Agenda (string vazia = remove)
+  r.patch('/appointments/:id', wrap(async (req, res) => {
+    const { google_event_id } = req.body;
+    if (google_event_id === undefined) return res.status(400).json({ error: 'Nada para atualizar' });
+    const { rows } = await q(
+      "UPDATE appointments SET google_event_id=NULLIF(trim($3),'') WHERE id=$1 AND salon_id=$2 RETURNING *",
+      [req.params.id, req.user.salonId, google_event_id ?? '']);
     rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Não encontrado' });
   }));
   r.delete('/appointments/:id', wrap(async (req, res) => {
