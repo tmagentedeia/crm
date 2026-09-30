@@ -399,7 +399,7 @@ export function buildRouter() {
   // Lembrete ao cliente: o N8N chama isto de tempos em tempos. Reserva e devolve, de forma atômica,
   // os agendamentos que começam entre min_minutes e window_minutes a partir de agora e ainda não
   // receberam lembrete (duas chamadas seguidas nunca devolvem o mesmo agendamento).
-  // Não lembra quem marcou com menos de 2h de antecedência (acabou de agendar).
+  // Não lembra quem marcou com menos de 3h de antecedência (acabou de agendar).
   r.post('/appointments/reminders/claim', wrap(async (req, res) => {
     const win = Math.min(Math.max(Number(req.body?.window_minutes) || 120, 10), 1440);
     const min = Math.min(Math.max(Number(req.body?.min_minutes ?? 30), 0), win - 1);
@@ -411,7 +411,7 @@ export function buildRouter() {
          WHERE a2.salon_id=$1 AND a2.status='scheduled' AND a2.reminder_sent_at IS NULL
            AND a2.starts_at > now() + make_interval(mins => $2)
            AND a2.starts_at <= now() + make_interval(mins => $3)
-           AND a2.created_at <= a2.starts_at - interval '2 hours'
+           AND a2.created_at <= a2.starts_at - interval '3 hours'
          ORDER BY a2.starts_at LIMIT $4 FOR UPDATE SKIP LOCKED)
        RETURNING a.id`, [req.user.salonId, min, win, limit]);
     const out = [];
