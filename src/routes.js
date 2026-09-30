@@ -9,6 +9,33 @@ const wrap = (fn) => (req, res) => fn(req, res).catch((e) => {
   res.status(500).json({ error: 'Erro interno' });
 });
 
+// ---------- Espelho no Google Agenda (via webhook do N8N) ----------
+// Se N8N_WEBHOOK_URL estiver definida, todo agendamento criado / com status alterado / apagado
+// é avisado ao N8N, que cria/apaga o evento na agenda Google do profissional.
+// Não bloqueia nem quebra o agendamento: se o N8N estiver fora do ar, só o espelho fica sem atualizar.
+async function apptSnapshot(salonId, id) {
+  const { rows } = await q(
+    `SELECT a.id, a.salon_id, a.status, a.starts_at, a.ends_at, a.price, a.google_event_id,
+            b.name AS barber_name, b.google_calendar_id AS calendar_id,
+            c.name AS customer_name, c.phone AS customer_phone, sv.name AS service_name
+     FROM appointments a
+     JOIN barbers b ON b.id=a.barber_id JOIN customers c ON c.id=a.customer_id
+     JOIN services sv ON sv.id=a.service_id
+     WHERE a.id=$1 AND a.salon_id=$2`, [id, salonId]);
+  return rows[0] || null;
+}
+function notifyN8n(event, snap) {
+  const url = process.env.N8N_WEBHOOK_URL;
+  if (!url || !snap || (!snap.calendar_id && !snap.google_event_id)) return;
+  fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-api-key': process.env.N8N_API_KEY || '' },
+    body: JSON.stringify({ event, appointment: snap }),
+    signal: AbortSignal.timeout(8000),
+  }).then((r) => { if (!r.ok) console.error('Webhook N8N respondeu', r.status); })
+    .catch((e) => console.error('Falha ao avisar N8N:', e.message));
+}
+
 // Limite de barbeiros ativos por salão (salons.max_barbers; NULL = sem limite)
 async function barberLimitReached(salonId, excludeId = null) {
   const { rows } = await q(
@@ -204,6 +231,7 @@ export function buildRouter() {
       [req.user.salonId, barber_id, customer_id, service_id, starts_at,
        sv.rows[0].duration_min, sv.rows[0].price, source]);
     res.status(201).json(rows[0]);
+    apptSnapshot(req.user.salonId, rows[0].id).then((s) => notifyN8n('created', s)).catch(() => {});
   }));
   // status: attended | no_show | cancelled | scheduled
   r.patch('/appointments/:id/status', wrap(async (req, res) => {
@@ -212,7 +240,9 @@ export function buildRouter() {
       return res.status(400).json({ error: 'Status inválido' });
     const { rows } = await q('UPDATE appointments SET status=$3 WHERE id=$1 AND salon_id=$2 RETURNING *',
       [req.params.id, req.user.salonId, status]);
-    rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Não encontrado' });
+    if (!rows[0]) return res.status(404).json({ error: 'Não encontrado' });
+    res.json(rows[0]);
+    apptSnapshot(req.user.salonId, rows[0].id).then((s) => notifyN8n('updated', s)).catch(() => {});
   }));
   // guarda o id do evento espelhado no Google Agenda (string vazia = remove)
   r.patch('/appointments/:id', wrap(async (req, res) => {
@@ -224,8 +254,10 @@ export function buildRouter() {
     rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Não encontrado' });
   }));
   r.delete('/appointments/:id', wrap(async (req, res) => {
+    const snap = await apptSnapshot(req.user.salonId, req.params.id); // foto antes de apagar
     await q('DELETE FROM appointments WHERE id=$1 AND salon_id=$2', [req.params.id, req.user.salonId]);
     res.json({ ok: true });
+    notifyN8n('deleted', snap);
   }));
 
   // ---------- HORÁRIOS LIVRES (usado pelo agente de IA) ----------
