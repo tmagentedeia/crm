@@ -300,6 +300,44 @@ export function buildRouter() {
     res.json(rows);
   }));
 
+  // ---------- JANELA ESPECÍFICA (usado pelo agente de IA) ----------
+  // GET /availability/window?start=2026-10-01T14:00:00-03:00&end=2026-10-01T14:30:00-03:00[&barber_id=2]
+  // Diz quem está livre e quem está indisponível (e por quê) para aquele horário exato.
+  r.get('/availability/window', wrap(async (req, res) => {
+    const { start, end, barber_id } = req.query;
+    const s = new Date(start), e = new Date(end);
+    if (!start || !end || isNaN(s) || isNaN(e) || e <= s)
+      return res.status(400).json({ error: 'Informe start e end (ISO 8601) com end > start' });
+    const tz = (await q('SELECT timezone FROM salons WHERE id=$1', [req.user.salonId])).rows[0].timezone;
+    const { rows } = await q(
+      `WITH l AS (SELECT $2::timestamptz AS s, $3::timestamptz AS e,
+                         ($2::timestamptz AT TIME ZONE $5) AS ls, ($3::timestamptz AT TIME ZONE $5) AS le)
+       SELECT b.id AS barber_id, b.name AS barber_name,
+         CASE
+           WHEN l.s <= now() THEN 'horário já passou'
+           WHEN l.ls::date <> l.le::date THEN 'fora do expediente'
+           WHEN NOT EXISTS (SELECT 1 FROM barber_schedules sc WHERE sc.barber_id=b.id
+                 AND sc.weekday = EXTRACT(DOW FROM l.ls)::int
+                 AND l.ls::time >= sc.start_time AND l.le::time <= sc.end_time) THEN 'fora do expediente'
+           WHEN EXISTS (SELECT 1 FROM barber_schedules sc WHERE sc.barber_id=b.id
+                 AND sc.weekday = EXTRACT(DOW FROM l.ls)::int AND sc.break_start IS NOT NULL
+                 AND l.ls::time < sc.break_end AND l.le::time > sc.break_start) THEN 'pausa'
+           WHEN EXISTS (SELECT 1 FROM appointments a WHERE a.barber_id=b.id
+                 AND a.status IN ('scheduled','attended')
+                 AND tstzrange(a.starts_at,a.ends_at) && tstzrange(l.s,l.e)) THEN 'ocupado'
+           WHEN EXISTS (SELECT 1 FROM blocked_slots x WHERE x.barber_id=b.id
+                 AND tstzrange(x.starts_at,x.ends_at) && tstzrange(l.s,l.e)) THEN 'bloqueado'
+           ELSE NULL END AS motivo
+       FROM barbers b, l
+       WHERE b.salon_id=$1 AND b.active AND ($4::bigint IS NULL OR b.id=$4)
+       ORDER BY b.name`,
+      [req.user.salonId, start, end, barber_id || null, tz]);
+    res.json({
+      free: rows.filter((x) => !x.motivo).map(({ barber_id: id, barber_name }) => ({ barber_id: id, barber_name })),
+      busy: rows.filter((x) => x.motivo).map(({ barber_id: id, barber_name, motivo }) => ({ barber_id: id, barber_name, motivo })),
+    });
+  }));
+
   // ---------- DASHBOARD ----------
   r.get('/dashboard', wrap(async (req, res) => {
     const days = Number(req.query.days) || 30;
