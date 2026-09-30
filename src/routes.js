@@ -46,29 +46,43 @@ async function barberLimitReached(salonId, excludeId = null) {
   return r && r.max_barbers !== null && r.ativos >= r.max_barbers ? r.max_barbers : null;
 }
 
+// Serviços de cada profissional (tabela barber_services). Sem nenhuma linha = faz todos os serviços.
+async function setBarberServices(salonId, barberId, ids) {
+  await q('DELETE FROM barber_services WHERE barber_id=$1', [barberId]);
+  if (!ids.length) return;
+  await q(`INSERT INTO barber_services (barber_id, service_id)
+           SELECT $1, id FROM services WHERE salon_id=$2 AND id = ANY($3::bigint[])`,
+    [barberId, salonId, ids.map(Number)]);
+}
+const BARBER_DOES = `(NOT EXISTS (SELECT 1 FROM barber_services bs WHERE bs.barber_id=%B%)
+  OR EXISTS (SELECT 1 FROM barber_services bs WHERE bs.barber_id=%B% AND bs.service_id=%S%))`;
+
 // Router compartilhado: usado pelo painel (JWT) e pelo N8N (API key). Sempre filtra por req.user.salonId.
 export function buildRouter() {
   const r = Router();
 
   // ---------- SERVIÇOS ----------
   r.get('/services', wrap(async (req, res) => {
-    const { rows } = await q('SELECT * FROM services WHERE salon_id=$1 ORDER BY name', [req.user.salonId]);
+    const { rows } = await q('SELECT * FROM services WHERE salon_id=$1 ORDER BY category NULLS LAST, name', [req.user.salonId]);
     res.json(rows);
   }));
   r.post('/services', wrap(async (req, res) => {
-    const { name, price = 0, duration_min = 30 } = req.body;
+    const { name, price = 0, duration_min = 30, category } = req.body;
     const { rows } = await q(
-      'INSERT INTO services (salon_id,name,price,duration_min) VALUES ($1,$2,$3,$4) RETURNING *',
-      [req.user.salonId, name, price, duration_min]);
+      'INSERT INTO services (salon_id,name,price,duration_min,category) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+      [req.user.salonId, name, price, duration_min, (category || '').trim() || null]);
     res.status(201).json(rows[0]);
   }));
   r.put('/services/:id', wrap(async (req, res) => {
-    const { name, price, duration_min, active } = req.body;
+    const { name, price, duration_min, active, category } = req.body;
+    // category: undefined = não mexe; string vazia = remove
     const { rows } = await q(
       `UPDATE services SET name=COALESCE($3,name), price=COALESCE($4,price),
-       duration_min=COALESCE($5,duration_min), active=COALESCE($6,active)
+       duration_min=COALESCE($5,duration_min), active=COALESCE($6,active),
+       category = CASE WHEN $7::boolean THEN NULLIF(trim($8),'') ELSE category END
        WHERE id=$1 AND salon_id=$2 RETURNING *`,
-      [req.params.id, req.user.salonId, name, price, duration_min, active]);
+      [req.params.id, req.user.salonId, name, price, duration_min, active,
+       category !== undefined, category ?? null]);
     rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Não encontrado' });
   }));
   r.delete('/services/:id', wrap(async (req, res) => {
@@ -83,13 +97,14 @@ export function buildRouter() {
       `SELECT b.*, COALESCE(json_agg(json_build_object(
           'weekday',s.weekday,'start_time',s.start_time,'end_time',s.end_time,
           'break_start',s.break_start,'break_end',s.break_end) ORDER BY s.weekday)
-          FILTER (WHERE s.id IS NOT NULL), '[]') AS schedules
+          FILTER (WHERE s.id IS NOT NULL), '[]') AS schedules,
+          COALESCE((SELECT json_agg(bs.service_id ORDER BY bs.service_id) FROM barber_services bs WHERE bs.barber_id=b.id), '[]') AS service_ids
        FROM barbers b LEFT JOIN barber_schedules s ON s.barber_id=b.id
        WHERE b.salon_id=$1 GROUP BY b.id ORDER BY b.name`, [req.user.salonId]);
     res.json(rows);
   }));
   r.post('/barbers', wrap(async (req, res) => {
-    const { name, color = '#3B82F6', phone, google_calendar_id, schedules = [] } = req.body;
+    const { name, color = '#3B82F6', phone, google_calendar_id, schedules = [], service_ids } = req.body;
     const limit = await barberLimitReached(req.user.salonId);
     if (limit !== null) return res.status(403).json({ error: `Limite de ${limit} profissionais do seu plano atingido` });
     const { rows } = await q(
@@ -101,10 +116,11 @@ export function buildRouter() {
                VALUES ($1,$2,$3,$4,$5,$6)`,
         [b.id, s.weekday, s.start_time, s.end_time, s.break_start || null, s.break_end || null]);
     }
+    if (Array.isArray(service_ids)) await setBarberServices(req.user.salonId, b.id, service_ids);
     res.status(201).json(b); // agenda individual = appointments filtrados por barber_id
   }));
   r.put('/barbers/:id', wrap(async (req, res) => {
-    const { name, color, phone, active, schedules, google_calendar_id } = req.body;
+    const { name, color, phone, active, schedules, google_calendar_id, service_ids } = req.body;
     if (active === true) {
       const limit = await barberLimitReached(req.user.salonId, req.params.id);
       if (limit !== null) return res.status(403).json({ error: `Limite de ${limit} profissionais do seu plano atingido` });
@@ -118,6 +134,8 @@ export function buildRouter() {
       [req.params.id, req.user.salonId, name, color, phone, active,
        google_calendar_id !== undefined, google_calendar_id ?? null]);
     if (!rows[0]) return res.status(404).json({ error: 'Não encontrado' });
+    // service_ids: undefined = não mexe; [] = faz todos os serviços
+    if (Array.isArray(service_ids)) await setBarberServices(req.user.salonId, req.params.id, service_ids);
     if (Array.isArray(schedules)) {
       await q('DELETE FROM barber_schedules WHERE barber_id=$1', [req.params.id]);
       for (const s of schedules) {
@@ -225,6 +243,8 @@ export function buildRouter() {
               (SELECT 1 FROM customers WHERE id=$2 AND salon_id=$3) AS c`,
       [barber_id, customer_id, req.user.salonId]);
     if (!ok.rows[0].b || !ok.rows[0].c) return res.status(400).json({ error: 'Barbeiro ou cliente inválido' });
+    const does = await q(`SELECT ${BARBER_DOES.replaceAll('%B%', '$1').replaceAll('%S%', '$2')} AS ok`, [barber_id, service_id]);
+    if (!does.rows[0].ok) return res.status(400).json({ error: 'Este profissional não realiza esse serviço' });
     const { rows } = await q(
       `INSERT INTO appointments (salon_id,barber_id,customer_id,service_id,starts_at,ends_at,price,source)
        VALUES ($1,$2,$3,$4,$5::timestamptz,$5::timestamptz + make_interval(mins => $6),$7,$8) RETURNING *`,
@@ -276,6 +296,7 @@ export function buildRouter() {
          SELECT b.id AS barber_id, b.name, s.start_time, s.end_time, s.break_start, s.break_end
          FROM barbers b JOIN barber_schedules s ON s.barber_id=b.id
          WHERE b.salon_id=$1 AND b.active AND ($4::bigint IS NULL OR b.id=$4)
+           AND ${BARBER_DOES.replaceAll('%B%', 'b.id').replaceAll('%S%', '$6::bigint')}
            AND s.weekday = EXTRACT(DOW FROM $2::date)
        ), slots AS (
          SELECT b.barber_id, b.name, g AS t_start, g + make_interval(mins => $3) AS t_end, b.break_start, b.break_end
@@ -296,7 +317,7 @@ export function buildRouter() {
          AND NOT EXISTS (SELECT 1 FROM blocked_slots x WHERE x.barber_id=slots.barber_id
                AND tstzrange(x.starts_at,x.ends_at) && tstzrange(t_start AT TIME ZONE $5, t_end AT TIME ZONE $5))
        ORDER BY t_start, barber_id`,
-      [req.user.salonId, date, dur, barber_id || null, tz]);
+      [req.user.salonId, date, dur, barber_id || null, tz, service_id]);
     res.json(rows);
   }));
 
@@ -304,7 +325,7 @@ export function buildRouter() {
   // GET /availability/window?start=2026-10-01T14:00:00-03:00&end=2026-10-01T14:30:00-03:00[&barber_id=2]
   // Diz quem está livre e quem está indisponível (e por quê) para aquele horário exato.
   r.get('/availability/window', wrap(async (req, res) => {
-    const { start, end, barber_id } = req.query;
+    const { start, end, barber_id, service_id } = req.query;
     const s = new Date(start), e = new Date(end);
     if (!start || !end || isNaN(s) || isNaN(e) || e <= s)
       return res.status(400).json({ error: 'Informe start e end (ISO 8601) com end > start' });
@@ -314,6 +335,7 @@ export function buildRouter() {
                          ($2::timestamptz AT TIME ZONE $5) AS ls, ($3::timestamptz AT TIME ZONE $5) AS le)
        SELECT b.id AS barber_id, b.name AS barber_name,
          CASE
+           WHEN $6::bigint IS NOT NULL AND NOT ${BARBER_DOES.replaceAll('%B%', 'b.id').replaceAll('%S%', '$6::bigint')} THEN 'não realiza este serviço'
            WHEN l.s <= now() THEN 'horário já passou'
            WHEN l.ls::date <> l.le::date THEN 'fora do expediente'
            WHEN NOT EXISTS (SELECT 1 FROM barber_schedules sc WHERE sc.barber_id=b.id
@@ -331,7 +353,7 @@ export function buildRouter() {
        FROM barbers b, l
        WHERE b.salon_id=$1 AND b.active AND ($4::bigint IS NULL OR b.id=$4)
        ORDER BY b.name`,
-      [req.user.salonId, start, end, barber_id || null, tz]);
+      [req.user.salonId, start, end, barber_id || null, tz, service_id || null]);
     res.json({
       free: rows.filter((x) => !x.motivo).map(({ barber_id: id, barber_name }) => ({ barber_id: id, barber_name })),
       busy: rows.filter((x) => x.motivo).map(({ barber_id: id, barber_name, motivo }) => ({ barber_id: id, barber_name, motivo })),

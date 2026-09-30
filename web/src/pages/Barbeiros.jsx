@@ -24,12 +24,13 @@ export default function Barbeiros() {
   const [edit, setEdit] = useState(null);
   const [err, setErr] = useState('');
   const [max, setMax] = useState(null);
+  const [services, setServices] = useState([]);
   const load = () => api('/barbers').then(setList);
-  useEffect(() => { load(); api('/salon').then((s) => setMax(s.max_barbers)); }, []);
+  useEffect(() => { load(); api('/salon').then((s) => setMax(s.max_barbers)); api('/services').then((l) => setServices(l.filter((x) => x.active))); }, []);
   const ativos = list.filter((b) => b.active).length;
   const cheio = max !== null && ativos >= max;
 
-  const openNew = () => setEdit({ name: '', color: '#2563eb', phone: '', sched: [0, 1, 2, 3, 4, 5, 6].map((w) => defaultSchedule().find((d) => d.weekday === w) || { weekday: w, on: false, start_time: '09:00', end_time: '18:00', break_start: '', break_end: '' }) });
+  const openNew = () => setEdit({ name: '', color: '#2563eb', phone: '', service_ids: [], sched: [0, 1, 2, 3, 4, 5, 6].map((w) => defaultSchedule().find((d) => d.weekday === w) || { weekday: w, on: false, start_time: '09:00', end_time: '18:00', break_start: '', break_end: '' }) });
 
   async function save(e) {
     e.preventDefault(); setErr('');
@@ -37,13 +38,18 @@ export default function Barbeiros() {
       weekday: s.weekday, start_time: s.start_time, end_time: s.end_time,
       break_start: s.break_start || null, break_end: s.break_end || null,
     }));
-    const body = { name: edit.name, color: edit.color, phone: edit.phone, google_calendar_id: edit.google_calendar_id || '', schedules };
+    const body = { name: edit.name, color: edit.color, phone: edit.phone, google_calendar_id: edit.google_calendar_id || '', service_ids: edit.service_ids || [], schedules };
     try {
       if (edit.id) await api('/barbers/' + edit.id, { method: 'PUT', body });
       else await api('/barbers', { method: 'POST', body });
       setEdit(null); load();
     } catch (e2) { setErr(e2.message); }
   }
+  const toggleSvc = (id) => {
+    const cur = (edit.service_ids || []).map(String);
+    const k = String(id);
+    setEdit({ ...edit, service_ids: cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k] });
+  };
   const setSched = (i, k, v) => setEdit({ ...edit, sched: edit.sched.map((s, j) => (j === i ? { ...s, [k]: v } : s)) });
   const toggle = (b) => api('/barbers/' + b.id, { method: 'PUT', body: { active: !b.active } }).then(load).catch((e) => alert(e.message));
 
@@ -63,6 +69,9 @@ export default function Barbeiros() {
               {b.schedules.length
                 ? b.schedules.map((s) => WEEKDAYS[s.weekday].slice(0, 3)).join(' · ')
                 : 'Sem horários definidos'}
+            </p>
+            <p className="muted" style={{ margin: '0 0 6px' }}>
+              {b.service_ids?.length ? services.filter((x) => b.service_ids.map(String).includes(String(x.id))).map((x) => x.name).join(', ') || 'Serviços selecionados' : 'Todos os serviços'}
             </p>
             <div className="row">
               <button className="btn sm" onClick={() => setEdit(toForm(b))}>Editar</button>
@@ -84,6 +93,19 @@ export default function Barbeiros() {
             </div>
             <div className="field"><label>Telefone (opcional)</label><input value={edit.phone || ''} onChange={(e) => setEdit({ ...edit, phone: e.target.value })} /></div>
             <div className="field"><label>ID da agenda Google (opcional)</label><input value={edit.google_calendar_id || ''} onChange={(e) => setEdit({ ...edit, google_calendar_id: e.target.value })} placeholder="ex.: nome@gmail.com ou xxxx@group.calendar.google.com" /></div>
+            {services.length > 0 && (
+              <div className="field">
+                <label>Serviços que realiza <span className="muted">(nenhum marcado = faz todos)</span></label>
+                <div className="row" style={{ flexWrap: 'wrap', gap: '6px 16px' }}>
+                  {services.map((sv) => (
+                    <label key={sv.id} style={{ margin: 0, color: 'var(--text)', fontWeight: 400 }}>
+                      <input type="checkbox" style={{ width: 'auto', marginRight: 6 }} checked={(edit.service_ids || []).map(String).includes(String(sv.id))} onChange={() => toggleSvc(sv.id)} />
+                      {sv.category ? `${sv.category} · ` : ''}{sv.name}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
             <label>Horários de trabalho</label>
             <div className="sched-row muted"><span>Dia</span><span>Entrada</span><span>Saída</span><span>Pausa de</span><span>até</span></div>
             {edit.sched.map((s, i) => (

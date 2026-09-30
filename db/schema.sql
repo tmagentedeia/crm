@@ -34,6 +34,7 @@ CREATE TABLE services (
   name            TEXT NOT NULL,
   price           NUMERIC(10,2) NOT NULL DEFAULT 0,
   duration_min    INT NOT NULL DEFAULT 30,
+  category        TEXT,                         -- categoria opcional (Cabelo, Barba, Unhas...)
   active          BOOLEAN NOT NULL DEFAULT true,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (salon_id, name)

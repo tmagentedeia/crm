@@ -13,6 +13,7 @@ try {
     await pool.query('ALTER TABLE salons ADD COLUMN IF NOT EXISTS max_barbers INT');
     await pool.query('ALTER TABLE barbers ADD COLUMN IF NOT EXISTS google_calendar_id TEXT');
     await pool.query('ALTER TABLE appointments ADD COLUMN IF NOT EXISTS google_event_id TEXT');
+    await pool.query('ALTER TABLE services ADD COLUMN IF NOT EXISTS category TEXT');
     console.log('Schema já existe, colunas atualizadas.');
   } else {
     await pool.query(sql);
