@@ -134,6 +134,19 @@ CREATE TABLE blocked_slots (
   EXCLUDE USING gist (barber_id WITH =, tstzrange(starts_at, ends_at) WITH &&)
 );
 
+-- Fila de espera: cliente quer um horário que estava ocupado; é avisado se ele abrir
+CREATE TABLE waitlist (
+  id              BIGSERIAL PRIMARY KEY,
+  salon_id        BIGINT NOT NULL REFERENCES salons(id) ON DELETE CASCADE,
+  customer_id     BIGINT NOT NULL REFERENCES customers(id),
+  barber_id       BIGINT REFERENCES barbers(id) ON DELETE SET NULL,   -- NULL = qualquer profissional
+  desired_at      TIMESTAMPTZ NOT NULL,
+  status          TEXT NOT NULL DEFAULT 'waiting' CHECK (status IN ('waiting','notified','cancelled')),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  notified_at     TIMESTAMPTZ
+);
+CREATE INDEX idx_waitlist_salon ON waitlist (salon_id, status, desired_at);
+
 -- ========== AUTOMAÇÕES ==========
 -- Ao marcar presença: cliente vira 'client' e last_visit_at é atualizado
 CREATE OR REPLACE FUNCTION trg_appointment_attended() RETURNS trigger AS $$

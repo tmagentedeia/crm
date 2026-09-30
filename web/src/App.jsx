@@ -6,6 +6,7 @@ import Servicos from './pages/Servicos.jsx';
 import Barbeiros from './pages/Barbeiros.jsx';
 import Agenda from './pages/Agenda.jsx';
 import Clientes from './pages/Clientes.jsx';
+import Fila from './pages/Fila.jsx';
 import Inativos from './pages/Inativos.jsx';
 import Config from './pages/Config.jsx';
 import Admin from './pages/Admin.jsx';
@@ -24,6 +25,7 @@ const ADMIN_ITEM = { id: 'admin', label: 'Administração', icon: '🛠️', com
 const BASE_MENU = [
   { id: 'dashboard', label: 'Dashboard', icon: '📊', comp: Dashboard },
   { id: 'agenda', label: 'Agenda', icon: '📅', comp: Agenda },
+  { id: 'fila', label: 'Fila de espera', icon: '⏳', comp: Fila },
   { id: 'clientes', label: 'Clientes e Leads', icon: '👥', comp: Clientes },
   { id: 'inativos', label: 'Retorno de inativos', icon: '🔁', comp: Inativos },
   { id: 'barbeiros', label: 'Barbeiros', icon: '✂️', comp: Barbeiros },

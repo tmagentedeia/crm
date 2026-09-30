@@ -15,7 +15,7 @@ const wrap = (fn) => (req, res) => fn(req, res).catch((e) => {
 // Não bloqueia nem quebra o agendamento: se o N8N estiver fora do ar, só o espelho fica sem atualizar.
 async function apptSnapshot(salonId, id) {
   const { rows } = await q(
-    `SELECT a.id, a.salon_id, a.status, a.starts_at, a.ends_at, a.price, a.google_event_id,
+    `SELECT a.id, a.salon_id, a.barber_id, a.status, a.starts_at, a.ends_at, a.price, a.google_event_id,
             b.name AS barber_name, b.google_calendar_id AS calendar_id,
             c.name AS customer_name, c.phone AS customer_phone, sv.name AS service_name
      FROM appointments a
@@ -35,6 +35,48 @@ function notifyN8n(event, snap) {
   }).then((r) => { if (!r.ok) console.error('Webhook N8N respondeu', r.status); })
     .catch((e) => console.error('Falha ao avisar N8N:', e.message));
 }
+
+// Aceita o ID da agenda Google ou o link colado (extrai o ID do parâmetro cid/src do link)
+function normCalendarId(v) {
+  const t = String(v ?? '').trim();
+  const m = t.match(/[?&](cid|src)=([^&#]+)/);
+  if (!m) return t;
+  const raw = decodeURIComponent(m[2]);
+  if (m[1] === 'src') return raw;
+  try { const d = Buffer.from(raw.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'); return /^[\w.+-]+@[\w.-]+$/.test(d) ? d : t; } catch { return t; }
+}
+
+// ---------- Fila de espera ----------
+// Quando um horário é liberado (agendamento cancelado ou apagado), avisa o N8N para mandar
+// WhatsApp ao primeiro cliente da fila (ordem de chegada) que queria aquele horário.
+// N8N_WAITLIST_WEBHOOK_URL = webhook do workflow "Salão - Aviso Fila de Espera".
+async function checkWaitlist(snap) {
+  const url = process.env.N8N_WAITLIST_WEBHOOK_URL;
+  if (!url || !snap) return;
+  const { rows } = await q(
+    `UPDATE waitlist w SET status='notified', notified_at=now()
+     WHERE w.id = (
+       SELECT w2.id FROM waitlist w2
+       WHERE w2.salon_id=$1 AND w2.status='waiting'
+         AND (w2.barber_id IS NULL OR w2.barber_id=$2)
+         AND w2.desired_at >= $3 AND w2.desired_at < $4 AND w2.desired_at > now()
+       ORDER BY w2.created_at LIMIT 1)
+     RETURNING w.id, w.desired_at`, [snap.salon_id, snap.barber_id, snap.starts_at, snap.ends_at]);
+  if (!rows[0]) return;
+  const d = await q(
+    `SELECT c.name AS customer_name, c.phone AS customer_phone FROM waitlist w
+     JOIN customers c ON c.id=w.customer_id WHERE w.id=$1`, [rows[0].id]);
+  fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-api-key': process.env.N8N_API_KEY || '' },
+    body: JSON.stringify({ event: 'slot_opened', entry: {
+      id: rows[0].id, salon_id: snap.salon_id, desired_at: rows[0].desired_at,
+      barber_name: snap.barber_name, service_name: snap.service_name, ...d.rows[0] } }),
+    signal: AbortSignal.timeout(8000),
+  }).then((r) => { if (!r.ok) console.error('Webhook fila respondeu', r.status); })
+    .catch((e) => console.error('Falha ao avisar fila:', e.message));
+}
+const normName = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 
 // Limite de barbeiros ativos por salão (salons.max_barbers; NULL = sem limite)
 async function barberLimitReached(salonId, excludeId = null) {
@@ -150,7 +192,7 @@ export function buildRouter() {
     if (limit !== null) return res.status(403).json({ error: `Limite de ${limit} profissionais do seu plano atingido` });
     const { rows } = await q(
       'INSERT INTO barbers (salon_id,name,color,phone,google_calendar_id) VALUES ($1,$2,$3,$4,$5) RETURNING *',
-      [req.user.salonId, name, color, phone, (google_calendar_id || '').trim() || null]);
+      [req.user.salonId, name, color, phone, normCalendarId(google_calendar_id) || null]);
     const b = rows[0];
     for (const s of schedules) {
       await q(`INSERT INTO barber_schedules (barber_id,weekday,start_time,end_time,break_start,break_end)
@@ -173,7 +215,7 @@ export function buildRouter() {
        google_calendar_id = CASE WHEN $7::boolean THEN NULLIF(trim($8),'') ELSE google_calendar_id END
        WHERE id=$1 AND salon_id=$2 RETURNING *`,
       [req.params.id, req.user.salonId, name, color, phone, active,
-       google_calendar_id !== undefined, google_calendar_id ?? null]);
+       google_calendar_id !== undefined, normCalendarId(google_calendar_id)]);
     if (!rows[0]) return res.status(404).json({ error: 'Não encontrado' });
     // service_ids: undefined = não mexe; [] = faz todos os serviços
     if (Array.isArray(service_ids)) await setBarberServices(req.user.salonId, req.params.id, service_ids);
@@ -303,7 +345,10 @@ export function buildRouter() {
       [req.params.id, req.user.salonId, status]);
     if (!rows[0]) return res.status(404).json({ error: 'Não encontrado' });
     res.json(rows[0]);
-    apptSnapshot(req.user.salonId, rows[0].id).then((s) => notifyN8n('updated', s)).catch(() => {});
+    apptSnapshot(req.user.salonId, rows[0].id).then((s) => {
+      notifyN8n('updated', s);
+      if (status === 'cancelled') checkWaitlist(s);
+    }).catch(() => {});
   }));
   // guarda o id do evento espelhado no Google Agenda (string vazia = remove)
   r.patch('/appointments/:id', wrap(async (req, res) => {
@@ -319,6 +364,49 @@ export function buildRouter() {
     await q('DELETE FROM appointments WHERE id=$1 AND salon_id=$2', [req.params.id, req.user.salonId]);
     res.json({ ok: true });
     notifyN8n('deleted', snap);
+    if (snap && ['scheduled', 'attended'].includes(snap.status)) checkWaitlist(snap).catch(() => {});
+  }));
+
+  // ---------- FILA DE ESPERA ----------
+  r.get('/waitlist', wrap(async (req, res) => {
+    const { status, phone } = req.query;
+    const { rows } = await q(
+      `SELECT w.*, c.name AS customer_name, c.phone AS customer_phone, b.name AS barber_name
+       FROM waitlist w JOIN customers c ON c.id=w.customer_id LEFT JOIN barbers b ON b.id=w.barber_id
+       WHERE w.salon_id=$1 AND ($2::text IS NULL OR w.status=$2) AND ($3::text IS NULL OR c.phone=$3)
+       ORDER BY (w.status='waiting') DESC, w.desired_at`,
+      [req.user.salonId, status || null, phone ? digits(phone) : null]);
+    res.json(rows);
+  }));
+  // body: { phone, name?, desired_at, barber_id | barber_name? } — sem profissional = qualquer um
+  r.post('/waitlist', wrap(async (req, res) => {
+    const { phone, name, desired_at, barber_id, barber_name } = req.body;
+    const d = new Date(desired_at);
+    if (!digits(phone) || !desired_at || isNaN(d)) return res.status(400).json({ error: 'Informe telefone e horário desejado (ISO 8601)' });
+    let bid = barber_id || null;
+    if (!bid && normName(barber_name)) {
+      const bs = (await q('SELECT id,name FROM barbers WHERE salon_id=$1 AND active', [req.user.salonId])).rows;
+      const n = normName(barber_name);
+      const b = bs.find((x) => normName(x.name) === n) || bs.find((x) => normName(x.name).includes(n) || n.includes(normName(x.name)));
+      if (!b) return res.status(400).json({ error: `Profissional não encontrado (opções: ${bs.map((x) => x.name).join(', ')})` });
+      bid = b.id;
+    }
+    const cu = await q(
+      `INSERT INTO customers (salon_id,name,phone,source) VALUES ($1,$2,$3,'ia')
+       ON CONFLICT (salon_id,phone) DO UPDATE SET name=COALESCE(customers.name,EXCLUDED.name) RETURNING id`,
+      [req.user.salonId, name || null, digits(phone)]);
+    const dup = await q(
+      `SELECT id FROM waitlist WHERE salon_id=$1 AND customer_id=$2 AND status='waiting'
+       AND desired_at=$3 AND barber_id IS NOT DISTINCT FROM $4::bigint`, [req.user.salonId, cu.rows[0].id, d, bid]);
+    if (dup.rows[0]) return res.status(200).json({ ...dup.rows[0], already: true });
+    const { rows } = await q(
+      'INSERT INTO waitlist (salon_id,customer_id,barber_id,desired_at) VALUES ($1,$2,$3,$4) RETURNING *',
+      [req.user.salonId, cu.rows[0].id, bid, d]);
+    res.status(201).json(rows[0]);
+  }));
+  r.delete('/waitlist/:id', wrap(async (req, res) => {
+    await q("UPDATE waitlist SET status='cancelled' WHERE id=$1 AND salon_id=$2", [req.params.id, req.user.salonId]);
+    res.json({ ok: true });
   }));
 
   // ---------- HORÁRIOS LIVRES (usado pelo agente de IA) ----------

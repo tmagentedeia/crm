@@ -29,6 +29,16 @@ try {
         WHERE c.salon_id = s.salon_id AND c.name = s.category AND s.category_id IS NULL`);
       await pool.query('ALTER TABLE services DROP COLUMN category');
     }
+    await pool.query(`CREATE TABLE IF NOT EXISTS waitlist (
+      id BIGSERIAL PRIMARY KEY,
+      salon_id BIGINT NOT NULL REFERENCES salons(id) ON DELETE CASCADE,
+      customer_id BIGINT NOT NULL REFERENCES customers(id),
+      barber_id BIGINT REFERENCES barbers(id) ON DELETE SET NULL,
+      desired_at TIMESTAMPTZ NOT NULL,
+      status TEXT NOT NULL DEFAULT 'waiting' CHECK (status IN ('waiting','notified','cancelled')),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      notified_at TIMESTAMPTZ)`);
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_waitlist_salon ON waitlist (salon_id, status, desired_at)');
     console.log('Schema já existe, colunas atualizadas.');
   } else {
     await pool.query(sql);
