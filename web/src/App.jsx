@@ -7,6 +7,7 @@ import Barbeiros from './pages/Barbeiros.jsx';
 import Agenda from './pages/Agenda.jsx';
 import Clientes from './pages/Clientes.jsx';
 import Fila from './pages/Fila.jsx';
+import Importar from './pages/Importar.jsx';
 import Inativos from './pages/Inativos.jsx';
 import Config from './pages/Config.jsx';
 import Admin from './pages/Admin.jsx';
@@ -30,6 +31,7 @@ const BASE_MENU = [
   { id: 'inativos', label: 'Retorno de inativos', icon: '🔁', comp: Inativos },
   { id: 'barbeiros', label: 'Barbeiros', icon: '✂️', comp: Barbeiros },
   { id: 'servicos', label: 'Serviços', icon: '💈', comp: Servicos },
+  { id: 'importar', label: 'Importar planilha', icon: '📥', comp: Importar },
   { id: 'config', label: 'Configurações', icon: '⚙️', comp: Config },
 ];
 

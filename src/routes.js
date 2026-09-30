@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { q } from './db.js';
+import { runImport } from './importer.js';
 
 const digits = (s) => String(s || '').replace(/\D/g, '');
 const wrap = (fn) => (req, res) => fn(req, res).catch((e) => {
@@ -407,6 +408,14 @@ export function buildRouter() {
   r.delete('/waitlist/:id', wrap(async (req, res) => {
     await q("UPDATE waitlist SET status='cancelled' WHERE id=$1 AND salon_id=$2", [req.params.id, req.user.salonId]);
     res.json({ ok: true });
+  }));
+
+  // ---------- IMPORTAR PLANILHA ----------
+  // body: { services:[...], professionals:[...], customers:[...], dry_run: true|false }
+  r.post('/import', wrap(async (req, res) => {
+    const { services, professionals, customers, dry_run } = req.body || {};
+    const cap = (a) => (Array.isArray(a) ? a.slice(0, 2000) : []);
+    res.json(await runImport(req.user.salonId, { services: cap(services), professionals: cap(professionals), customers: cap(customers) }, !!dry_run));
   }));
 
   // ---------- HORÁRIOS LIVRES (usado pelo agente de IA) ----------
