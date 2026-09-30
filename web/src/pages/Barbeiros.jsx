@@ -45,6 +45,11 @@ export default function Barbeiros() {
       setEdit(null); load();
     } catch (e2) { setErr(e2.message); }
   }
+  const groups = Object.values(services.reduce((acc, sv) => {
+    const k = sv.category || 'Sem categoria';
+    (acc[k] = acc[k] || { name: k, items: [] }).items.push(sv);
+    return acc;
+  }, {}));
   const toggleSvc = (id) => {
     const cur = (edit.service_ids || []).map(String);
     const k = String(id);
@@ -96,14 +101,28 @@ export default function Barbeiros() {
             {services.length > 0 && (
               <div className="field">
                 <label>Serviços que realiza <span className="muted">(nenhum marcado = faz todos)</span></label>
-                <div className="row" style={{ flexWrap: 'wrap', gap: '6px 16px' }}>
-                  {services.map((sv) => (
-                    <label key={sv.id} style={{ margin: 0, color: 'var(--text)', fontWeight: 400 }}>
-                      <input type="checkbox" style={{ width: 'auto', marginRight: 6 }} checked={(edit.service_ids || []).map(String).includes(String(sv.id))} onChange={() => toggleSvc(sv.id)} />
-                      {sv.category ? `${sv.category} · ` : ''}{sv.name}
-                    </label>
-                  ))}
-                </div>
+                {groups.map((g) => {
+                  const ids = g.items.map((x) => String(x.id));
+                  const sel = (edit.service_ids || []).map(String);
+                  const all = ids.every((i) => sel.includes(i));
+                  return (
+                    <div key={g.name} style={{ marginBottom: 8 }}>
+                      <label style={{ margin: 0, color: 'var(--text)', fontWeight: 600 }}>
+                        <input type="checkbox" style={{ width: 'auto', marginRight: 6 }} checked={all}
+                          onChange={() => setEdit({ ...edit, service_ids: all ? sel.filter((i) => !ids.includes(i)) : [...new Set([...sel, ...ids])] })} />
+                        {g.name} <span className="muted" style={{ fontWeight: 400 }}>(marcar todos)</span>
+                      </label>
+                      <div className="row" style={{ flexWrap: 'wrap', gap: '4px 16px', paddingLeft: 22 }}>
+                        {g.items.map((sv) => (
+                          <label key={sv.id} style={{ margin: 0, color: 'var(--text)', fontWeight: 400 }}>
+                            <input type="checkbox" style={{ width: 'auto', marginRight: 6 }} checked={sel.includes(String(sv.id))} onChange={() => toggleSvc(sv.id)} />
+                            {sv.name}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
             <label>Horários de trabalho</label>

@@ -27,6 +27,14 @@ CREATE TABLE users (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- ========== CATEGORIAS ==========
+CREATE TABLE categories (
+  id              BIGSERIAL PRIMARY KEY,
+  salon_id        BIGINT NOT NULL REFERENCES salons(id) ON DELETE CASCADE,
+  name            TEXT NOT NULL,
+  UNIQUE (salon_id, name)
+);
+
 -- ========== SERVIÇOS ==========
 CREATE TABLE services (
   id              BIGSERIAL PRIMARY KEY,
@@ -34,7 +42,7 @@ CREATE TABLE services (
   name            TEXT NOT NULL,
   price           NUMERIC(10,2) NOT NULL DEFAULT 0,
   duration_min    INT NOT NULL DEFAULT 30,
-  category        TEXT,                         -- categoria opcional (Cabelo, Barba, Unhas...)
+  category_id     BIGINT REFERENCES categories(id) ON DELETE SET NULL,  -- categoria opcional
   active          BOOLEAN NOT NULL DEFAULT true,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (salon_id, name)

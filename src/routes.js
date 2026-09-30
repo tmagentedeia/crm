@@ -61,28 +61,69 @@ const BARBER_DOES = `(NOT EXISTS (SELECT 1 FROM barber_services bs WHERE bs.barb
 export function buildRouter() {
   const r = Router();
 
+  // ---------- CATEGORIAS ----------
+  // Devolve cada categoria com seus serviços e os profissionais que atendem nela
+  // (profissional sem serviços marcados = faz todos, então entra em todas as categorias).
+  r.get('/categories', wrap(async (req, res) => {
+    const { rows } = await q(
+      `SELECT c.id, c.name,
+         COALESCE((SELECT json_agg(json_build_object('id',sv.id,'name',sv.name) ORDER BY sv.name)
+                   FROM services sv WHERE sv.category_id=c.id AND sv.active), '[]') AS services,
+         COALESCE((SELECT json_agg(DISTINCT b.name)
+                   FROM barbers b WHERE b.salon_id=c.salon_id AND b.active AND (
+                     NOT EXISTS (SELECT 1 FROM barber_services x WHERE x.barber_id=b.id)
+                     OR EXISTS (SELECT 1 FROM barber_services x JOIN services sv ON sv.id=x.service_id
+                                WHERE x.barber_id=b.id AND sv.category_id=c.id AND sv.active))), '[]') AS barbers
+       FROM categories c WHERE c.salon_id=$1 ORDER BY c.name`, [req.user.salonId]);
+    res.json(rows);
+  }));
+  r.post('/categories', wrap(async (req, res) => {
+    const name = String(req.body.name || '').trim();
+    if (!name) return res.status(400).json({ error: 'Informe o nome da categoria' });
+    const { rows } = await q('INSERT INTO categories (salon_id,name) VALUES ($1,$2) RETURNING *', [req.user.salonId, name]);
+    res.status(201).json(rows[0]);
+  }));
+  r.put('/categories/:id', wrap(async (req, res) => {
+    const name = String(req.body.name || '').trim();
+    if (!name) return res.status(400).json({ error: 'Informe o nome da categoria' });
+    const { rows } = await q('UPDATE categories SET name=$3 WHERE id=$1 AND salon_id=$2 RETURNING *',
+      [req.params.id, req.user.salonId, name]);
+    rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Não encontrado' });
+  }));
+  r.delete('/categories/:id', wrap(async (req, res) => {
+    // os serviços da categoria ficam sem categoria (não são apagados)
+    await q('DELETE FROM categories WHERE id=$1 AND salon_id=$2', [req.params.id, req.user.salonId]);
+    res.json({ ok: true });
+  }));
+
   // ---------- SERVIÇOS ----------
+  const validCat = async (salonId, id) =>
+    !id || (await q('SELECT 1 FROM categories WHERE id=$1 AND salon_id=$2', [id, salonId])).rows[0];
   r.get('/services', wrap(async (req, res) => {
-    const { rows } = await q('SELECT * FROM services WHERE salon_id=$1 ORDER BY category NULLS LAST, name', [req.user.salonId]);
+    const { rows } = await q(
+      `SELECT s.*, c.name AS category FROM services s LEFT JOIN categories c ON c.id=s.category_id
+       WHERE s.salon_id=$1 ORDER BY c.name NULLS LAST, s.name`, [req.user.salonId]);
     res.json(rows);
   }));
   r.post('/services', wrap(async (req, res) => {
-    const { name, price = 0, duration_min = 30, category } = req.body;
+    const { name, price = 0, duration_min = 30, category_id } = req.body;
+    if (!(await validCat(req.user.salonId, category_id))) return res.status(400).json({ error: 'Categoria inválida' });
     const { rows } = await q(
-      'INSERT INTO services (salon_id,name,price,duration_min,category) VALUES ($1,$2,$3,$4,$5) RETURNING *',
-      [req.user.salonId, name, price, duration_min, (category || '').trim() || null]);
+      'INSERT INTO services (salon_id,name,price,duration_min,category_id) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+      [req.user.salonId, name, price, duration_min, category_id || null]);
     res.status(201).json(rows[0]);
   }));
   r.put('/services/:id', wrap(async (req, res) => {
-    const { name, price, duration_min, active, category } = req.body;
-    // category: undefined = não mexe; string vazia = remove
+    const { name, price, duration_min, active, category_id } = req.body;
+    if (!(await validCat(req.user.salonId, category_id))) return res.status(400).json({ error: 'Categoria inválida' });
+    // category_id: undefined = não mexe; null/'' = remove
     const { rows } = await q(
       `UPDATE services SET name=COALESCE($3,name), price=COALESCE($4,price),
        duration_min=COALESCE($5,duration_min), active=COALESCE($6,active),
-       category = CASE WHEN $7::boolean THEN NULLIF(trim($8),'') ELSE category END
+       category_id = CASE WHEN $7::boolean THEN $8::bigint ELSE category_id END
        WHERE id=$1 AND salon_id=$2 RETURNING *`,
       [req.params.id, req.user.salonId, name, price, duration_min, active,
-       category !== undefined, category ?? null]);
+       category_id !== undefined, category_id || null]);
     rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Não encontrado' });
   }));
   r.delete('/services/:id', wrap(async (req, res) => {
