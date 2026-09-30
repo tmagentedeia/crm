@@ -97,6 +97,7 @@ export default function ComandosAgente() {
       </div>
       <p className="muted">A frase vale quando a mensagem <em>começa</em> com ela. Maiúsculas, acentos e vírgulas não fazem diferença.</p>
       <p className="muted"><strong>Regra geral:</strong> qualquer outra mensagem sua numa conversa <strong>pausa</strong> o agente ali; se terminar com <strong>?</strong> ou <strong>...</strong>, ele <strong>retoma</strong>. Mensagens que começam com “/” e não são comandos são ignoradas.</p>
+      <p className="muted"><strong>Frases cadastradas mandam mais:</strong> se a mensagem começa com uma frase cadastrada (ou automática), vale o tipo dela, mesmo que termine com <strong>?</strong> ou <strong>...</strong>. Ex.: “Will aqui...” pausa; “Segue com a Vitória?” retoma.</p>
     </div>
   );
 }
