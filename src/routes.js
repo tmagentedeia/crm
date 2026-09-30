@@ -684,7 +684,7 @@ export function buildRouter() {
     await q('DELETE FROM agent_attendants WHERE id=$1 AND salon_id=$2', [req.params.id, req.user.salonId]);
     res.json({ ok: true });
   }));
-  // Body: { text }. Resposta: { action: 'off'|'on'|'pause'|'resume'|'none', phrase }
+  // Body: { text, fallback? }. Resposta: { action: 'off'|'on'|'pause'|'resume'|'none', phrase }
   // Casa quando o texto COMEÇA com a frase (palavra inteira); vence a frase mais longa.
   r.post('/agent-commands/classify', wrap(async (req, res) => {
     const text = normCmd(req.body?.text);
@@ -695,7 +695,12 @@ export function buildRouter() {
       if (!x.norm) continue;
       if ((text === x.norm || text.startsWith(x.norm + ' ')) && (!best || x.norm.length > best.norm.length)) best = x;
     }
-    res.json(best ? { action: best.kind, phrase: best.norm } : { action: 'none' });
+    if (best) return res.json({ action: best.kind, phrase: best.norm });
+    // Regra geral das mensagens do dono: terminou em "?" ou "..." = retoma; qualquer outra coisa = pausa.
+    // "/algo" não reconhecido é ignorado. Só vale se a rota for chamada para mensagens do dono.
+    const raw = String(req.body?.text ?? '').trim();
+    if (raw.startsWith('/') || req.body?.fallback === false) return res.json({ action: 'none' });
+    res.json({ action: /(\?|\.\.\.|…)$/.test(raw) ? 'resume' : 'pause', phrase: null, rule: 'geral' });
   }));
 
   return r;

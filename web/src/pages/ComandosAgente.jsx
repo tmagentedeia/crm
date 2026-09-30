@@ -30,7 +30,7 @@ export default function ComandosAgente() {
     setErr('');
     try { setTestRes(await api('/agent-commands/classify', { method: 'POST', body: { text: test } })); } catch (e) { setErr(e.message); }
   };
-  const label = { off: 'desligar', on: 'ligar', pause: 'pausar', resume: 'retomar', none: 'nada (o agente segue normal)' };
+  const label = { off: 'desligar', on: 'ligar', pause: 'pausar a conversa', resume: 'retomar a conversa', none: 'nada (o agente segue normal)' };
 
   return (
     <div className="card" style={{ marginTop: 16 }}>
@@ -93,9 +93,10 @@ export default function ComandosAgente() {
           <input value={test} onChange={(e) => { setTest(e.target.value); setTestRes(null); }} placeholder="Digite como se fosse você mandando no WhatsApp" style={{ flex: 1 }} />
           <button className="btn" onClick={runTest}>Testar</button>
         </div>
-        {testRes && <p style={{ marginTop: 6 }}>O agente iria: <strong>{label[testRes.action]}</strong></p>}
+        {testRes && <p style={{ marginTop: 6 }}>O agente iria: <strong>{label[testRes.action]}</strong>{testRes.rule === 'geral' && <span className="muted"> (regra geral)</span>}</p>}
       </div>
       <p className="muted">A frase vale quando a mensagem <em>começa</em> com ela. Maiúsculas, acentos e vírgulas não fazem diferença.</p>
+      <p className="muted"><strong>Regra geral:</strong> qualquer outra mensagem sua numa conversa <strong>pausa</strong> o agente ali; se terminar com <strong>?</strong> ou <strong>...</strong>, ele <strong>retoma</strong>. Mensagens que começam com “/” e não são comandos são ignoradas.</p>
     </div>
   );
 }
