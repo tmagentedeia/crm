@@ -73,7 +73,14 @@ CREATE TABLE barber_schedules (
   CHECK (end_time > start_time)
 );
 
--- Quais serviços cada barbeiro faz (se vazio, faz todos)
+-- Categorias que cada profissional atende (obrigatório ter ao menos uma; sem linhas = cadastro antigo, atende todas)
+CREATE TABLE barber_categories (
+  barber_id       BIGINT NOT NULL REFERENCES barbers(id) ON DELETE CASCADE,
+  category_id     BIGINT NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+  PRIMARY KEY (barber_id, category_id)
+);
+
+-- Ajuste fino: serviços específicos que o profissional faz dentro das categorias (se vazio, faz todos da categoria)
 CREATE TABLE barber_services (
   barber_id       BIGINT NOT NULL REFERENCES barbers(id) ON DELETE CASCADE,
   service_id      BIGINT NOT NULL REFERENCES services(id) ON DELETE CASCADE,

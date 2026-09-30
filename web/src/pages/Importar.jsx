@@ -10,8 +10,8 @@ const SAMPLE = {
     { Serviço: 'Esmaltação', Categoria: 'Manicure', Preço: 40, 'Duração (min)': 40 },
   ],
   Profissionais: [
-    { Nome: 'Mariana', Telefone: '(32) 99999-0000', Serviços: 'Corte feminino, Escova, Esmaltação', Dias: 'Seg-Sáb', Horário: '09:00-18:00', Pausa: '12:00-13:00', 'ID Google Agenda': '' },
-    { Nome: 'Ian', Telefone: '', Serviços: 'Corte masculino', Dias: 'Ter, Qui, Sex', Horário: '10:00-19:00', Pausa: '', 'ID Google Agenda': '' },
+    { Nome: 'Mariana', Telefone: '(32) 99999-0000', Categorias: 'Cabelo, Manicure', Serviços: 'Corte feminino, Escova, Esmaltação', Dias: 'Seg-Sáb', Horário: '09:00-18:00', Pausa: '12:00-13:00', 'ID Google Agenda': '' },
+    { Nome: 'Ian', Telefone: '', Categorias: 'Cabelo', Serviços: 'Corte masculino', Dias: 'Ter, Qui, Sex', Horário: '10:00-19:00', Pausa: '', 'ID Google Agenda': '' },
   ],
   Clientes: [{ Nome: 'Ana Souza', Telefone: '(32) 98888-7777' }],
 };
@@ -82,7 +82,7 @@ export default function Importar() {
     <>
       <div style={{ marginBottom: 16 }}>
         <h1>Importar planilha</h1>
-        <p className="muted">Cadastre serviços, profissionais e clientes de uma vez. Serviços do profissional separados por vírgula, dias como "Seg-Sáb".</p>
+        <p className="muted">Cadastre serviços, profissionais e clientes de uma vez. Categorias (obrigatório, ao menos uma) e serviços do profissional separados por vírgula, dias como "Seg-Sáb".</p>
       </div>
 
       <div className="card" style={{ marginBottom: 16 }}>

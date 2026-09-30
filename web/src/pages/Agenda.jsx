@@ -106,7 +106,7 @@ function NewAppointment({ init, date, barbers, onClose, onSaved }) {
           <select value={f.barber_id} onChange={set('barber_id')} required>{barbers.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select></div>
         <div className="field"><label>Serviço</label>
           <select value={f.service_id} onChange={set('service_id')} required><option value="">Selecione…</option>
-            {services.filter((s) => { const b = barbers.find((x) => String(x.id) === String(f.barber_id)); return !b?.service_ids?.length || b.service_ids.map(String).includes(String(s.id)); }).map((s) => <option key={s.id} value={s.id}>{s.name} — {money(s.price)} ({s.duration_min} min)</option>)}</select></div>
+            {services.filter((s) => { const b = barbers.find((x) => String(x.id) === String(f.barber_id)); return !b || (b.does_service_ids || []).map(String).includes(String(s.id)); }).map((s) => <option key={s.id} value={s.id}>{s.name} — {money(s.price)} ({s.duration_min} min)</option>)}</select></div>
         <div className="field"><label>Cliente</label>
           <select value={f.customer_id} onChange={set('customer_id')} required><option value="">Selecione…</option>
             <option value="new">➕ Novo cliente (presencial)</option>

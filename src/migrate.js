@@ -40,6 +40,16 @@ try {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       notified_at TIMESTAMPTZ)`);
     await pool.query('CREATE INDEX IF NOT EXISTS idx_waitlist_salon ON waitlist (salon_id, status, desired_at)');
+    await pool.query(`CREATE TABLE IF NOT EXISTS barber_categories (
+      barber_id BIGINT NOT NULL REFERENCES barbers(id) ON DELETE CASCADE,
+      category_id BIGINT NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+      PRIMARY KEY (barber_id, category_id))`);
+    // cadastro antigo: deriva as categorias do profissional a partir dos serviços que ele já tinha marcados
+    await pool.query(`INSERT INTO barber_categories (barber_id, category_id)
+      SELECT DISTINCT bs.barber_id, sv.category_id FROM barber_services bs JOIN services sv ON sv.id=bs.service_id
+      WHERE sv.category_id IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM barber_categories x WHERE x.barber_id=bs.barber_id)
+      ON CONFLICT DO NOTHING`);
     console.log('Schema já existe, colunas atualizadas.');
   } else {
     await pool.query(sql);

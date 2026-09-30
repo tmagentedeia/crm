@@ -143,6 +143,15 @@ export async function runImport(salonId, data, dryRun) {
         }
         ids.push(svcs.get(norm(sn)));
       }
+      // categorias do profissional: coluna "Categorias" ou, se vier só Serviços, as categorias desses serviços
+      const listedCats = splitList(rowGet(row, 'categorias', 'categoria'));
+      const catIds = new Set();
+      for (const cn of listedCats) catIds.add(await getCat(cn));
+      if (!listedCats.length && ids.length) {
+        const r = await q('SELECT DISTINCT category_id FROM services WHERE id = ANY($1::bigint[]) AND category_id IS NOT NULL', [ids]);
+        r.rows.forEach((x) => catIds.add(x.category_id));
+      }
+      if (!ex && !catIds.size) { rep.errors.push(`${line}: informe ao menos uma categoria (coluna "Categorias")`); continue; }
       const phone = digits(rowGet(row, 'telefone', 'celular', 'whatsapp')) || null;
       const gcal = calendarId(rowGet(row, 'id google agenda', 'google agenda', 'google', 'agenda google')) || null;
       let bid;
@@ -167,6 +176,10 @@ export async function runImport(salonId, data, dryRun) {
           await q('INSERT INTO barber_schedules (barber_id,weekday,start_time,end_time,break_start,break_end) VALUES ($1,$2,$3,$4,$5,$6)',
             [bid, d, hs, he, brk?.[0] ?? null, brk?.[1] ?? null]);
         }
+      }
+      if (catIds.size) {
+        await q('DELETE FROM barber_categories WHERE barber_id=$1', [bid]);
+        for (const cid of catIds) await q('INSERT INTO barber_categories (barber_id,category_id) VALUES ($1,$2)', [bid, cid]);
       }
       if (listed.length) {
         await q('DELETE FROM barber_services WHERE barber_id=$1', [bid]);
