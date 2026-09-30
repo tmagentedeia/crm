@@ -49,6 +49,7 @@ export default function Agenda() {
                   <div className="row" style={{ justifyContent: 'space-between' }}>
                     <span className="t">{fmtTime(a.starts_at)}–{fmtTime(a.ends_at)}</span>
                     <span className={'badge ' + a.status}>{STATUS[a.status]}</span>
+                    {a.reminder_sent_at && <span title="Lembrete enviado ao cliente">🔔</span>}
                   </div>
                   <div>{a.customer_name || a.customer_phone}</div>
                   <div className="muted">{a.service_name} · {money(a.price)}</div>

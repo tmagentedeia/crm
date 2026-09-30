@@ -13,6 +13,7 @@ try {
     await pool.query('ALTER TABLE salons ADD COLUMN IF NOT EXISTS max_barbers INT');
     await pool.query('ALTER TABLE barbers ADD COLUMN IF NOT EXISTS google_calendar_id TEXT');
     await pool.query('ALTER TABLE appointments ADD COLUMN IF NOT EXISTS google_event_id TEXT');
+    await pool.query('ALTER TABLE appointments ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMPTZ');
     await pool.query(`CREATE TABLE IF NOT EXISTS categories (
       id BIGSERIAL PRIMARY KEY,
       salon_id BIGINT NOT NULL REFERENCES salons(id) ON DELETE CASCADE,

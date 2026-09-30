@@ -112,6 +112,7 @@ CREATE TABLE appointments (
                   CHECK (status IN ('scheduled','attended','no_show','cancelled')),
   source          TEXT NOT NULL DEFAULT 'ia' CHECK (source IN ('ia','manual')),
   google_event_id TEXT,                               -- evento espelhado no Google Agenda (opcional)
+  reminder_sent_at TIMESTAMPTZ,                       -- lembrete enviado ao cliente (NULL = ainda não)
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   CHECK (ends_at > starts_at),
   -- impede dois agendamentos ativos sobrepostos para o mesmo barbeiro
