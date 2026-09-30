@@ -1,0 +1,33 @@
+# CRM Salão / Barbearia
+
+Node + Express + Postgres (backend) e React (painel). Login por salão, agenda individual por barbeiro,
+CRM de leads/clientes, retorno de inativos, dashboard, tema claro/escuro e logotipo customizável.
+
+## Rodar no Coolify
+1. Crie um Postgres separado e copie a connection string.
+2. Suba este projeto (Dockerfile na raiz) e defina as variáveis de `.env.example`.
+3. O container cria as tabelas sozinho na primeira subida (`src/migrate.js`).
+4. Acesse o site, clique em "Criar conta" e cadastre o seu salão. Depois mude `ALLOW_SIGNUP=false` se não quiser cadastro aberto.
+
+## Integração com o N8N
+Mesmas rotas do painel, em `/n8n/...`, com os headers:
+- `x-api-key`: valor de `N8N_API_KEY`
+- `x-salon-id`: id do salão
+
+Principais rotas:
+- `GET  /n8n/services` — serviços com preço e duração
+- `GET  /n8n/barbers` — barbeiros e horários
+- `GET  /n8n/availability?date=2026-10-01&service_id=1[&barber_id=2]` — horários livres
+- `POST /n8n/customers` `{name, phone, chat_id, source:"ia"}` — cria/atualiza o lead pelo telefone
+- `GET  /n8n/customers/by-phone/:phone`
+- `POST /n8n/appointments` `{barber_id, customer_id, service_id, starts_at, source:"ia"}`
+- `PATCH /n8n/appointments/:id/status` `{status}` — attended | no_show | cancelled | scheduled
+- `GET  /n8n/customers-inactive?days=30` — base para campanhas de retorno
+
+## Desenvolvimento
+`npm install && npm run dev` (backend) e, em `web/`, `npm install && npm run dev` (painel com proxy p/ a API).
+
+## Ver o painel no seu computador (Docker)
+1. `docker compose up -d --build`
+2. `docker compose exec -T db psql -U crm -d crm_salao < db/seed_demo.sql` (opcional: dados de demonstração)
+3. Abra http://localhost:3000 e entre com `demo@demo.com` / `demo1234`

@@ -1,0 +1,32 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: crm
+      POSTGRES_PASSWORD: crm
+      POSTGRES_DB: crm_salao
+    volumes:
+      - crm_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crm -d crm_salao"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PORT: 3000
+      DATABASE_URL: postgres://crm:crm@db:5432/crm_salao
+      JWT_SECRET: dev-secret-troque-em-producao
+      N8N_API_KEY: dev-n8n-key
+      ALLOW_SIGNUP: "true"
+      ADMIN_EMAILS: demo@demo.com
+    ports:
+      - "3000:3000"
+
+volumes:
+  crm_pgdata:
