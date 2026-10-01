@@ -627,7 +627,10 @@ export function buildRouter() {
     const agent = sal.rows[0]?.agent_name || '';
     const auto = [{ kind: 'off', phrase: '/off', fixed: true }, { kind: 'on', phrase: '/on', fixed: true }];
     for (const a of atts.rows) auto.push({ kind: 'pause', phrase: `${a.name} aqui`, attendant_id: a.id });
-    if (agent) auto.push({ kind: 'resume', phrase: `segue com a ${agent}`, from_agent: true });
+    if (agent) {
+      auto.push({ kind: 'resume', phrase: `tá contigo ${agent}`, from_agent: true });
+      auto.push({ kind: 'resume', phrase: `segue com a ${agent}`, from_agent: true });
+    }
     return { agent, custom: cmds.rows, attendants: atts.rows, auto };
   }
   const allPhrases = (set) => [
