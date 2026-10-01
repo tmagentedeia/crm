@@ -13,6 +13,8 @@ try {
     // já instalado: garante colunas gerais e atualiza o schema de cada empresa
     await pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS modules JSONB NOT NULL DEFAULT '{}'");
     await pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS menu_custom JSONB NOT NULL DEFAULT '{}'");
+    await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS whatsapp_instance TEXT');
+    await pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS redis_prefix TEXT NOT NULL DEFAULT ''");
     await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS api_key_hash TEXT');
     await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS api_key_hint TEXT');
     await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS api_key_created_at TIMESTAMPTZ');

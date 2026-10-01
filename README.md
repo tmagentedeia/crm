@@ -82,3 +82,11 @@ Na Administração, o botão **Abrir painel** entra no painel da empresa como o 
 - Cada item do menu é um módulo que a Administração liga/desliga por empresa (dashboard, agenda, fila, profissionais, servicos, clientes, inativos, importar, atendente, comandos). Empresas antigas continuam como estavam: um módulo novo sem valor próprio segue o módulo "pai" antigo (fila/profissionais/servicos → agenda; inativos/importar → clientes; comandos → atendente).
 - "Comandos" é um menu próprio; Configurações ficou só com logotipo e dados da empresa.
 - A Administração mostra a versão no ar (hora de início do servidor e, se a hospedagem informar `SOURCE_COMMIT`, o código da versão) e o histórico dos acessos "Abrir painel".
+
+## Atendimentos bloqueados (módulo)
+Tela em que a empresa vê e altera os contatos que o atendente não responde: lista "para sempre" e "por 24 horas", botão **Liberar**, e campo para **bloquear um número pelo telefone**. Vale na hora, sem comando no WhatsApp.
+- Os bloqueios moram no Redis que o atendente (N8N) já usa; o painel lê e grava as mesmas chaves: `<prefixo>ia_forced:<instância>:<número>` (bloqueio geral) e `<prefixo>ia_blocked:<instância>:<número>` (pausa). A validade da chave diz se é temporário ou para sempre (mais de 30 dias = para sempre; bloqueio manual do painel: 24 h ou 10 anos, igual ao comando `off`).
+- Variável de ambiente **`REDIS_URL`** (ex.: `redis://:senha@host:6379`). Sem ela a tela avisa que a lista ainda não está disponível. Um Redis só para todas as empresas.
+- Cada empresa precisa de dois dados em **Administração → Bloqueios**: o nome da instância do WhatsApp e o prefixo das chaves (vazio se o atendente não usa prefixo). A empresa só enxerga e altera chaves do próprio prefixo + instância.
+- Antes de usar em produção, confira no servidor Redis: persistência ligada (AOF/RDB), política de memória que não descarte chaves com validade, senha e sem acesso pela internet.
+- Testes: `test/bloqueios.mjs` (precisa do `redis-server` instalado; o `test/rodar.sh` sobe um Redis de teste na porta 56379).

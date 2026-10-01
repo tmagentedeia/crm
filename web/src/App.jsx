@@ -13,6 +13,7 @@ import Config from './pages/Config.jsx';
 import Admin from './pages/Admin.jsx';
 import Atendente from './pages/Atendente.jsx';
 import Comandos from './pages/Comandos.jsx';
+import Bloqueios from './pages/Bloqueios.jsx';
 import { moduleOn } from './modules.js';
 import { MenuCustomContext, nomeDoMenu, iconeDoMenu } from './menu.jsx';
 
@@ -39,6 +40,7 @@ const BASE_MENU = [
   { id: 'importar', module: 'importar', label: 'Importar planilha', icon: '📥', comp: Importar },
   { id: 'atendente', module: 'atendente', label: 'Atendente', icon: '🤖', comp: Atendente },
   { id: 'comandos', module: 'comandos', label: 'Comandos', icon: '🎛️', comp: Comandos },
+  { id: 'bloqueios', module: 'bloqueios', label: 'Atendimentos bloqueados', icon: '🚫', comp: Bloqueios },
   { id: 'config', label: 'Configurações', icon: '⚙️', comp: Config },
 ];
 

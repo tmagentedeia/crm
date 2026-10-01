@@ -4,6 +4,7 @@
 #  - atendente.mjs: manual com versões e atualizações provisórias
 #  - modelos.mjs: salvar como modelo e começar do modelo
 #  - acesso_admin.mjs: "abrir painel" do administrador
+#  - bloqueios.mjs: lista de atendimentos bloqueados (precisa do redis-server instalado)
 #  - chave_global.mjs: chave global desligada com ALLOW_GLOBAL_KEY=false (segundo servidor, porta 3998)
 # Precisa de um Postgres de teste (PGBASE = conexão sem banco, ex.: postgres://postgres@/postgres?host=/var/tmp/pgtest&port=55432)
 set -e
@@ -21,6 +22,9 @@ psql "$DB" -qc "drop table company_1.agent_manual_versions, company_1.agent_upda
 node src/migrate.js
 psql "$DB" -tc "select count(*) from company_1.agent_updates" | grep -q 0 || { echo "FALHOU: migração do Atendente"; exit 1; }
 node test/seed_extra.mjs
+# Redis de teste (bloqueios)
+redis-server --port 56379 --save '' --appendonly no --daemonize yes >/dev/null
+export REDIS_URL=redis://127.0.0.1:56379
 PORT=3999 node src/index.js > /tmp/crm-test.log 2>&1 &
 PID=$!
 PORT=3998 ALLOW_GLOBAL_KEY=false node src/index.js > /tmp/crm-test2.log 2>&1 &
@@ -31,6 +35,8 @@ BASE=http://localhost:3999 node test/isolamento.mjs || R=1
 BASE=http://localhost:3999 node test/atendente.mjs || R=1
 BASE=http://localhost:3999 node test/modelos.mjs || R=1
 BASE=http://localhost:3999 node test/acesso_admin.mjs || R=1
+BASE=http://localhost:3999 node test/bloqueios.mjs || R=1
 BASE=http://localhost:3998 node test/chave_global.mjs || R=1
 kill $PID $PID2
+redis-cli -p 56379 shutdown nosave 2>/dev/null || true
 exit $R

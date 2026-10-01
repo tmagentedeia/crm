@@ -10,6 +10,7 @@ const FORM_VAZIO = () => ({
 export default function Admin() {
   const [list, setList] = useState([]);
   const [edit, setEdit] = useState({}); // id -> valor digitado
+  const [cx, setCx] = useState({}); // id -> { i: instância, p: prefixo } digitados (bloqueios)
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
   const [versao, setVersao] = useState(null);
@@ -26,6 +27,13 @@ export default function Admin() {
   useEffect(() => { api('/admin/version').then(setVersao).catch(() => {}); api('/admin/default-menu').then(setMenuPadrao).catch(() => {}); }, []);
   const definirMenuPadrao = (body, ok) => { setErr(''); setMsg(''); api('/admin/default-menu', { method: 'PUT', body }).then((r) => { setMenuPadrao(r); setMsg(ok); }).catch((e) => setErr(e.message)); };
   const verAcessos = () => (acessos ? setAcessos(null) : api('/admin/access-log').then(setAcessos).catch((e) => setErr(e.message)));
+  const salvarCx = async (s) => {
+    setErr(''); setMsg('');
+    try {
+      await api(`/admin/companies/${s.id}/blocks-config`, { method: 'PUT', body: { whatsapp_instance: cx[s.id].i, redis_prefix: cx[s.id].p } });
+      const { [s.id]: _, ...resto } = cx; setCx(resto); setMsg('Bloqueios de ' + s.name + ' atualizados.'); load();
+    } catch (e) { setErr(e.message); }
+  };
   const load = () => { loadModelos(); return api('/admin/companies').then(setList).catch((e) => setErr(e.message)); };
   useEffect(() => { load(); }, []);
 
@@ -187,7 +195,7 @@ export default function Admin() {
 
       <div className="card table-wrap">
         <table>
-          <thead><tr><th>Código</th><th>Empresa</th><th>E-mail do responsável</th><th>Criado em</th><th>Ativos</th><th>Limite</th><th>Módulos</th><th>Chave de integração</th><th>Modelo</th><th></th></tr></thead>
+          <thead><tr><th>Código</th><th>Empresa</th><th>E-mail do responsável</th><th>Criado em</th><th>Ativos</th><th>Limite</th><th>Módulos</th><th>Bloqueios (instância e prefixo)</th><th>Chave de integração</th><th>Modelo</th><th></th></tr></thead>
           <tbody>
             {list.map((s) => {
               const changed = s.id in edit;
@@ -211,6 +219,13 @@ export default function Admin() {
                       </label>
                     ))}
                   </td>
+                  <td style={{ minWidth: 190 }}>
+                    <input placeholder="instância do WhatsApp" value={cx[s.id]?.i ?? s.whatsapp_instance ?? ''}
+                      onChange={(e) => setCx({ ...cx, [s.id]: { i: e.target.value, p: cx[s.id]?.p ?? s.redis_prefix ?? '' } })} />
+                    <input placeholder="prefixo (opcional)" style={{ marginTop: 4 }} value={cx[s.id]?.p ?? s.redis_prefix ?? ''}
+                      onChange={(e) => setCx({ ...cx, [s.id]: { i: cx[s.id]?.i ?? s.whatsapp_instance ?? '', p: e.target.value } })} />
+                    {s.id in cx && <button className="btn sm primary" style={{ marginTop: 4 }} onClick={() => salvarCx(s)}>Salvar</button>}
+                  </td>
                   <td>
                     {s.api_key_hint
                       ? <><span style={{ fontFamily: 'monospace' }}>crm_…{s.api_key_hint}</span> <span className="muted">· gerada em {fmtDate(s.api_key_created_at)}</span></>
@@ -228,7 +243,7 @@ export default function Admin() {
                 </tr>
               );
             })}
-            {!list.length && <tr><td colSpan="10" className="muted">Nenhuma empresa cadastrada.</td></tr>}
+            {!list.length && <tr><td colSpan="11" className="muted">Nenhuma empresa cadastrada.</td></tr>}
           </tbody>
         </table>
       </div>

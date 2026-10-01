@@ -28,5 +28,6 @@ export const MENU_PADRAO = [
   { id: 'importar', label: 'Importar planilha', icon: '📥' },
   { id: 'atendente', label: 'Atendente', icon: '🤖' },
   { id: 'comandos', label: 'Comandos', icon: '🎛️' },
+  { id: 'bloqueios', label: 'Atendimentos bloqueados', icon: '🚫' },
   { id: 'config', label: 'Configurações', icon: '⚙️' },
 ];

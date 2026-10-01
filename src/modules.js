@@ -2,7 +2,7 @@
 // Um módulo só está desligado quando vale explicitamente false: empresas que nunca tiveram módulos configurados
 // (modules = {}) continuam vendo tudo. Desligar um módulo esconde o item do menu do painel; as rotas continuam respondendo.
 // A mesma lista existe no painel (web/src/modules.js): mantenha as duas iguais.
-export const MODULE_KEYS = ['dashboard', 'agenda', 'fila', 'profissionais', 'servicos', 'clientes', 'inativos', 'importar', 'atendente', 'comandos'];
+export const MODULE_KEYS = ['dashboard', 'agenda', 'fila', 'profissionais', 'servicos', 'clientes', 'inativos', 'importar', 'atendente', 'comandos', 'bloqueios'];
 
 // Aceita só módulos conhecidos com valor true/false. Devolve o objeto limpo, ou null se algo estiver errado.
 export function cleanModules(input) {
@@ -17,7 +17,7 @@ export function cleanModules(input) {
 
 // Nomes e ícones do menu escolhidos pela empresa (companies.menu_custom: { profissionais: { icon: '💇', label: 'Equipe' } }).
 // É só aparência: o painel continua identificando cada tela pelo mesmo código, então nada da lógica interna muda.
-export const MENU_IDS = ['dashboard', 'agenda', 'fila', 'clientes', 'inativos', 'profissionais', 'servicos', 'importar', 'atendente', 'comandos', 'config'];
+export const MENU_IDS = ['dashboard', 'agenda', 'fila', 'clientes', 'inativos', 'profissionais', 'servicos', 'importar', 'atendente', 'comandos', 'bloqueios', 'config'];
 
 // Devolve o objeto limpo (campos vazios somem), ou null se algo estiver errado.
 export function cleanMenuCustom(input) {

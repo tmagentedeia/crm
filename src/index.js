@@ -10,6 +10,7 @@ import { snapshotCompany } from './templates.js';
 import { pool } from './db.js';
 import { newApiKey } from './apikeys.js';
 import { cleanModules, cleanMenuCustom } from './modules.js';
+import { listar as listarBloqueios, bloquear, liberar, numeroDoContato, nomeValido, prefixoValido, redisDisponivel } from './blocks.js';
 import { requireUser, requireN8n, requireAdmin, isAdmin, signToken, signImpersonationToken } from './auth.js';
 import { buildRouter } from './routes.js';
 
@@ -71,6 +72,60 @@ app.put('/api/company', requireUser, async (req, res) => {
   res.json(rows[0]);
 });
 
+// ---------- Contatos bloqueados (painel <-> atendente) ----------
+// A empresa só enxerga e altera os bloqueios da própria instância (configurada pelo administrador).
+async function configBloqueios(req, res) {
+  const c = (await qg('SELECT whatsapp_instance, redis_prefix FROM companies WHERE id=$1', [req.user.companyId])).rows[0];
+  if (!redisDisponivel()) { res.status(503).json({ error: 'A lista de bloqueios ainda não está disponível. Fale com o suporte.' }); return null; }
+  if (!c?.whatsapp_instance) { res.status(409).json({ error: 'A lista de bloqueios ainda não foi ligada ao atendimento desta empresa. Fale com o suporte.' }); return null; }
+  return { instancia: c.whatsapp_instance, prefixo: c.redis_prefix || '' };
+}
+const falhaBloqueios = (res, e) => {
+  console.error(e);
+  res.status(e.code === 'SEM_REDIS' || /Redis|Connection|connect/i.test(e.message) ? 503 : 500)
+    .json({ error: 'Não foi possível falar com a lista de bloqueios agora. Tente de novo em instantes.' });
+};
+
+app.get('/api/blocks', requireUser, async (req, res) => {
+  const cfg = await configBloqueios(req, res); if (!cfg) return;
+  try {
+    const itens = await listarBloqueios(cfg);
+    const nomes = itens.length
+      ? (await q('SELECT name, phone FROM customers WHERE phone = ANY($1::text[])', [itens.map((i) => i.id)])).rows
+      : [];
+    const porTel = new Map(nomes.map((n) => [n.phone, n.name]));
+    res.json(itens.map((i) => ({ ...i, nome: porTel.get(i.id) || null })));
+  } catch (e) { falhaBloqueios(res, e); }
+});
+
+app.post('/api/blocks', requireUser, async (req, res) => {
+  const cfg = await configBloqueios(req, res); if (!cfg) return;
+  const id = numeroDoContato(req.body.phone);
+  if (!id) return res.status(400).json({ error: 'Telefone inválido. Digite com DDD, por exemplo (32) 99999-9999' });
+  const duracao = req.body.duration === 'forever' ? 'sempre' : req.body.duration === '24h' ? '24h' : null;
+  if (!duracao) return res.status(400).json({ error: 'Escolha bloquear por 24 horas ou para sempre' });
+  try { await bloquear(cfg, id, duracao); res.status(201).json({ id }); } catch (e) { falhaBloqueios(res, e); }
+});
+
+app.delete('/api/blocks/:id', requireUser, async (req, res) => {
+  const cfg = await configBloqueios(req, res); if (!cfg) return;
+  if (!/^[0-9A-Za-z]{5,30}$/.test(req.params.id)) return res.status(400).json({ error: 'Contato inválido' });
+  try { await liberar(cfg, req.params.id); res.json({ ok: true }); } catch (e) { falhaBloqueios(res, e); }
+});
+
+// Administração: instância do WhatsApp e prefixo dos bloqueios da empresa
+app.put('/api/admin/companies/:id/blocks-config', requireUser, requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id <= 0) return res.status(404).json({ error: 'Empresa não encontrada' });
+  const instancia = String(req.body.whatsapp_instance ?? '').trim();
+  const prefixo = String(req.body.redis_prefix ?? '').trim();
+  if (instancia && !nomeValido(instancia)) return res.status(400).json({ error: 'Nome da instância inválido (use letras, números, - _ . :)' });
+  if (!prefixoValido(prefixo)) return res.status(400).json({ error: 'Prefixo inválido (use letras, números, - _ . :)' });
+  const { rows } = await qg(
+    'UPDATE companies SET whatsapp_instance=NULLIF($2,\'\'), redis_prefix=$3 WHERE id=$1 RETURNING id, whatsapp_instance, redis_prefix', [id, instancia, prefixo]);
+  rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Empresa não encontrada' });
+});
+
 // ---------- Administração da plataforma (só e-mails em ADMIN_EMAILS) ----------
 app.get('/api/me', requireUser, async (req, res) => {
   res.json({ admin: await isAdmin(req.user.id), impersonating: !!req.user.imp });
@@ -96,7 +151,7 @@ app.get('/api/admin/access-log', requireUser, requireAdmin, async (req, res) => 
 
 app.get('/api/admin/companies', requireUser, requireAdmin, async (req, res) => {
   const { rows } = await qg(
-    `SELECT c.id, c.name, c.max_professionals, c.created_at, c.modules, c.api_key_hint, c.api_key_created_at,
+    `SELECT c.id, c.name, c.max_professionals, c.created_at, c.modules, c.whatsapp_instance, c.redis_prefix, c.api_key_hint, c.api_key_created_at,
             (SELECT u.email FROM users u WHERE u.company_id = c.id ORDER BY (u.role = 'owner') DESC, u.id LIMIT 1) AS owner_email
      FROM companies c ORDER BY c.id`);
   // profissionais ativos: contados dentro do schema de cada empresa
