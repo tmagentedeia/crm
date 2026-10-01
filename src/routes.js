@@ -693,7 +693,7 @@ export function buildRouter() {
   r.post('/agent-commands/classify', wrap(async (req, res) => {
     const text = normCmd(req.body?.text);
     const set = await agentCommandSet(req.user.salonId);
-    const send = (o) => res.json({ ...o, agent_name: set.agent || null });
+    const send = (o) => res.json({ ...o, agent_name: set.agent || null, adm_name: set.attendants[0]?.name || null, attendants: set.attendants.map((a) => a.name) });
     if (!text) return send({ action: 'none' });
     let best = null;
     for (const x of allPhrases(set)) {
