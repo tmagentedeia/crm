@@ -12,6 +12,15 @@ tema claro/escuro e logotipo customizável.
 - Cada requisição roda no schema da empresa dela (`src/db.js`), então uma empresa nunca enxerga os dados de outra.
 - Backup de uma empresa só: `pg_dump -n company_<id>` (mais as linhas dela em `companies` e `users`).
 
+## Administração: novas empresas e módulos
+Quem tem o e-mail em `ADMIN_EMAILS` vê a tela Administração:
+- **Nova empresa:** cria a empresa, o login do responsável, o schema e a chave de integração, já com os módulos escolhidos.
+- **Módulos por empresa** (`companies.modules`): Agenda, Clientes e Leads, Dashboard e Atendente. O menu de cada empresa mostra só
+  o que está ligado; Configurações sempre aparece. Um módulo só está desligado quando vale explicitamente `false`, então empresas
+  que nunca tiveram módulos configurados continuam vendo tudo. Desligar um módulo esconde o item do menu; as rotas da API
+  continuam respondendo (assim os fluxos do N8N de uma empresa não quebram por causa do menu).
+- **Chave de integração** de cada empresa (ver a seção do N8N abaixo) e o **código** da empresa, usado no `x-company-id`.
+
 ## Rodar no Coolify
 1. Crie um Postgres separado e copie a connection string.
 2. Suba este projeto (Dockerfile na raiz) e defina as variáveis de `.env.example`.

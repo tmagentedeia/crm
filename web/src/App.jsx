@@ -11,6 +11,7 @@ import Importar from './pages/Importar.jsx';
 import Inativos from './pages/Inativos.jsx';
 import Config from './pages/Config.jsx';
 import Admin from './pages/Admin.jsx';
+import { moduleOn } from './modules.js';
 
 const THEMES = [
   { id: 'light', label: 'Claro', mode: 'light' },
@@ -23,15 +24,16 @@ const THEMES = [
 
 const ADMIN_ITEM = { id: 'admin', label: 'Administração', icon: '🛠️', comp: Admin };
 
+// module = módulo que precisa estar ligado para o item aparecer (sem module = sempre aparece)
 const BASE_MENU = [
-  { id: 'dashboard', label: 'Dashboard', icon: '📊', comp: Dashboard },
-  { id: 'agenda', label: 'Agenda', icon: '📅', comp: Agenda },
-  { id: 'fila', label: 'Fila de espera', icon: '⏳', comp: Fila },
-  { id: 'clientes', label: 'Clientes e Leads', icon: '👥', comp: Clientes },
-  { id: 'inativos', label: 'Retorno de inativos', icon: '🔁', comp: Inativos },
-  { id: 'profissionais', label: 'Profissionais', icon: '✂️', comp: Profissionais },
-  { id: 'servicos', label: 'Serviços', icon: '🏢', comp: Servicos },
-  { id: 'importar', label: 'Importar planilha', icon: '📥', comp: Importar },
+  { id: 'dashboard', module: 'dashboard', label: 'Dashboard', icon: '📊', comp: Dashboard },
+  { id: 'agenda', module: 'agenda', label: 'Agenda', icon: '📅', comp: Agenda },
+  { id: 'fila', module: 'agenda', label: 'Fila de espera', icon: '⏳', comp: Fila },
+  { id: 'clientes', module: 'clientes', label: 'Clientes e Leads', icon: '👥', comp: Clientes },
+  { id: 'inativos', module: 'clientes', label: 'Retorno de inativos', icon: '🔁', comp: Inativos },
+  { id: 'profissionais', module: 'agenda', label: 'Profissionais', icon: '✂️', comp: Profissionais },
+  { id: 'servicos', module: 'agenda', label: 'Serviços', icon: '🏢', comp: Servicos },
+  { id: 'importar', module: 'clientes', label: 'Importar planilha', icon: '📥', comp: Importar },
   { id: 'config', label: 'Configurações', icon: '⚙️', comp: Config },
 ];
 
@@ -55,6 +57,12 @@ export default function App() {
     else setAdmin(false);
   }, [logged]);
 
+  // Atualiza os dados da empresa (inclusive os módulos) ao abrir, para uma mudança feita na Administração valer sem sair e entrar
+  useEffect(() => {
+    if (!logged) return;
+    api('/company').then((c) => { setCompany(c); localStorage.setItem('crm_company', JSON.stringify(c)); }).catch(() => {});
+  }, [logged]);
+
   // Config.jsx dispara este evento ao salvar nome/logo
   useEffect(() => {
     const h = (e) => { setCompany(e.detail); localStorage.setItem('crm_company', JSON.stringify(e.detail)); };
@@ -62,7 +70,11 @@ export default function App() {
     return () => window.removeEventListener('company-updated', h);
   }, []);
 
-  const MENU = admin ? [...BASE_MENU, ADMIN_ITEM] : BASE_MENU;
+  // Só aparecem os módulos ligados da empresa; Configurações e Administração (para o administrador) sempre aparecem
+  const visible = BASE_MENU.filter((m) => !m.module || moduleOn(company.modules, m.module));
+  const MENU = admin ? [...visible, ADMIN_ITEM] : visible;
+  // Sem nenhum módulo ligado, o administrador começa direto na Administração
+  const inicial = admin && !visible.some((m) => m.module) ? ADMIN_ITEM : MENU[0];
 
   if (!logged) return <Login theme={theme} onLogin={(s) => { setCompany(s); setLogged(true); }} />;
 
@@ -71,7 +83,8 @@ export default function App() {
     location.hash = id;
     if (window.innerWidth < 760) setCollapsed(true);
   };
-  const Current = (MENU.find((m) => m.id === page) || MENU[0]).comp;
+  const atual = MENU.find((m) => m.id === page) || inicial;
+  const Current = atual.comp;
 
   return (
     <div className="layout">
@@ -81,7 +94,7 @@ export default function App() {
           <span>{company.name || 'Minha Empresa'}</span>
         </div>
         {MENU.map((m) => (
-          <button key={m.id} className={'nav-item' + (page === m.id ? ' active' : '')} onClick={() => go(m.id)} title={m.label}>
+          <button key={m.id} className={'nav-item' + (atual.id === m.id ? ' active' : '')} onClick={() => go(m.id)} title={m.label}>
             <span className="nav-icon">{m.icon}</span>
             <span>{m.label}</span>
           </button>

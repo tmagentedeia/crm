@@ -148,6 +148,32 @@ const k1b = (await gerar(A.token, 1)).body;
 check('regenerar invalida a chave anterior', (await comChave(k1.api_key, 1)) === 401 && (await comChave(k1b.api_key, 1)) === 200);
 check('regenerar a da empresa 1 não mexe na da 2', (await comChave(k2.api_key, 2)) === 200);
 
+// ---- criar empresa e módulos (administrador) ----
+const nova = { name: 'Empresa Módulos', owner_name: 'Dona Módulos', email: `mod${Date.now()}@x.com`, password: 'senhasenha', modules: { agenda: true, clientes: true, dashboard: false, atendente: false } };
+const criar = (token, body) => call('POST', '/api/admin/companies', { token, body });
+check('quem não é admin não cria empresa', (await criar(B.token, nova)).status === 403);
+check('senha curta = 400', (await criar(A.token, { ...nova, password: '123' })).status === 400);
+check('e-mail inválido = 400', (await criar(A.token, { ...nova, email: 'sem-arroba' })).status === 400);
+check('módulo desconhecido = 400', (await criar(A.token, { ...nova, modules: { voo: true } })).status === 400);
+check('módulo que não é true/false = 400', (await criar(A.token, { ...nova, modules: { agenda: 'sim' } })).status === 400);
+const criada = await criar(A.token, nova);
+check('administrador cria empresa', criada.status === 201 && criada.body.id > 2 && /^crm_/.test(criada.body.api_key), JSON.stringify(criada.body));
+check('a chave da empresa criada vale nela e não na 1', (await comChave(criada.body.api_key, criada.body.id)) === 200 && (await comChave(criada.body.api_key, 1)) === 401);
+check('e-mail repetido = 409', (await criar(A.token, nova)).status === 409);
+const donaM = await login(nova.email, nova.password);
+check('responsável entra e recebe os módulos', !!donaM.token && donaM.company.modules.dashboard === false && donaM.company.modules.agenda === true, JSON.stringify(donaM.company));
+check('empresa criada começa vazia', (await call('GET', '/api/customers', { token: donaM.token })).body.length === 0);
+const urlMod = `/api/admin/companies/${criada.body.id}/modules`;
+const liga = await call('PUT', urlMod, { token: A.token, body: { modules: { dashboard: true, agenda: false } } });
+check('liga e desliga módulos sem mexer nos outros', liga.status === 200 && liga.body.modules.dashboard === true && liga.body.modules.agenda === false && liga.body.modules.clientes === true, JSON.stringify(liga.body));
+check('o responsável vê a mudança', (await call('GET', '/api/company', { token: donaM.token })).body.modules.agenda === false);
+check('módulo desconhecido na troca = 400', (await call('PUT', urlMod, { token: A.token, body: { modules: { voo: false } } })).status === 400);
+check('quem não é admin não troca módulos', (await call('PUT', urlMod, { token: donaM.token, body: { modules: { agenda: true } } })).status === 403);
+check('módulos de empresa inexistente = 404', (await call('PUT', '/api/admin/companies/999/modules', { token: A.token, body: { modules: { agenda: true } } })).status === 404);
+check('a lista de empresas mostra os módulos', (await call('GET', '/api/admin/companies', { token: A.token })).body.find((c) => c.id == criada.body.id)?.modules?.agenda === false);
+check('desligar módulo só esconde o menu: as rotas continuam respondendo', (await call('GET', '/api/services', { token: donaM.token })).status === 200);
+check('empresa antiga (sem módulos configurados) continua inteira', Object.keys(A.company.modules || {}).length === 0);
+
 // ---- cadastro de empresa nova (cria schema) ----
 const reg = await call('POST', '/api/auth/register', { body: { company_name: 'Agência Teste', name: 'Zé', email: `ze${Date.now()}@x.com`, password: 'senhasenha' } });
 check('cadastro cria empresa', reg.status === 201 && reg.body.company.id > 2, JSON.stringify(reg));
