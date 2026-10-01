@@ -76,6 +76,10 @@ export default function Profissionais() {
     setEdit({ ...edit, service_ids: cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k] });
   };
   const setSched = (i, k, v) => setEdit({ ...edit, sched: edit.sched.map((s, j) => (j === i ? { ...s, [k]: v } : s)) });
+  const excluir = async (b) => {
+    if (!window.confirm(`Excluir "${b.name}" de vez? Não dá para desfazer.`)) return;
+    try { await api('/professionals/' + b.id + '/permanent', { method: 'DELETE' }); load(); } catch (e) { alert(e.message); }
+  };
   const toggle = (b) => api('/professionals/' + b.id, { method: 'PUT', body: { active: !b.active } }).then(load).catch((e) => alert(e.message));
 
   return (
@@ -103,7 +107,8 @@ export default function Profissionais() {
             </p>
             <div className="row">
               <button className="btn sm" onClick={() => setEdit(toForm(b))}>Editar</button>
-              <button className="btn sm" onClick={() => toggle(b)}>{b.active ? 'Desativar' : 'Ativar'}</button>
+              <button className="btn sm" onClick={() => toggle(b)}>{b.active ? 'Desativar' : 'Ativar'}</button>{' '}
+              <button className="btn sm" onClick={() => excluir(b)}>Excluir</button>
             </div>
           </div>
         ))}

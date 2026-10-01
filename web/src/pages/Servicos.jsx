@@ -32,6 +32,10 @@ export default function Servicos() {
     if (!confirm(`Apagar a categoria "${c.name}"? Os serviços dela ficam sem categoria.`)) return;
     await api('/categories/' + c.id, { method: 'DELETE' }); load();
   }
+  const excluir = async (s) => {
+    if (!confirm(`Excluir o serviço "${s.name}" de vez? Não dá para desfazer.`)) return;
+    try { await api('/services/' + s.id + '/permanent', { method: 'DELETE' }); load(); } catch (e) { alert(e.message); }
+  };
   const toggle = (s) => api('/services/' + s.id, { method: 'PUT', body: { active: !s.active } }).then(load);
 
   return (
@@ -66,7 +70,8 @@ export default function Servicos() {
                 <td>{s.active ? 'Ativo' : 'Inativo'}</td>
                 <td style={{ textAlign: 'right' }}>
                   <button className="btn sm" onClick={() => setEdit(s)}>Editar</button>{' '}
-                  <button className="btn sm" onClick={() => toggle(s)}>{s.active ? 'Desativar' : 'Ativar'}</button>
+                  <button className="btn sm" onClick={() => toggle(s)}>{s.active ? 'Desativar' : 'Ativar'}</button>{' '}
+                  <button className="btn sm" onClick={() => excluir(s)}>Excluir</button>
                 </td>
               </tr>
             ))}

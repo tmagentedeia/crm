@@ -316,6 +316,18 @@ export function buildRouter() {
     res.json({ ok: true });
   }));
 
+  // Exclusão de verdade: só se não houver agendamentos no histórico (senão continua só desativado)
+  const semHistorico = 'Isso tem agendamentos no histórico, então só pode ficar desativado.';
+  r.delete('/services/:id/permanent', wrap(async (req, res) => {
+    try {
+      const d = await q('DELETE FROM services WHERE id=$1', [req.params.id]);
+      d.rowCount ? res.json({ ok: true }) : res.status(404).json({ error: 'Não encontrado' });
+    } catch (e) {
+      if (e.code === '23503') return res.status(409).json({ error: semHistorico });
+      throw e;
+    }
+  }));
+
   // ---------- BARBEIROS ----------
   r.get('/professionals', wrap(async (req, res) => {
     const { rows } = await q(
@@ -349,6 +361,15 @@ export function buildRouter() {
     await setProfessionalCategories(b.id, category_ids);
     if (Array.isArray(service_ids)) await setProfessionalServices(b.id, service_ids);
     res.status(201).json(b); // agenda individual = appointments filtrados por professional_id
+  }));
+  r.delete('/professionals/:id/permanent', wrap(async (req, res) => {
+    try {
+      const d = await q('DELETE FROM professionals WHERE id=$1', [req.params.id]);
+      d.rowCount ? res.json({ ok: true }) : res.status(404).json({ error: 'Não encontrado' });
+    } catch (e) {
+      if (e.code === '23503') return res.status(409).json({ error: semHistorico });
+      throw e;
+    }
   }));
   r.put('/professionals/:id', wrap(async (req, res) => {
     const { name, color, phone, active, schedules, google_calendar_id, service_ids, category_ids } = req.body;

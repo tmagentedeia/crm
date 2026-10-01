@@ -36,6 +36,7 @@ BASE=http://localhost:3999 node test/atendente.mjs || R=1
 BASE=http://localhost:3999 node test/modelos.mjs || R=1
 BASE=http://localhost:3999 node test/acesso_admin.mjs || R=1
 BASE=http://localhost:3999 node test/bloqueios.mjs || R=1
+BASE=http://localhost:3999 node test/exclusao.mjs || R=1
 BASE=http://localhost:3998 node test/chave_global.mjs || R=1
 kill $PID $PID2
 redis-cli -p 56379 shutdown nosave 2>/dev/null || true
