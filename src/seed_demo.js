@@ -9,7 +9,7 @@ import { createCompany } from './companies.js';
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const data = fs.readFileSync(path.join(dir, '..', 'db', 'seed_demo.sql'), 'utf8');
 try {
-  const { company } = await createCompany({ name: 'Barbearia Demo', ownerName: 'Dono Demo', email: 'demo@demo.com', password: 'demo1234' });
+  const { company } = await createCompany({ name: 'Empresa Demo', ownerName: 'Dono Demo', email: 'demo@demo.com', password: 'demo1234' });
   await tx(company.id, (query) => query(data));
   console.log(`Empresa de demonstração criada (id ${company.id}). Login: demo@demo.com / demo1234`);
 } catch (e) {

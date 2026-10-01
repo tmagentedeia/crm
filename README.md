@@ -11,8 +11,6 @@ tema claro/escuro e logotipo customizável.
   e rodam sozinhas em todas as empresas no deploy.
 - Cada requisição roda no schema da empresa dela (`src/db.js`), então uma empresa nunca enxerga os dados de outra.
 - Backup de uma empresa só: `pg_dump -n company_<id>` (mais as linhas dela em `companies` e `users`).
-- Bancos que estavam no modelo antigo (tudo junto, com `salon_id`) são convertidos no deploy; as tabelas antigas ficam
-  guardadas como `legacy_*` até você conferir e apagar.
 
 ## Rodar no Coolify
 1. Crie um Postgres separado e copie a connection string.
@@ -36,7 +34,8 @@ Principais rotas:
 - `GET  /n8n/customers-inactive?days=30` — base para campanhas de retorno
 
 ## Testes
-`test/rodar.sh` reconstrói um banco no modelo antigo, converte para um schema por empresa e roda os testes de isolamento
+`test/rodar.sh` cria um banco de teste do zero, carrega a empresa de demonstração e uma segunda empresa
+(`src/seed_demo.js` e `test/seed_extra.mjs`) e roda os testes de isolamento entre empresas
 (precisa de um Postgres de teste; veja o cabeçalho do script).
 
 ## Desenvolvimento

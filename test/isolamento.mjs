@@ -55,7 +55,6 @@ check('B não apaga categoria de A (sem efeito)', (await call('DELETE', '/api/ca
 // ---- N8N: cabeçalho escolhe a empresa ----
 check('n8n sem x-company-id = 400', (await call('GET', '/n8n/professionals', { n8n: null })).status === 400);
 check('n8n empresa inexistente = 404', (await call('GET', '/n8n/professionals', { n8n: 999 })).status === 404);
-check('n8n x-salon-id antigo não vale', (await fetch(BASE + '/n8n/professionals', { headers: { 'x-api-key': KEY, 'x-salon-id': '1' } })).status === 400);
 check('n8n chave errada = 401', (await fetch(BASE + '/n8n/professionals', { headers: { 'x-api-key': 'x', 'x-company-id': '1' } })).status === 401);
 check('n8n empresa 1', (await call('GET', '/n8n/professionals', { n8n: 1 })).body.length === 3);
 check('n8n empresa 2', (await call('GET', '/n8n/professionals', { n8n: 2 })).body.length === 1);
@@ -107,7 +106,7 @@ const cfgA = (await call('GET', '/api/agent-config', { token: A.token })).body;
 check('config A não mostra frases de B', cfgA.commands.every((c) => c.phrase !== 'Maria sai'));
 
 // ---- configurações, dashboard, importação ----
-check('empresa A', (await call('GET', '/api/company', { token: A.token })).body.name === 'Barbearia Demo');
+check('empresa A', (await call('GET', '/api/company', { token: A.token })).body.name === 'Empresa Demo');
 check('empresa B', (await call('GET', '/api/company', { token: B.token })).body.name === 'Empresa Dois');
 const dA = (await call('GET', '/api/dashboard?days=400', { token: A.token })).body;
 const dB = (await call('GET', '/api/dashboard?days=400', { token: B.token })).body;

@@ -58,7 +58,7 @@ function normCalendarId(v) {
 // ---------- Fila de espera ----------
 // Quando um horário é liberado (agendamento cancelado ou apagado), avisa o N8N para mandar
 // WhatsApp ao primeiro cliente da fila (ordem de chegada) que queria aquele horário.
-// N8N_WAITLIST_WEBHOOK_URL = webhook do workflow "Salão - Aviso Fila de Espera".
+// N8N_WAITLIST_WEBHOOK_URL = webhook do workflow de aviso da fila de espera.
 async function checkWaitlist(snap) {
   const url = process.env.N8N_WAITLIST_WEBHOOK_URL;
   if (!url || !snap) return;
@@ -397,7 +397,7 @@ export function buildRouter() {
   // receberam lembrete (duas chamadas seguidas nunca devolvem o mesmo agendamento).
   // Não lembra quem acabou de agendar (ver regra em reminders/claim).
   r.post('/appointments/reminders/claim', wrap(async (req, res) => {
-    // Regra vem da configuração do salão (reminder_minutes = antecedência; NULL = desligado).
+    // Regra vem da configuração da empresa (reminder_minutes = antecedência; NULL = desligado).
     // Janela: de (N-30min) a (N+5min) antes; não lembra quem marcou com menos de N+60min de antecedência.
     const cfg = (await qg('SELECT reminder_minutes, name, timezone FROM companies WHERE id=$1', [req.user.companyId])).rows[0];
     const N = cfg?.reminder_minutes;
