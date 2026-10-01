@@ -125,9 +125,34 @@ check('B não é admin', (await call('GET', '/api/admin/companies', { token: B.t
 const adm = await call('GET', '/api/admin/companies', { token: A.token });
 check('A é admin e vê as empresas', adm.status === 200 && adm.body.length >= 2 && adm.body[0].ativos === 3, JSON.stringify(adm.body));
 
+// ---- chave de integração por empresa ----
+const gerar = (token, id) => call('POST', `/api/admin/companies/${id}/api-key`, { token });
+const comChave = (key, empresa, path = '/n8n/professionals') =>
+  fetch(BASE + path, { headers: { 'x-api-key': key, 'x-company-id': String(empresa) } }).then((r) => r.status);
+check('quem não é admin não gera chave', (await gerar(B.token, 2)).status === 403);
+check('gerar chave de empresa inexistente = 404', (await gerar(A.token, 999)).status === 404);
+const k1 = (await gerar(A.token, 1)).body;
+const k2 = (await gerar(A.token, 2)).body;
+check('gera chaves diferentes e longas', /^crm_[\w-]{40,}$/.test(k1.api_key) && /^crm_[\w-]{40,}$/.test(k2.api_key) && k1.api_key !== k2.api_key, JSON.stringify(k1));
+check('chave da empresa 1 vale na 1', (await comChave(k1.api_key, 1)) === 200);
+check('chave da empresa 2 vale na 2', (await comChave(k2.api_key, 2)) === 200);
+check('chave da empresa 1 NÃO vale na 2', (await comChave(k1.api_key, 2)) === 401);
+check('chave da empresa 2 NÃO vale na 1', (await comChave(k2.api_key, 1)) === 401);
+check('chave certa + empresa inexistente = 401 (não revela quem existe)', (await comChave(k1.api_key, 999)) === 401);
+check('chave global ainda vale (transição)', (await comChave(KEY, 1)) === 200 && (await comChave(KEY, 2)) === 200);
+check('sem chave = 401', (await fetch(BASE + '/n8n/professionals', { headers: { 'x-company-id': '1' } })).status === 401);
+check('chave de empresa sem x-company-id = 401', (await fetch(BASE + '/n8n/professionals', { headers: { 'x-api-key': k1.api_key } })).status === 401);
+const lista = (await call('GET', '/api/admin/companies', { token: A.token })).body;
+check('lista mostra só o final da chave', lista[0].api_key_hint === k1.api_key.slice(-4) && !JSON.stringify(lista).includes(k1.api_key) && !('api_key_hash' in lista[0]));
+const k1b = (await gerar(A.token, 1)).body;
+check('regenerar invalida a chave anterior', (await comChave(k1.api_key, 1)) === 401 && (await comChave(k1b.api_key, 1)) === 200);
+check('regenerar a da empresa 1 não mexe na da 2', (await comChave(k2.api_key, 2)) === 200);
+
 // ---- cadastro de empresa nova (cria schema) ----
 const reg = await call('POST', '/api/auth/register', { body: { company_name: 'Agência Teste', name: 'Zé', email: `ze${Date.now()}@x.com`, password: 'senhasenha' } });
 check('cadastro cria empresa', reg.status === 201 && reg.body.company.id > 2, JSON.stringify(reg));
+check('cadastro não devolve nada da chave', !JSON.stringify(reg.body).includes('api_key'), JSON.stringify(reg.body));
+check('empresa criada pelo cadastro já nasce com chave (global ainda vale nela)', (await comChave(KEY, reg.body.company.id)) === 200);
 const N = reg.body.token;
 check('empresa nova começa vazia', (await call('GET', '/api/customers', { token: N })).body.length === 0 && (await call('GET', '/api/services', { token: N })).body.length === 0);
 const nc = await call('POST', '/api/customers', { token: N, body: { name: 'Primeiro', phone: '32999990001' } });

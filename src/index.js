@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import 'dotenv/config';
 import { q, qg, runAs } from './db.js';
 import { createCompany } from './companies.js';
+import { newApiKey } from './apikeys.js';
 import { requireUser, requireN8n, requireAdmin, isAdmin, signToken } from './auth.js';
 import { buildRouter } from './routes.js';
 
@@ -70,7 +71,7 @@ app.get('/api/me', requireUser, async (req, res) => {
 
 app.get('/api/admin/companies', requireUser, requireAdmin, async (req, res) => {
   const { rows } = await qg(
-    `SELECT c.id, c.name, c.max_professionals, c.created_at,
+    `SELECT c.id, c.name, c.max_professionals, c.created_at, c.api_key_hint, c.api_key_created_at,
             (SELECT u.email FROM users u WHERE u.company_id = c.id ORDER BY (u.role = 'owner') DESC, u.id LIMIT 1) AS owner_email
      FROM companies c ORDER BY c.id`);
   // profissionais ativos: contados dentro do schema de cada empresa
@@ -87,6 +88,18 @@ app.put('/api/admin/companies/:id', requireUser, requireAdmin, async (req, res) 
     return res.status(400).json({ error: 'Limite inválido' });
   const { rows } = await qg('UPDATE companies SET max_professionals=$2 WHERE id=$1 RETURNING id, name, max_professionals', [req.params.id, max_professionals]);
   rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Empresa não encontrada' });
+});
+
+// Gera (ou regenera) a chave de integração da empresa. A chave em texto só aparece nesta resposta;
+// no banco fica só o hash. Regenerar invalida a chave anterior na hora.
+app.post('/api/admin/companies/:id/api-key', requireUser, requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id <= 0) return res.status(404).json({ error: 'Empresa não encontrada' });
+  const k = newApiKey();
+  const { rows } = await qg(
+    'UPDATE companies SET api_key_hash=$2, api_key_hint=$3, api_key_created_at=now() WHERE id=$1 RETURNING id, name, api_key_created_at',
+    [id, k.hash, k.hint]);
+  rows[0] ? res.json({ ...rows[0], api_key: k.key }) : res.status(404).json({ error: 'Empresa não encontrada' });
 });
 
 // ---------- API do painel (JWT) e do N8N (x-api-key + x-company-id) ----------

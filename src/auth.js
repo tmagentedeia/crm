@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { qg, runAs } from './db.js';
+import { matchesCompanyKey, matchesGlobalKey } from './apikeys.js';
 
 // Autenticação do painel (JWT do usuário logado). A partir daqui, tudo roda "como" a empresa do usuário.
 export function requireUser(req, res, next) {
@@ -17,16 +18,22 @@ export function requireUser(req, res, next) {
   runAs(p.companyId, next);
 }
 
-// Autenticação das automações (chave fixa + id da empresa informado na chamada: x-company-id).
+// Autenticação das automações: x-api-key + id da empresa (x-company-id).
+// A chave tem que ser a da empresa indicada no x-company-id (assim um id errado nunca age na empresa de outro).
+// A chave global (N8N_API_KEY) só vale durante a transição; ALLOW_GLOBAL_KEY=false a desliga (ver src/apikeys.js).
 export async function requireN8n(req, res, next) {
-  if (!process.env.N8N_API_KEY || req.headers['x-api-key'] !== process.env.N8N_API_KEY) {
-    return res.status(401).json({ error: 'API key inválida' });
-  }
+  const key = req.headers['x-api-key'];
+  const invalid = () => res.status(401).json({ error: 'API key inválida' });
+  if (!key) return invalid();
+  const globalOk = matchesGlobalKey(key);
   const companyId = Number(req.headers['x-company-id'] || req.query.company_id || req.body?.company_id);
-  if (!Number.isInteger(companyId) || companyId <= 0) return res.status(400).json({ error: 'x-company-id obrigatório' });
+  if (!Number.isSafeInteger(companyId) || companyId <= 0)
+    return globalOk ? res.status(400).json({ error: 'x-company-id obrigatório' }) : invalid();
   try {
-    const c = await qg('SELECT 1 FROM companies WHERE id=$1', [companyId]);
-    if (!c.rows[0]) return res.status(404).json({ error: 'Empresa não encontrada' });
+    const c = (await qg('SELECT api_key_hash FROM companies WHERE id=$1', [companyId])).rows[0];
+    // sem uma chave válida, nem a existência da empresa é revelada
+    if (!c) return globalOk ? res.status(404).json({ error: 'Empresa não encontrada' }) : invalid();
+    if (!globalOk && !matchesCompanyKey(key, c.api_key_hash)) return invalid();
   } catch (e) {
     console.error(e);
     return res.status(500).json({ error: 'Erro interno' });

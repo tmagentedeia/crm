@@ -20,8 +20,16 @@ tema claro/escuro e logotipo customizável.
 
 ## Integração com o N8N
 Mesmas rotas do painel, em `/n8n/...`, com os headers:
-- `x-api-key`: valor de `N8N_API_KEY`
+- `x-api-key`: a chave de integração **da empresa** indicada em `x-company-id`
 - `x-company-id`: id da empresa no painel
+
+Cada empresa tem a sua chave. O administrador (e-mails em `ADMIN_EMAILS`) gera e regenera na tela Administração; a chave
+aparece uma única vez, e no banco fica só o hash (SHA-256). A chave de uma empresa não vale em outra, então um
+`x-company-id` errado nunca age na empresa de outro. Regenerar invalida a chave anterior na hora.
+
+A chave global (`N8N_API_KEY`) continua valendo em qualquer empresa só durante a transição. Depois de trocar a credencial de
+cada workflow pela chave da empresa, defina `ALLOW_GLOBAL_KEY=false` para desligá-la nas rotas `/n8n` (a variável
+`N8N_API_KEY` continua sendo usada como segredo dos avisos que o painel envia aos webhooks).
 
 Principais rotas:
 - `GET  /n8n/services` — serviços com preço e duração
