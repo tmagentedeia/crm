@@ -39,7 +39,7 @@ function notifyN8n(event, snap) {
   fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-api-key': process.env.N8N_API_KEY || '' },
-    body: JSON.stringify({ event, appointment: snap }),
+    body: JSON.stringify({ event, appointment: (({ salon_id, ...r }) => ({ ...r, companyid: salon_id }))(snap) }),
     signal: AbortSignal.timeout(8000),
   }).then((r) => { if (!r.ok) console.error('Webhook N8N respondeu', r.status); })
     .catch((e) => console.error('Falha ao avisar N8N:', e.message));
@@ -79,7 +79,7 @@ async function checkWaitlist(snap) {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-api-key': process.env.N8N_API_KEY || '' },
     body: JSON.stringify({ event: 'slot_opened', entry: {
-      id: rows[0].id, salon_id: snap.salon_id, desired_at: rows[0].desired_at,
+      id: rows[0].id, companyid: snap.salon_id, desired_at: rows[0].desired_at,
       barber_name: snap.barber_name, service_name: snap.service_name, ...d.rows[0] } }),
     signal: AbortSignal.timeout(8000),
   }).then((r) => { if (!r.ok) console.error('Webhook fila respondeu', r.status); })

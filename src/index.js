@@ -91,7 +91,7 @@ app.put('/api/admin/salons/:id', requireUser, requireAdmin, async (req, res) => 
   rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Salão não encontrado' });
 });
 
-// ---------- API do painel (JWT) e do N8N (x-api-key + x-salon-id) ----------
+// ---------- API do painel (JWT) e do N8N (x-api-key + x-company-id) ----------
 app.use('/api', requireUser, buildRouter());
 app.use('/n8n', requireN8n, buildRouter());
 

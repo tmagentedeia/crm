@@ -15,13 +15,13 @@ export function requireUser(req, res, next) {
   }
 }
 
-// Autenticação do N8N (chave fixa + salon_id informado na chamada)
+// Autenticação das automações (chave fixa + id da empresa informado na chamada: x-company-id).
 export function requireN8n(req, res, next) {
   if (!process.env.N8N_API_KEY || req.headers['x-api-key'] !== process.env.N8N_API_KEY) {
     return res.status(401).json({ error: 'API key inválida' });
   }
-  const salonId = Number(req.headers['x-salon-id'] || req.query.salon_id || req.body?.salon_id);
-  if (!salonId) return res.status(400).json({ error: 'salon_id obrigatório' });
+  const salonId = Number(req.headers['x-company-id'] || req.query.company_id || req.body?.company_id);
+  if (!salonId) return res.status(400).json({ error: 'x-company-id obrigatório' });
   req.user = { salonId, role: 'n8n' };
   next();
 }

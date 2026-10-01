@@ -12,7 +12,7 @@ CRM de leads/clientes, retorno de inativos, dashboard, tema claro/escuro e logot
 ## Integração com o N8N
 Mesmas rotas do painel, em `/n8n/...`, com os headers:
 - `x-api-key`: valor de `N8N_API_KEY`
-- `x-salon-id`: id do salão
+- `x-company-id`: id da empresa no painel
 
 Principais rotas:
 - `GET  /n8n/services` — serviços com preço e duração
