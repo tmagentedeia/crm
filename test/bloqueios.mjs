@@ -22,7 +22,7 @@ check('só administrador configura', (await call('PUT', '/api/admin/companies/1/
 check('instância inválida', (await call('PUT', '/api/admin/companies/1/blocks-config', { token: A.token, body: { whatsapp_instance: 'a*b' } })).status === 400);
 check('prefixo inválido', (await call('PUT', '/api/admin/companies/1/blocks-config', { token: A.token, body: { whatsapp_instance: 'tm-agentes', redis_prefix: 'a b' } })).status === 400);
 check('configura empresa 1 (sem prefixo)', (await call('PUT', '/api/admin/companies/1/blocks-config', { token: A.token, body: { whatsapp_instance: 'tm-agentes', redis_prefix: '' } })).status === 200);
-check('configura empresa 2 (com prefixo)', (await call('PUT', '/api/admin/companies/2/blocks-config', { token: A.token, body: { whatsapp_instance: 'tm-agentes', redis_prefix: 'dois:' } })).status === 200);
+check('configura empresa 2 (com prefixo)', (await call('PUT', '/api/admin/companies/2/blocks-config', { token: A.token, body: { whatsapp_instance: 'tm-agentes', redis_prefix: 'dois:' } })).status === 200 && (await call('GET', '/api/admin/companies', { token: A.token })).body.find((c) => Number(c.id) === 2).redis_prefix === 'dois');
 
 // chaves como o atendente grava
 await redis.set('ia_forced:tm-agentes:553291135799', '1', 'EX', 315360000);        // /off = para sempre

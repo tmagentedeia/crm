@@ -118,7 +118,7 @@ app.put('/api/admin/companies/:id/blocks-config', requireUser, requireAdmin, asy
   const id = Number(req.params.id);
   if (!Number.isSafeInteger(id) || id <= 0) return res.status(404).json({ error: 'Empresa não encontrada' });
   const instancia = String(req.body.whatsapp_instance ?? '').trim();
-  const prefixo = String(req.body.redis_prefix ?? '').trim();
+  const prefixo = String(req.body.redis_prefix ?? '').trim().replace(/:+$/, ''); // o ":" final é acrescentado pelo painel
   if (instancia && !nomeValido(instancia)) return res.status(400).json({ error: 'Nome da instância inválido (use letras, números, - _ . :)' });
   if (!prefixoValido(prefixo)) return res.status(400).json({ error: 'Prefixo inválido (use letras, números, - _ . :)' });
   const { rows } = await qg(

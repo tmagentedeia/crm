@@ -222,7 +222,7 @@ export default function Admin() {
                   <td style={{ minWidth: 190 }}>
                     <input placeholder="instância do WhatsApp" value={cx[s.id]?.i ?? s.whatsapp_instance ?? ''}
                       onChange={(e) => setCx({ ...cx, [s.id]: { i: e.target.value, p: cx[s.id]?.p ?? s.redis_prefix ?? '' } })} />
-                    <input placeholder="prefixo (opcional)" style={{ marginTop: 4 }} value={cx[s.id]?.p ?? s.redis_prefix ?? ''}
+                    <input placeholder="prefixo (opcional), ex.: cabeleireira" style={{ marginTop: 4 }} value={cx[s.id]?.p ?? s.redis_prefix ?? ''}
                       onChange={(e) => setCx({ ...cx, [s.id]: { i: cx[s.id]?.i ?? s.whatsapp_instance ?? '', p: e.target.value } })} />
                     {s.id in cx && <button className="btn sm primary" style={{ marginTop: 4 }} onClick={() => salvarCx(s)}>Salvar</button>}
                   </td>

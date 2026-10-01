@@ -35,7 +35,9 @@ export function numeroDoContato(entrada) {
   return null;
 }
 
-const chave = (cfg, tipo, id) => `${cfg.prefixo}ia_${tipo}:${cfg.instancia}:${id}`;
+// o prefixo é guardado sem o separador; ele é acrescentado aqui (prefixo "abc" -> chaves "abc:ia_forced:...")
+const comPrefixo = (cfg) => (cfg.prefixo ? cfg.prefixo.replace(/:+$/, '') + ':' : '');
+const chave = (cfg, tipo, id) => `${comPrefixo(cfg)}ia_${tipo}:${cfg.instancia}:${id}`;
 
 // Lê as chaves da empresa e junta pelo contato.
 export async function listar(cfg) {
@@ -43,8 +45,8 @@ export async function listar(cfg) {
   if (!r) throw Object.assign(new Error('indisponivel'), { code: 'SEM_REDIS' });
   const out = new Map();
   for (const tipo of ['forced', 'blocked']) {
-    const padrao = `${cfg.prefixo}ia_${tipo}:${cfg.instancia}:*`;
-    const base = `${cfg.prefixo}ia_${tipo}:${cfg.instancia}:`;
+    const base = `${comPrefixo(cfg)}ia_${tipo}:${cfg.instancia}:`;
+    const padrao = base + '*';
     let cursor = '0';
     const chaves = [];
     do {
