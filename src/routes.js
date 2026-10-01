@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { q, qg, currentCompany } from './db.js';
+import { q, qg, tx, currentCompany } from './db.js';
 import { runImport } from './importer.js';
 
 const digits = (s) => String(s || '').replace(/\D/g, '');
@@ -318,15 +318,23 @@ export function buildRouter() {
 
   // Exclusão de verdade: só se não houver agendamentos no histórico (senão continua só desativado)
   const semHistorico = 'Isso tem agendamentos no histórico, então só pode ficar desativado.';
-  r.delete('/services/:id/permanent', wrap(async (req, res) => {
+  // ?com_historico=1 apaga junto os agendamentos ligados (ação definitiva, a tela pede confirmação forte)
+  const excluirDeVez = (tabela, campo) => wrap(async (req, res) => {
+    const comHist = req.query.com_historico === '1';
     try {
-      const d = await q('DELETE FROM services WHERE id=$1', [req.params.id]);
-      d.rowCount ? res.json({ ok: true }) : res.status(404).json({ error: 'Não encontrado' });
+      const n = await tx(currentCompany(), async (t) => {
+        let ag = 0;
+        if (comHist) ag = (await t(`DELETE FROM appointments WHERE ${campo}=$1`, [req.params.id])).rowCount;
+        const d = await t(`DELETE FROM ${tabela} WHERE id=$1`, [req.params.id]);
+        return d.rowCount ? ag : null;
+      });
+      n === null ? res.status(404).json({ error: 'Não encontrado' }) : res.json({ ok: true, agendamentos_apagados: n });
     } catch (e) {
-      if (e.code === '23503') return res.status(409).json({ error: semHistorico });
+      if (e.code === '23503') return res.status(409).json({ error: semHistorico, tem_historico: true });
       throw e;
     }
-  }));
+  });
+  r.delete('/services/:id/permanent', excluirDeVez('services', 'service_id'));
 
   // ---------- BARBEIROS ----------
   r.get('/professionals', wrap(async (req, res) => {
@@ -362,15 +370,7 @@ export function buildRouter() {
     if (Array.isArray(service_ids)) await setProfessionalServices(b.id, service_ids);
     res.status(201).json(b); // agenda individual = appointments filtrados por professional_id
   }));
-  r.delete('/professionals/:id/permanent', wrap(async (req, res) => {
-    try {
-      const d = await q('DELETE FROM professionals WHERE id=$1', [req.params.id]);
-      d.rowCount ? res.json({ ok: true }) : res.status(404).json({ error: 'Não encontrado' });
-    } catch (e) {
-      if (e.code === '23503') return res.status(409).json({ error: semHistorico });
-      throw e;
-    }
-  }));
+  r.delete('/professionals/:id/permanent', excluirDeVez('professionals', 'professional_id'));
   r.put('/professionals/:id', wrap(async (req, res) => {
     const { name, color, phone, active, schedules, google_calendar_id, service_ids, category_ids } = req.body;
     if (category_ids !== undefined && !(await validCategoryIds(category_ids)))

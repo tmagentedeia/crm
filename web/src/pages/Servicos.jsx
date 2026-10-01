@@ -34,7 +34,11 @@ export default function Servicos() {
   }
   const excluir = async (s) => {
     if (!confirm(`Excluir o serviço "${s.name}" de vez? Não dá para desfazer.`)) return;
-    try { await api('/services/' + s.id + '/permanent', { method: 'DELETE' }); load(); } catch (e) { alert(e.message); }
+    try { await api('/services/' + s.id + '/permanent', { method: 'DELETE' }); load(); } catch (e) {
+      if (!e.data?.tem_historico) return alert(e.message);
+      if (!confirm(`"${s.name}" tem agendamentos no histórico.\n\nExcluir mesmo assim APAGA também todos esses agendamentos, de forma definitiva.\n\nQuer apagar o serviço e o histórico dele?`)) return;
+      try { await api('/services/' + s.id + '/permanent?com_historico=1', { method: 'DELETE' }); load(); } catch (e2) { alert(e2.message); }
+    }
   };
   const toggle = (s) => api('/services/' + s.id, { method: 'PUT', body: { active: !s.active } }).then(load);
 

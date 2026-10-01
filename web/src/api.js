@@ -18,7 +18,7 @@ export async function api(path, { method = 'GET', body } = {}) {
     localStorage.removeItem(ADMIN_KEY);
     location.reload();
   }
-  if (!res.ok) throw new Error(data.error || 'Erro na requisição');
+  if (!res.ok) { const err = new Error(data.error || 'Erro na requisição'); err.data = data; throw err; }
   return data;
 }
 

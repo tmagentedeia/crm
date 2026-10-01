@@ -78,7 +78,11 @@ export default function Profissionais() {
   const setSched = (i, k, v) => setEdit({ ...edit, sched: edit.sched.map((s, j) => (j === i ? { ...s, [k]: v } : s)) });
   const excluir = async (b) => {
     if (!window.confirm(`Excluir "${b.name}" de vez? Não dá para desfazer.`)) return;
-    try { await api('/professionals/' + b.id + '/permanent', { method: 'DELETE' }); load(); } catch (e) { alert(e.message); }
+    try { await api('/professionals/' + b.id + '/permanent', { method: 'DELETE' }); load(); } catch (e) {
+      if (!e.data?.tem_historico) return alert(e.message);
+      if (!window.confirm(`"${b.name}" tem agendamentos no histórico.\n\nExcluir mesmo assim APAGA também todos esses agendamentos, de forma definitiva.\n\nQuer apagar o profissional e o histórico dele?`)) return;
+      try { await api('/professionals/' + b.id + '/permanent?com_historico=1', { method: 'DELETE' }); load(); } catch (e2) { alert(e2.message); }
+    }
   };
   const toggle = (b) => api('/professionals/' + b.id, { method: 'PUT', body: { active: !b.active } }).then(load).catch((e) => alert(e.message));
 
