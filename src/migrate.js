@@ -21,6 +21,9 @@ try {
       phrase TEXT NOT NULL, phrase_norm TEXT NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       UNIQUE (salon_id, phrase_norm))`);
+    // /off e /on são fixos (sem cadastro); frases cadastradas só existem como bloquear (pause) e liberar (resume)
+    await pool.query("UPDATE agent_commands SET kind='pause' WHERE kind='off'");
+    await pool.query("UPDATE agent_commands SET kind='resume' WHERE kind='on'");
     await pool.query(`CREATE TABLE IF NOT EXISTS agent_attendants (
       id BIGSERIAL PRIMARY KEY,
       salon_id BIGINT NOT NULL REFERENCES salons(id) ON DELETE CASCADE,

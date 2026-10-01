@@ -2,10 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
 
 const KINDS = [
-  { k: 'off', title: 'Desligar o agente', help: 'Bloqueio total da conversa por 24h. Ex.: /off' },
-  { k: 'pause', title: 'Pausar (bloqueio total)', help: 'Também bloqueio total daquela conversa. Ex.: "Thiago aqui"' },
-  { k: 'on', title: 'Ligar o agente', help: 'Retomada total: limpa todos os bloqueios. Ex.: /on' },
-  { k: 'resume', title: 'Retomar (retomada total)', help: 'Também retomada total. Ex.: "Tá contigo, Diana"' },
+  { k: 'pause', title: 'Bloquear o agente na conversa (24h)', help: 'Bloqueio total por 24h, só naquela conversa. Ex.: "Thiago aqui"' },
+  { k: 'resume', title: 'Liberar o agente na conversa', help: 'Retomada total: limpa todos os bloqueios. Ex.: "Tá contigo, Diana"' },
 ];
 
 export default function ComandosAgente() {
@@ -31,7 +29,7 @@ export default function ComandosAgente() {
     setErr('');
     try { setTestRes(await api('/agent-commands/classify', { method: 'POST', body: { text: test } })); } catch (e) { setErr(e.message); }
   };
-  const label = { off: 'desligar (bloqueio total)', on: 'ligar (retomada total)', pause: 'bloqueio total', resume: 'retomada total', none: 'nada (o agente segue normal)' };
+  const label = { off: 'desligar (bloqueio total, sem prazo)', on: 'ligar (retomada total)', pause: 'bloquear por 24h (bloqueio total)', resume: 'liberar (retomada total)', none: 'nada (o agente segue normal)' };
   const labelGeral = { pause: 'pausa simples da conversa', resume: 'retomada simples da conversa' };
 
   return (
@@ -52,10 +50,10 @@ export default function ComandosAgente() {
         </div>
         <button className="btn" onClick={() => run(() => api('/agent-config', { method: 'PUT', body: { agent_name: agent, adm_name: adm } }), 'Nomes salvos')}>Salvar nomes</button>
       </div>
-      <p className="muted" style={{ marginTop: -6 }}>Use os mesmos nomes que estão no fluxo do N8N (<code>agentname</code> e <code>admname</code>). Eles geram as frases fixas “<em>proprietário</em> aqui” (bloqueio total) e “tá contigo <em>agente</em>” (retomada total).</p>
+      <p className="muted" style={{ marginTop: -6 }}>Use os mesmos nomes que estão no fluxo do N8N (<code>agentname</code> e <code>admname</code>). Eles geram as frases fixas “<em>proprietário</em> aqui” (bloquear) e “tá contigo <em>agente</em>” (liberar).</p>
 
       <div className="field">
-        <label>Atendentes extras <span className="muted">(cada nome vira “nome aqui”, além do proprietário)</span></label>
+        <label>Atendentes extras <span className="muted">(cada nome vira “nome aqui”, que bloqueia o agente por 24h, além do proprietário)</span></label>
         <div className="row" style={{ flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
           {cfg.attendants.map((a) => (
             <span key={a.id} className="row" style={{ gap: 6, border: '1px solid var(--border, #ddd)', borderRadius: 999, padding: '4px 10px' }}>
@@ -69,6 +67,15 @@ export default function ComandosAgente() {
           <input value={att} onChange={(e) => setAtt(e.target.value)} placeholder="Nome (ex.: Will)" style={{ flex: 1 }} />
           <button className="btn" onClick={() => run(async () => { await api('/agent-attendants', { method: 'POST', body: { name: att } }); setAtt(''); })}>Adicionar</button>
         </div>
+      </div>
+
+      <div className="field">
+        <label>Ligar / desligar <span className="muted">— fixos, não precisam de cadastro</span></label>
+        <div className="row" style={{ flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
+          <span className="muted" style={{ border: '1px dashed #bbb', borderRadius: 999, padding: '4px 10px' }} title="Comando fixo">/off</span>
+          <span className="muted" style={{ border: '1px dashed #bbb', borderRadius: 999, padding: '4px 10px' }} title="Comando fixo">/on</span>
+        </div>
+        <p className="muted" style={{ margin: 0 }}><strong>/off</strong> desliga o agente naquela conversa, <strong>sem prazo</strong>; só o <strong>/on</strong> (ou uma frase de liberar) religa.</p>
       </div>
 
       {KINDS.map(({ k, title, help }) => {
@@ -105,8 +112,8 @@ export default function ComandosAgente() {
         {testRes && <p style={{ marginTop: 6 }}>O agente iria: <strong>{testRes.rule === 'geral' ? labelGeral[testRes.action] : label[testRes.action]}</strong>{testRes.rule === 'geral' && <span className="muted"> (regra geral)</span>}</p>}
       </div>
       <p className="muted">A frase vale quando a mensagem <em>começa</em> com ela. Maiúsculas, acentos e vírgulas não fazem diferença.</p>
-      <p className="muted"><strong>Regra geral:</strong> qualquer outra mensagem sua numa conversa <strong>pausa</strong> o agente ali (pausa simples); se terminar com <strong>?</strong> ou <strong>...</strong>, ele <strong>retoma</strong> (retomada simples). Mensagens que começam com “/” e não são comandos são ignoradas.</p>
-      <p className="muted"><strong>Frases cadastradas mandam mais:</strong> se a mensagem começa com uma frase cadastrada (ou automática), vale o tipo dela, mesmo que termine com <strong>?</strong> ou <strong>...</strong>. Ex.: “Will aqui...” bloqueia; “Tá contigo, Diana?” retoma tudo.</p>
+      <p className="muted"><strong>Pausa e retomada simples (fixas):</strong> qualquer outra mensagem sua numa conversa <strong>pausa</strong> o agente ali; se terminar com <strong>?</strong> ou <strong>...</strong>, ele <strong>retoma</strong>. Não há o que cadastrar. Mensagens que começam com “/” e não são comandos são ignoradas.</p>
+      <p className="muted"><strong>Frases de bloquear/liberar mandam mais:</strong> se a mensagem começa com uma delas (cadastrada ou automática), vale o tipo dela, mesmo que termine com <strong>?</strong> ou <strong>...</strong>. Ex.: “Will aqui...” bloqueia; “Tá contigo, Diana?” libera tudo.</p>
     </div>
   );
 }

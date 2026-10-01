@@ -612,8 +612,11 @@ export function buildRouter() {
 
   // ---------- Comandos do agente (pausar / retomar / ligar / desligar) ----------
   // O dono manda mensagens pelo próprio WhatsApp; o N8N pergunta aqui o que a frase significa.
-  // Ações: off (desliga), on (liga), pause (pausa), resume (retoma) ou none.
-  const LIMITS = { off: 5, on: 5, pause: 10, resume: 10 };
+  // Três níveis:
+  //  1) liga/desliga  — /off e /on, FIXOS (sem cadastro): bloqueio/retomada total da conversa, sem prazo.
+  //  2) bloquear/liberar — frases CADASTRÁVEIS (pause = bloquear 24h, resume = liberar): bloqueio/retomada total.
+  //  3) pausa suave — regra geral, sem cadastro (qualquer mensagem pausa; termina em ?/... retoma).
+  const LIMITS = { pause: 10, resume: 10 };
   const KINDS = Object.keys(LIMITS);
   const normCmd = (t) => String(t ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
     .replace(/[,!.?;:]+/g, ' ').replace(/\s+/g, ' ').trim();

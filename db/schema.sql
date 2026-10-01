@@ -208,7 +208,7 @@ FROM appointments a
 JOIN services sv ON sv.id = a.service_id
 JOIN barbers b   ON b.id = a.barber_id;
 
--- Comandos do dono para pausar/retomar/ligar/desligar o agente (kind: off | on | pause | resume)
+-- Comandos do dono para pausar/retomar/ligar/desligar o agente (cadastráveis: pause = bloquear 24h, resume = liberar; off/on = legado, migrados para pause/resume)
 CREATE TABLE agent_commands (
   id         BIGSERIAL PRIMARY KEY,
   salon_id   BIGINT NOT NULL REFERENCES salons(id) ON DELETE CASCADE,
