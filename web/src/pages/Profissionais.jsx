@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Nome } from '../menu.jsx';
 import { api, WEEKDAYS } from '../api.js';
 
 const defaultSchedule = () => [1, 2, 3, 4, 5, 6].map((w) => ({
@@ -80,7 +81,7 @@ export default function Profissionais() {
   return (
     <>
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: 16 }}>
-        <div><h1>Profissionais</h1><p className="muted">Cada profissional cadastrado ganha sua própria agenda{max !== null && ` · ${ativos} de ${max} profissionais ativos`}</p></div>
+        <div><h1><Nome id="profissionais">Profissionais</Nome></h1><p className="muted">Cada profissional cadastrado ganha sua própria agenda{max !== null && ` · ${ativos} de ${max} profissionais ativos`}</p></div>
         <button className="btn primary" onClick={openNew} disabled={cheio} title={cheio ? 'Limite do plano atingido' : ''} style={cheio ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}>+ Novo profissional</button>
       </div>
       <div className="grid cols-4">

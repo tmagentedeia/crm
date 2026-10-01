@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { Nome } from '../menu.jsx';
 import { api, fmtTime, money } from '../api.js';
 
 const STATUS = { scheduled: 'Agendado', attended: 'Compareceu', no_show: 'Faltou', cancelled: 'Cancelado' };
@@ -26,7 +27,7 @@ export default function Agenda() {
   return (
     <>
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: 16 }}>
-        <div><h1>Agenda</h1><p className="muted">Uma agenda individual por profissional</p></div>
+        <div><h1><Nome id="agenda">Agenda</Nome></h1><p className="muted">Uma agenda individual por profissional</p></div>
         <div className="row">
           <button className="btn" onClick={() => setDate(shift(date, -1))}>←</button>
           <input type="date" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} style={{ width: 'auto' }} />

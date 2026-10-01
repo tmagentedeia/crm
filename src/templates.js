@@ -5,7 +5,7 @@ import { schemaOf } from './db.js';
 
 // Tira uma foto da estrutura de uma empresa.
 export async function snapshotCompany(companyId, cx) {
-  const c = (await cx.query('SELECT modules, inactive_days, timezone, reminder_minutes FROM public.companies WHERE id=$1', [companyId])).rows[0];
+  const c = (await cx.query('SELECT modules, menu_custom, inactive_days, timezone, reminder_minutes FROM public.companies WHERE id=$1', [companyId])).rows[0];
   if (!c) return null;
   await cx.query(`SET search_path TO ${schemaOf(companyId)}, public`);
   try {
@@ -16,6 +16,7 @@ export async function snapshotCompany(companyId, cx) {
     const man = (await cx.query('SELECT content FROM agent_manual_versions WHERE published_at IS NOT NULL ORDER BY published_at DESC, id DESC LIMIT 1')).rows[0];
     return {
       modules: c.modules || {},
+      menu_custom: c.menu_custom || {},
       settings: { inactive_days: c.inactive_days, timezone: c.timezone, reminder_minutes: c.reminder_minutes },
       categories, services,
       manual: man ? man.content : null,
@@ -32,8 +33,10 @@ export async function applyTemplate(cx, companyId, data) {
   await cx.query('SET LOCAL search_path TO public');
   await cx.query(
     `UPDATE companies SET inactive_days=COALESCE($2,inactive_days), timezone=COALESCE($3,timezone),
-       reminder_minutes = CASE WHEN $4::boolean THEN $5::int ELSE reminder_minutes END WHERE id=$1`,
-    [companyId, s.inactive_days ?? null, s.timezone ?? null, 'reminder_minutes' in s, s.reminder_minutes ?? null]);
+       reminder_minutes = CASE WHEN $4::boolean THEN $5::int ELSE reminder_minutes END,
+       menu_custom = COALESCE($6::jsonb, menu_custom) WHERE id=$1`,
+    [companyId, s.inactive_days ?? null, s.timezone ?? null, 'reminder_minutes' in s, s.reminder_minutes ?? null,
+     data.menu_custom ? JSON.stringify(data.menu_custom) : null]);
   await cx.query(`SET LOCAL search_path TO ${schemaOf(companyId)}, public`);
   const catId = {};
   for (const name of data.categories || []) {

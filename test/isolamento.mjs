@@ -207,5 +207,18 @@ const lg = await call('GET', '/api/admin/access-log', { token: A.token });
 check('administrador vê o histórico de acessos', lg.status === 200 && Array.isArray(lg.body));
 check('não administrador não vê o histórico', (await call('GET', '/api/admin/access-log', { token: B.token })).status === 403);
 
+// ---- nomes e ícones do menu (só aparência)
+const m1 = await call('PUT', '/api/company', { token: A.token, body: { menu_custom: { profissionais: { icon: '💇', label: 'Equipe' }, fila: { label: '  ' } } } });
+check('empresa personaliza o menu', m1.status === 200 && m1.body.menu_custom.profissionais.label === 'Equipe' && m1.body.menu_custom.profissionais.icon === '💇' && !m1.body.menu_custom.fila, JSON.stringify(m1.body.menu_custom));
+check('o login devolve o menu personalizado', (await login('demo@demo.com', 'demo1234')).company.menu_custom?.profissionais?.label === 'Equipe');
+check('salvar outra coisa não apaga o menu', (await call('PUT', '/api/company', { token: A.token, body: { phone: '32999990000' } })).body.menu_custom?.profissionais?.label === 'Equipe');
+check('item de menu desconhecido = 400', (await call('PUT', '/api/company', { token: A.token, body: { menu_custom: { financeiro: { label: 'x' } } } })).status === 400);
+check('nome grande demais = 400', (await call('PUT', '/api/company', { token: A.token, body: { menu_custom: { agenda: { label: 'x'.repeat(31) } } } })).status === 400);
+check('campo estranho = 400', (await call('PUT', '/api/company', { token: A.token, body: { menu_custom: { agenda: { cor: 'red' } } } })).status === 400);
+check('símbolos de marcação são recusados', (await call('PUT', '/api/company', { token: A.token, body: { menu_custom: { agenda: { label: '<b>x' } } } })).status === 400);
+check('a outra empresa não vê o menu da primeira', !(await call('GET', '/api/company', { token: B.token })).body.menu_custom?.profissionais);
+const m2 = await call('PUT', '/api/company', { token: A.token, body: { menu_custom: {} } });
+check('voltar ao padrão limpa o menu', m2.status === 200 && Object.keys(m2.body.menu_custom).length === 0);
+
 console.log(`\n${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);

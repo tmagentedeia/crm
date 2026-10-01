@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Nome } from '../menu.jsx';
 import { api } from '../api.js';
 
 const fmtMomento = (s) => (s ? `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)} ${s.slice(11, 16)}` : '');
@@ -243,7 +244,7 @@ export default function Atendente() {
   const [aba, setAba] = useState('manual');
   return (
     <>
-      <h1>Atendente</h1>
+      <h1><Nome id="atendente">Atendente</Nome></h1>
       <div style={{ display: 'flex', gap: 8, margin: '12px 0 16px' }}>
         <button className={'btn' + (aba === 'manual' ? ' primary' : '')} onClick={() => setAba('manual')}>Manual</button>
         <button className={'btn' + (aba === 'atualizacoes' ? ' primary' : '')} onClick={() => setAba('atualizacoes')}>Atualizações provisórias</button>

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Nome } from '../menu.jsx';
 import { api, fmtDate, fmtPhone } from '../api.js';
 
 export default function Inativos() {
@@ -15,7 +16,7 @@ export default function Inativos() {
   return (
     <>
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: 16 }}>
-        <div><h1>Retorno de inativos</h1><p className="muted">Clientes que não voltam há um tempo e não têm nada agendado</p></div>
+        <div><h1><Nome id="inativos">Retorno de inativos</Nome></h1><p className="muted">Clientes que não voltam há um tempo e não têm nada agendado</p></div>
         <div className="row"><span className="muted">Ausentes há</span>
           <input type="number" min="1" value={days} onChange={(e) => setDays(Number(e.target.value))} style={{ width: 90 }} />
           <span className="muted">dias</span></div>

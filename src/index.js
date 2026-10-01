@@ -9,7 +9,7 @@ import { createCompany } from './companies.js';
 import { snapshotCompany } from './templates.js';
 import { pool } from './db.js';
 import { newApiKey } from './apikeys.js';
-import { cleanModules } from './modules.js';
+import { cleanModules, cleanMenuCustom } from './modules.js';
 import { requireUser, requireN8n, requireAdmin, isAdmin, signToken, signImpersonationToken } from './auth.js';
 import { buildRouter } from './routes.js';
 
@@ -24,7 +24,7 @@ app.post('/api/auth/login', async (req, res) => {
   const u = rows[0];
   if (!u || !(await bcrypt.compare(password || '', u.password_hash)))
     return res.status(401).json({ error: 'E-mail ou senha incorretos' });
-  const company = (await qg('SELECT id,name,inactive_days,logo,modules FROM companies WHERE id=$1', [u.company_id])).rows[0];
+  const company = (await qg('SELECT id,name,inactive_days,logo,modules,menu_custom FROM companies WHERE id=$1', [u.company_id])).rows[0];
   res.json({ token: signToken(u), user: { id: u.id, name: u.name, role: u.role }, company });
 });
 
@@ -45,12 +45,14 @@ app.post('/api/auth/register', async (req, res) => {
 
 // ---------- Configurações da empresa ----------
 app.get('/api/company', requireUser, async (req, res) => {
-  const { rows } = await qg('SELECT id,name,phone,inactive_days,logo,max_professionals,reminder_minutes,modules FROM companies WHERE id=$1', [req.user.companyId]);
+  const { rows } = await qg('SELECT id,name,phone,inactive_days,logo,max_professionals,reminder_minutes,modules,menu_custom FROM companies WHERE id=$1', [req.user.companyId]);
   res.json(rows[0]);
 });
 
 app.put('/api/company', requireUser, async (req, res) => {
-  const { name, phone, inactive_days, logo, reminder_minutes } = req.body;
+  const { name, phone, inactive_days, logo, reminder_minutes, menu_custom } = req.body;
+  const menu = menu_custom === undefined ? undefined : cleanMenuCustom(menu_custom);
+  if (menu === null) return res.status(400).json({ error: 'Nome ou ícone do menu inválido (nome até 30 letras, ícone curto)' });
   if (reminder_minutes != null && (!Number.isInteger(Number(reminder_minutes)) || Number(reminder_minutes) < 30 || Number(reminder_minutes) > 4320))
     return res.status(400).json({ error: 'Antecedência do lembrete deve ficar entre 30 minutos e 72 horas' });
   // logo: data URL de imagem, ou null para remover (string vazia = remover)
@@ -60,10 +62,12 @@ app.put('/api/company', requireUser, async (req, res) => {
     `UPDATE companies SET name=COALESCE($2,name), phone=COALESCE($3,phone),
      inactive_days=COALESCE($4,inactive_days),
      logo = CASE WHEN $5::boolean THEN NULLIF($6,'') ELSE logo END,
-     reminder_minutes = CASE WHEN $7::boolean THEN $8::int ELSE reminder_minutes END
-     WHERE id=$1 RETURNING id,name,phone,inactive_days,logo,max_professionals,reminder_minutes,modules`,
+     reminder_minutes = CASE WHEN $7::boolean THEN $8::int ELSE reminder_minutes END,
+     menu_custom = CASE WHEN $9::boolean THEN $10::jsonb ELSE menu_custom END
+     WHERE id=$1 RETURNING id,name,phone,inactive_days,logo,max_professionals,reminder_minutes,modules,menu_custom`,
     [req.user.companyId, name, phone, inactive_days, logo !== undefined, logo ?? null,
-     reminder_minutes !== undefined, reminder_minutes == null ? null : Number(reminder_minutes)]);
+     reminder_minutes !== undefined, reminder_minutes == null ? null : Number(reminder_minutes),
+     menu !== undefined, JSON.stringify(menu ?? {})]);
   res.json(rows[0]);
 });
 
@@ -117,7 +121,7 @@ app.post('/api/admin/companies/:id/impersonate', requireUser, requireAdmin, asyn
   if (req.user.imp) return res.status(403).json({ error: 'Volte à administração antes de abrir outra empresa' });
   const id = Number(req.params.id);
   if (!Number.isSafeInteger(id) || id <= 0) return res.status(404).json({ error: 'Empresa não encontrada' });
-  const company = (await qg('SELECT id,name,inactive_days,logo,modules FROM companies WHERE id=$1', [id])).rows[0];
+  const company = (await qg('SELECT id,name,inactive_days,logo,modules,menu_custom FROM companies WHERE id=$1', [id])).rows[0];
   if (!company) return res.status(404).json({ error: 'Empresa não encontrada' });
   const u = (await qg('SELECT * FROM users WHERE company_id=$1 ORDER BY (role = \'owner\') DESC, id LIMIT 1', [id])).rows[0];
   if (!u) return res.status(404).json({ error: 'Essa empresa não tem usuário' });

@@ -16,6 +16,7 @@ CREATE TABLE companies (
   adm_name        TEXT,                         -- proprietário/ADM (gera a frase fixa "<nome> aqui")
   agent_name      TEXT,                         -- nome do agente de IA (usado nos comandos de pausa)
   reminder_minutes INT DEFAULT 120,             -- lembrete ao cliente X min antes (NULL = desligado)
+  menu_custom     JSONB NOT NULL DEFAULT '{}',  -- nomes e ícones do menu escolhidos pela empresa (só aparência)
   modules         JSONB NOT NULL DEFAULT '{}',  -- módulos liberados para a empresa (só o administrador altera)
   api_key_hash    TEXT,                         -- hash (SHA-256) da chave de integração da empresa; a chave em si nunca é guardada
   api_key_hint    TEXT,                         -- últimos 4 caracteres da chave, só para identificá-la na tela de administração

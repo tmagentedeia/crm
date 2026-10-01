@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Nome } from '../menu.jsx';
 import { api, fmtPhone } from '../api.js';
 
 const LABEL = { waiting: 'Aguardando', notified: 'Avisado', cancelled: 'Removido' };
@@ -12,7 +13,7 @@ export default function Fila() {
   return (
     <>
       <div style={{ marginBottom: 16 }}>
-        <h1>Fila de espera</h1>
+        <h1><Nome id="fila">Fila de espera</Nome></h1>
         <p className="muted">Clientes que queriam um horário ocupado. Se o horário abrir por cancelamento, o primeiro da fila é avisado no WhatsApp.</p>
       </div>
       <div className="card table-wrap">

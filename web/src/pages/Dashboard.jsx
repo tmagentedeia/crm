@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Nome } from '../menu.jsx';
 
 // cor dos gráficos vem do tema atual (variável --chart)
 function useChartColor() {
@@ -60,7 +61,7 @@ export default function Dashboard() {
   return (
     <>
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: 16 }}>
-        <div><h1>Dashboard</h1><p className="muted">Visão geral do negócio</p></div>
+        <div><h1><Nome id="dashboard">Dashboard</Nome></h1><p className="muted">Visão geral do negócio</p></div>
         <select style={{ width: 'auto' }} value={days} onChange={(e) => setDays(Number(e.target.value))}>
           <option value={7}>Últimos 7 dias</option><option value={30}>Últimos 30 dias</option>
           <option value={90}>Últimos 90 dias</option><option value={365}>Último ano</option>

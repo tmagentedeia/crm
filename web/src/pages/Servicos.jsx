@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Nome } from '../menu.jsx';
 import { api, money } from '../api.js';
 
 export default function Servicos() {
@@ -36,7 +37,7 @@ export default function Servicos() {
   return (
     <>
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: 16 }}>
-        <div><h1>Serviços</h1><p className="muted">Alterações valem na hora para o agente de IA</p></div>
+        <div><h1><Nome id="servicos">Serviços</Nome></h1><p className="muted">Alterações valem na hora para o agente de IA</p></div>
         <div className="row">
           <button className="btn" onClick={() => { setErr(''); setCatEdit({ name: '' }); }}>+ Nova categoria</button>
           <button className="btn primary" onClick={() => { setErr(''); setEdit({ name: '', price: '', duration_min: 30, category_id: '' }); }}>+ Novo serviço</button>

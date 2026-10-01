@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Nome, ICONES, MENU_PADRAO } from '../menu.jsx';
 import { api } from '../api.js';
 
 // Redimensiona a imagem no navegador (máx. 256px) e devolve um data URL leve
@@ -21,6 +22,74 @@ function resizeImage(file, max = 256) {
     img.onerror = reject;
     img.src = URL.createObjectURL(file);
   });
+}
+
+// Nomes e ícones do menu: a empresa escolhe como cada item aparece. Vazio = padrão.
+function MenuPersonalizar({ company, onSaved }) {
+  const [valores, setValores] = useState(() => company.menu_custom || {});
+  const [aberto, setAberto] = useState(null); // id do item com a grade de ícones aberta
+  const [msg, setMsg] = useState('');
+  const [err, setErr] = useState('');
+  const set = (id, campo, v) => setValores((o) => ({ ...o, [id]: { ...(o[id] || {}), [campo]: v } }));
+  const sujo = JSON.stringify(limpar(valores)) !== JSON.stringify(company.menu_custom || {});
+  function limpar(o) {
+    const out = {};
+    for (const [id, v] of Object.entries(o)) {
+      const it = {};
+      if (v?.icon?.trim()) it.icon = v.icon.trim();
+      if (v?.label?.trim()) it.label = v.label.trim();
+      if (Object.keys(it).length) out[id] = it;
+    }
+    return out;
+  }
+  async function salvar(novo) {
+    setErr(''); setMsg('');
+    try {
+      const c = await api('/company', { method: 'PUT', body: { menu_custom: limpar(novo) } });
+      setValores(c.menu_custom || {}); onSaved(c); setMsg('Menu atualizado!');
+    } catch (e) { setErr(e.message); }
+  }
+  return (
+    <div className="card" style={{ marginTop: 16 }}>
+      <h2>Menu: nomes e ícones</h2>
+      <p className="muted" style={{ marginBottom: 10 }}>Escolha como cada item do menu aparece para você e sua equipe. Deixando em branco, vale o padrão.</p>
+      {msg && <div style={{ color: 'var(--ok)', marginBottom: 8 }}>{msg}</div>}
+      {err && <div className="error">{err}</div>}
+      <table>
+        <thead><tr><th style={{ width: 90 }}>Ícone</th><th>Nome</th><th></th></tr></thead>
+        <tbody>
+          {MENU_PADRAO.map((m) => {
+            const v = valores[m.id] || {};
+            return (
+              <React.Fragment key={m.id}>
+                <tr>
+                  <td><button type="button" className="btn sm" onClick={() => setAberto(aberto === m.id ? null : m.id)} title="Trocar ícone">{v.icon || m.icon} ▾</button></td>
+                  <td><input value={v.label || ''} maxLength={30} placeholder={m.label} onChange={(e) => set(m.id, 'label', e.target.value)} /></td>
+                  <td style={{ textAlign: 'right' }}>
+                    {(v.icon || v.label) && <button type="button" className="btn sm" onClick={() => setValores((o) => { const { [m.id]: _, ...r } = o; return r; })}>Padrão</button>}
+                  </td>
+                </tr>
+                {aberto === m.id && (
+                  <tr><td colSpan="3">
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                      {ICONES.map((ic) => (
+                        <button key={ic} type="button" className="btn sm" style={{ fontSize: 18 }} onClick={() => { set(m.id, 'icon', ic); setAberto(null); }}>{ic}</button>
+                      ))}
+                      <input value={v.icon || ''} maxLength={16} placeholder="ou cole um ícone" style={{ width: 150 }} onChange={(e) => set(m.id, 'icon', e.target.value)} />
+                    </div>
+                  </td></tr>
+                )}
+              </React.Fragment>
+            );
+          })}
+        </tbody>
+      </table>
+      <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+        <button className="btn primary" onClick={() => salvar(valores)} disabled={!sujo}>Salvar menu</button>
+        <button className="btn" onClick={() => { setValores({}); salvar({}); }} disabled={!Object.keys(company.menu_custom || {}).length && !Object.keys(valores).length}>Voltar tudo ao padrão</button>
+      </div>
+    </div>
+  );
 }
 
 export default function Config() {
@@ -50,7 +119,7 @@ export default function Config() {
 
   return (
     <>
-      <h1>Configurações</h1>
+      <h1><Nome id="config">Configurações</Nome></h1>
       <p className="muted" style={{ marginBottom: 18 }}>Identidade e regras da sua empresa</p>
       {msg && <div className="card" style={{ marginBottom: 12, color: 'var(--ok)' }}>{msg}</div>}
       {err && <div className="error">{err}</div>}
@@ -87,6 +156,7 @@ export default function Config() {
           <button className="btn primary">Salvar</button>
         </form>
       </div>
+      <MenuPersonalizar company={s} onSaved={(c) => { setS(c); publish(c); }} />
     </>
   );
 }

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Nome } from '../menu.jsx';
 import * as XLSX from 'xlsx';
 import { api } from '../api.js';
 
@@ -81,7 +82,7 @@ export default function Importar() {
   return (
     <>
       <div style={{ marginBottom: 16 }}>
-        <h1>Importar planilha</h1>
+        <h1><Nome id="importar">Importar planilha</Nome></h1>
         <p className="muted">Cadastre serviços, profissionais e clientes de uma vez. Categorias (obrigatório, ao menos uma) e serviços do profissional separados por vírgula, dias como "Seg-Sáb".</p>
       </div>
 

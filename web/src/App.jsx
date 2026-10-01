@@ -14,6 +14,7 @@ import Admin from './pages/Admin.jsx';
 import Atendente from './pages/Atendente.jsx';
 import Comandos from './pages/Comandos.jsx';
 import { moduleOn } from './modules.js';
+import { MenuCustomContext, nomeDoMenu, iconeDoMenu } from './menu.jsx';
 
 const THEMES = [
   { id: 'light', label: 'Claro', mode: 'light' },
@@ -75,7 +76,10 @@ export default function App() {
   }, []);
 
   // Só aparecem os módulos ligados da empresa; Configurações e Administração (para o administrador) sempre aparecem
-  const visible = BASE_MENU.filter((m) => !m.module || moduleOn(company.modules, m.module));
+  // nome e ícone que a empresa escolheu para cada item (em Configurações); sem escolha, vale o padrão
+  const custom = company.menu_custom || {};
+  const personalizado = (m) => ({ ...m, label: nomeDoMenu(custom, m.id, m.label), icon: iconeDoMenu(custom, m.id, m.icon) });
+  const visible = BASE_MENU.filter((m) => !m.module || moduleOn(company.modules, m.module)).map(personalizado);
   const MENU = admin ? [...visible, ADMIN_ITEM] : visible;
   // Sem nenhum módulo ligado, o administrador começa direto na Administração
   const inicial = admin && !visible.some((m) => m.module) ? ADMIN_ITEM : MENU[0];
@@ -100,6 +104,7 @@ export default function App() {
   const Current = atual.comp;
 
   return (
+    <MenuCustomContext.Provider value={custom}>
     <div className="layout">
       <aside className={'sidebar' + (collapsed ? ' collapsed' : '')}>
         <div className="brand">
@@ -133,5 +138,6 @@ export default function App() {
         <Current />
       </main>
     </div>
+    </MenuCustomContext.Provider>
   );
 }
