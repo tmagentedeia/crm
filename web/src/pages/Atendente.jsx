@@ -4,6 +4,28 @@ import { api } from '../api.js';
 const fmtMomento = (s) => (s ? `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)} ${s.slice(11, 16)}` : '');
 const fmtDataHora = (d) => new Date(d).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
 
+// Acha todas as ocorrências de "busca" em "texto". Por padrão ignora maiúsculas/minúsculas e acentos (Vitória = vitoria).
+// Devolve intervalos [início, fim) no texto original.
+const semAcento = (t) => t.normalize('NFD').replace(/\p{M}/gu, '');
+function achar(texto, busca, exato) {
+  if (!busca) return [];
+  const map = [];
+  let norm = '';
+  for (let i = 0; i < texto.length; i++) {
+    const b = exato ? texto[i] : semAcento(texto[i]).toLowerCase();
+    for (let k = 0; k < b.length; k++) { norm += b[k]; map.push(i); }
+  }
+  const q = exato ? busca : semAcento(busca).toLowerCase();
+  if (!q) return [];
+  const achados = [];
+  let ini = 0;
+  while ((ini = norm.indexOf(q, ini)) !== -1) {
+    achados.push([map[ini], map[ini + q.length - 1] + 1]);
+    ini += q.length;
+  }
+  return achados;
+}
+
 function Manual() {
   const [info, setInfo] = useState(null);
   const [texto, setTexto] = useState('');
@@ -11,6 +33,11 @@ function Manual() {
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
   const [verHist, setVerHist] = useState(false);
+  const [troca, setTroca] = useState(false);           // painel "Localizar e substituir" aberto
+  const [buscar, setBuscar] = useState('');
+  const [trocarPor, setTrocarPor] = useState('');
+  const [exato, setExato] = useState(false);           // true = diferencia maiúsculas e acentos
+  const [antesDaTroca, setAntesDaTroca] = useState(null); // texto antes da última troca, para desfazer
 
   const load = (preencher = true) => api('/agent-manual').then((i) => {
     setInfo(i);
@@ -31,6 +58,18 @@ function Manual() {
   };
 
   const igualAoPublicado = info.current && texto === info.current.content;
+  const achados = achar(texto, buscar, exato);
+  const substituirTudo = () => {
+    if (!achados.length) return;
+    let novo = texto;
+    for (let i = achados.length - 1; i >= 0; i--) novo = novo.slice(0, achados[i][0]) + trocarPor + novo.slice(achados[i][1]);
+    setAntesDaTroca(texto);
+    setTexto(novo);
+    setSujo(true);
+    setErr('');
+    setMsg(`${achados.length} ${achados.length === 1 ? 'troca feita' : 'trocas feitas'} no texto. Confira e publique para o atendente passar a usar.`);
+  };
+  const desfazerTroca = () => { setTexto(antesDaTroca); setAntesDaTroca(null); setSujo(true); setMsg('Troca desfeita.'); };
   return (
     <>
       <p className="muted" style={{ marginBottom: 10 }}>
@@ -40,7 +79,23 @@ function Manual() {
       {msg && <div className="card" style={{ marginBottom: 12, color: 'var(--ok)' }}>{msg}</div>}
       {err && <div className="error">{err}</div>}
       <div className="card">
-        <textarea value={texto} onChange={(e) => { setTexto(e.target.value); setSujo(true); }} rows={18}
+        <div style={{ marginBottom: 10 }}>
+          <button className="btn sm" onClick={() => setTroca(!troca)}>{troca ? 'Fechar' : '🔎 Localizar e substituir'}</button>
+          {troca && (
+            <div style={{ marginTop: 10, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <div className="field" style={{ margin: 0 }}><label>Localizar</label><input value={buscar} onChange={(e) => setBuscar(e.target.value)} placeholder="Ex.: Vitória" /></div>
+              <div className="field" style={{ margin: 0 }}><label>Substituir por</label><input value={trocarPor} onChange={(e) => setTrocarPor(e.target.value)} placeholder="Ex.: Cláudia" /></div>
+              <button className="btn primary" onClick={substituirTudo} disabled={!achados.length}>Substituir tudo</button>
+              {antesDaTroca !== null && <button className="btn" onClick={desfazerTroca}>Desfazer</button>}
+              <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <input type="checkbox" checked={exato} onChange={(e) => setExato(e.target.checked)} style={{ width: 'auto' }} />
+                Diferenciar maiúsculas e acentos
+              </label>
+              <span className="muted">{buscar ? (achados.length ? `Aparece ${achados.length} ${achados.length === 1 ? 'vez' : 'vezes'}` : 'Não encontrado') : ''}</span>
+            </div>
+          )}
+        </div>
+        <textarea value={texto} onChange={(e) => { setTexto(e.target.value); setSujo(true); setAntesDaTroca(null); }} rows={18}
           style={{ width: '100%', fontFamily: 'inherit' }} placeholder="Ex.: Você é a atendente da empresa… Seja simpática e objetiva…" />
         <div className="muted" style={{ margin: '6px 0 10px' }}>
           {texto.length} caracteres ·{' '}

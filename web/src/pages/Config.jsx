@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
-import ComandosAgente from './ComandosAgente.jsx';
 
 // Redimensiona a imagem no navegador (máx. 256px) e devolve um data URL leve
 function resizeImage(file, max = 256) {
@@ -88,7 +87,6 @@ export default function Config() {
           <button className="btn primary">Salvar</button>
         </form>
       </div>
-      <ComandosAgente />
     </>
   );
 }

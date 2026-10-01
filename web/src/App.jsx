@@ -12,6 +12,7 @@ import Inativos from './pages/Inativos.jsx';
 import Config from './pages/Config.jsx';
 import Admin from './pages/Admin.jsx';
 import Atendente from './pages/Atendente.jsx';
+import Comandos from './pages/Comandos.jsx';
 import { moduleOn } from './modules.js';
 
 const THEMES = [
@@ -29,13 +30,14 @@ const ADMIN_ITEM = { id: 'admin', label: 'Administração', icon: '🛠️', com
 const BASE_MENU = [
   { id: 'dashboard', module: 'dashboard', label: 'Dashboard', icon: '📊', comp: Dashboard },
   { id: 'agenda', module: 'agenda', label: 'Agenda', icon: '📅', comp: Agenda },
-  { id: 'fila', module: 'agenda', label: 'Fila de espera', icon: '⏳', comp: Fila },
+  { id: 'fila', module: 'fila', label: 'Fila de espera', icon: '⏳', comp: Fila },
   { id: 'clientes', module: 'clientes', label: 'Clientes e Leads', icon: '👥', comp: Clientes },
-  { id: 'inativos', module: 'clientes', label: 'Retorno de inativos', icon: '🔁', comp: Inativos },
-  { id: 'profissionais', module: 'agenda', label: 'Profissionais', icon: '✂️', comp: Profissionais },
-  { id: 'servicos', module: 'agenda', label: 'Serviços', icon: '🏢', comp: Servicos },
-  { id: 'importar', module: 'clientes', label: 'Importar planilha', icon: '📥', comp: Importar },
+  { id: 'inativos', module: 'inativos', label: 'Retorno de inativos', icon: '🔁', comp: Inativos },
+  { id: 'profissionais', module: 'profissionais', label: 'Profissionais', icon: '✂️', comp: Profissionais },
+  { id: 'servicos', module: 'servicos', label: 'Serviços', icon: '🏢', comp: Servicos },
+  { id: 'importar', module: 'importar', label: 'Importar planilha', icon: '📥', comp: Importar },
   { id: 'atendente', module: 'atendente', label: 'Atendente', icon: '🤖', comp: Atendente },
+  { id: 'comandos', module: 'comandos', label: 'Comandos', icon: '🎛️', comp: Comandos },
   { id: 'config', label: 'Configurações', icon: '⚙️', comp: Config },
 ];
 

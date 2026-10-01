@@ -72,6 +72,24 @@ app.get('/api/me', requireUser, async (req, res) => {
   res.json({ admin: await isAdmin(req.user.id), impersonating: !!req.user.imp });
 });
 
+// Versão no ar: início do servidor (= hora do deploy) e, se a hospedagem informar, o código da versão.
+const NO_AR_DESDE = new Date().toISOString();
+app.get('/api/admin/version', requireUser, requireAdmin, (req, res) => {
+  const c = String(process.env.SOURCE_COMMIT || '').trim();
+  res.json({ commit: c ? c.slice(0, 7) : null, started_at: NO_AR_DESDE });
+});
+
+// Últimos acessos do administrador ao painel de empresas ("Abrir painel")
+app.get('/api/admin/access-log', requireUser, requireAdmin, async (req, res) => {
+  const { rows } = await qg(
+    `SELECT l.id, l.created_at, l.company_id, c.name AS company_name, a.email AS admin_email
+     FROM admin_access_log l
+     LEFT JOIN companies c ON c.id = l.company_id
+     LEFT JOIN users a ON a.id = l.admin_user_id
+     ORDER BY l.id DESC LIMIT 50`);
+  res.json(rows);
+});
+
 app.get('/api/admin/companies', requireUser, requireAdmin, async (req, res) => {
   const { rows } = await qg(
     `SELECT c.id, c.name, c.max_professionals, c.created_at, c.modules, c.api_key_hint, c.api_key_created_at,

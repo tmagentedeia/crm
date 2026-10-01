@@ -13,5 +13,8 @@ COPY src ./src
 COPY db ./db
 COPY --from=web /public ./public
 ENV NODE_ENV=production
+# código da versão (a hospedagem preenche); aparece na Administração
+ARG SOURCE_COMMIT
+ENV SOURCE_COMMIT=${SOURCE_COMMIT}
 EXPOSE 3000
 CMD ["sh", "-c", "node src/migrate.js && node src/index.js"]

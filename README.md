@@ -77,3 +77,8 @@ Principais rotas:
 
 ## Abrir painel (administrador)
 Na Administração, o botão **Abrir painel** entra no painel da empresa como o responsável dela, sem senha. O acesso dura 2 horas, mostra uma faixa "Voltar à administração" e cada abertura fica registrada na tabela `admin_access_log` (administrador, empresa, data). Não dá para encadear de uma empresa para outra.
+
+## Módulos por item do menu, Comandos e versão
+- Cada item do menu é um módulo que a Administração liga/desliga por empresa (dashboard, agenda, fila, profissionais, servicos, clientes, inativos, importar, atendente, comandos). Empresas antigas continuam como estavam: um módulo novo sem valor próprio segue o módulo "pai" antigo (fila/profissionais/servicos → agenda; inativos/importar → clientes; comandos → atendente).
+- "Comandos" é um menu próprio; Configurações ficou só com logotipo e dados da empresa.
+- A Administração mostra a versão no ar (hora de início do servidor e, se a hospedagem informar `SOURCE_COMMIT`, o código da versão) e o histórico dos acessos "Abrir painel".

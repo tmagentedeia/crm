@@ -170,6 +170,9 @@ check('o responsável vê a mudança', (await call('GET', '/api/company', { toke
 check('módulo desconhecido na troca = 400', (await call('PUT', urlMod, { token: A.token, body: { modules: { voo: false } } })).status === 400);
 check('quem não é admin não troca módulos', (await call('PUT', urlMod, { token: donaM.token, body: { modules: { agenda: true } } })).status === 403);
 check('módulos de empresa inexistente = 404', (await call('PUT', '/api/admin/companies/999/modules', { token: A.token, body: { modules: { agenda: true } } })).status === 404);
+const ligaFino = await call('PUT', urlMod, { token: A.token, body: { modules: { fila: false, inativos: false, importar: false, comandos: true } } });
+check('módulos por item do menu são aceitos', ligaFino.status === 200 && ligaFino.body.modules.fila === false && ligaFino.body.modules.comandos === true && ligaFino.body.modules.clientes === true, JSON.stringify(ligaFino.body));
+check('módulo desconhecido = 400', (await call('PUT', urlMod, { token: A.token, body: { modules: { financeiro: true } } })).status === 400);
 check('a lista de empresas mostra os módulos', (await call('GET', '/api/admin/companies', { token: A.token })).body.find((c) => c.id == criada.body.id)?.modules?.agenda === false);
 check('desligar módulo só esconde o menu: as rotas continuam respondendo', (await call('GET', '/api/services', { token: donaM.token })).status === 200);
 check('empresa antiga (sem módulos configurados) continua inteira', Object.keys(A.company.modules || {}).length === 0);
@@ -195,6 +198,14 @@ check('exportação separada por empresa', exB.some((c) => c.name === 'Cliente D
 check('exportação respeita o filtro', (await call('GET', '/api/customers/export?status=lead', { token: A.token })).body.every((c) => c.status === 'lead'));
 check('exportação no N8N exige chave', (await call('GET', '/n8n/customers/export', { n8n: 1 })).status === 200);
 check('exportação sem login = 401', (await call('GET', '/api/customers/export')).status === 401);
+
+// ---- versão no ar e histórico de acessos (só administrador)
+const ver = await call('GET', '/api/admin/version', { token: A.token });
+check('administrador vê a versão no ar', ver.status === 200 && !!ver.body.started_at && 'commit' in ver.body, JSON.stringify(ver.body));
+check('não administrador não vê a versão', (await call('GET', '/api/admin/version', { token: B.token })).status === 403);
+const lg = await call('GET', '/api/admin/access-log', { token: A.token });
+check('administrador vê o histórico de acessos', lg.status === 200 && Array.isArray(lg.body));
+check('não administrador não vê o histórico', (await call('GET', '/api/admin/access-log', { token: B.token })).status === 403);
 
 console.log(`\n${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);

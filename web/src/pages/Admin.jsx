@@ -12,6 +12,8 @@ export default function Admin() {
   const [edit, setEdit] = useState({}); // id -> valor digitado
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
+  const [versao, setVersao] = useState(null);
+  const [acessos, setAcessos] = useState(null); // null = fechado
   const [novaChave, setNovaChave] = useState(null); // { id, empresa, chave } — mostrada uma única vez
   const [copiada, setCopiada] = useState(false);
   const [form, setForm] = useState(null); // null = formulário "Nova empresa" fechado
@@ -19,6 +21,8 @@ export default function Admin() {
   const [modelos, setModelos] = useState([]);
   const [salvarModelo, setSalvarModelo] = useState(null); // { company_id, empresa, name, description }
   const loadModelos = () => api('/admin/templates').then(setModelos).catch((e) => setErr(e.message));
+  useEffect(() => { api('/admin/version').then(setVersao).catch(() => {}); }, []);
+  const verAcessos = () => (acessos ? setAcessos(null) : api('/admin/access-log').then(setAcessos).catch((e) => setErr(e.message)));
   const load = () => { loadModelos(); return api('/admin/companies').then(setList).catch((e) => setErr(e.message)); };
   useEffect(() => { load(); }, []);
 
@@ -111,6 +115,11 @@ export default function Admin() {
         <h1>Administração</h1>
         {!form && <button className="btn primary" onClick={() => { setForm(FORM_VAZIO()); setErr(''); }}>+ Nova empresa</button>}
       </div>
+      {versao && (
+        <p className="muted" style={{ marginBottom: 8 }}>
+          Versão no ar: {versao.commit ? <strong>{versao.commit}</strong> : 'código não informado'} · desde {new Date(versao.started_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
+        </p>
+      )}
       <p className="muted" style={{ marginBottom: 16 }}>Empresas cadastradas, limite de profissionais, módulos e chave de integração de cada uma. Deixe o limite vazio para não ter limite.</p>
       {msg && <div className="card" style={{ marginBottom: 12, color: 'var(--ok)' }}>{msg}</div>}
       {err && <div className="error">{err}</div>}
@@ -221,6 +230,25 @@ export default function Admin() {
         </table>
       </div>
     
+      <div className="card table-wrap" style={{ marginTop: 16 }}>
+        <button className="btn sm" onClick={verAcessos}>{acessos ? 'Esconder' : 'Ver'} acessos do administrador às empresas</button>
+        {acessos && (
+          <table style={{ marginTop: 10 }}>
+            <thead><tr><th>Quando</th><th>Empresa</th><th>Quem entrou</th></tr></thead>
+            <tbody>
+              {acessos.map((a) => (
+                <tr key={a.id}>
+                  <td style={{ whiteSpace: 'nowrap' }}>{new Date(a.created_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</td>
+                  <td>{a.company_name || `Empresa ${a.company_id}`}</td>
+                  <td>{a.admin_email || '—'}</td>
+                </tr>
+              ))}
+              {!acessos.length && <tr><td colSpan="3" className="muted">Nenhum acesso registrado ainda.</td></tr>}
+            </tbody>
+          </table>
+        )}
+      </div>
+
       {modelos.length > 0 && (
         <div className="card table-wrap" style={{ marginTop: 16 }}>
           <h2 style={{ marginBottom: 10 }}>Modelos</h2>
