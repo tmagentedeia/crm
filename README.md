@@ -21,6 +21,12 @@ Quem tem o e-mail em `ADMIN_EMAILS` vê a tela Administração:
   continuam respondendo (assim os fluxos do N8N de uma empresa não quebram por causa do menu).
 - **Chave de integração** de cada empresa (ver a seção do N8N abaixo) e o **código** da empresa, usado no `x-company-id`.
 
+## Atendente (módulo)
+Tela com duas abas. **Manual:** texto em linguagem comum com rascunho, publicação e versões anteriores (voltar uma versão a coloca como rascunho).
+**Atualizações provisórias:** recados curtos (até 1000 caracteres, no máximo 10 em vigor) com início e fim opcionais, escolhidos pela pessoa
+por dia e hora (no fuso da empresa). Passado o fim, saem sozinhas do atendente e ficam em "Encerradas", de onde podem ser reativadas.
+Tudo é guardado por empresa (`agent_manual_versions` e `agent_updates`) e entregue ao N8N por `GET /n8n/agent/prompt`.
+
 ## Rodar no Coolify
 1. Crie um Postgres separado e copie a connection string.
 2. Suba este projeto (Dockerfile na raiz) e defina as variáveis de `.env.example`.
@@ -41,6 +47,7 @@ cada workflow pela chave da empresa, defina `ALLOW_GLOBAL_KEY=false` para deslig
 `N8N_API_KEY` continua sendo usada como segredo dos avisos que o painel envia aos webhooks).
 
 Principais rotas:
+- `GET  /n8n/agent/prompt` — texto pronto para o atendente: manual publicado + atualizações provisórias em vigor agora (`{prompt, manual, updates, published_at}`); chamar uma vez antes do agente de IA
 - `GET  /n8n/services` — serviços com preço e duração
 - `GET  /n8n/professionals` — profissionais e horários
 - `GET  /n8n/availability?date=2026-10-01&service_id=1[&professional_id=2]` — horários livres

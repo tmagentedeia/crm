@@ -185,3 +185,22 @@ CREATE TABLE agent_attendants (
   name       TEXT NOT NULL,
   name_norm  TEXT NOT NULL UNIQUE
 );
+-- ========== ATENDENTE: MANUAL E ATUALIZAÇÕES PROVISÓRIAS ==========
+-- Manual do atendente em linguagem comum. Uma linha por versão: sem published_at = rascunho (no máximo um),
+-- com published_at = já publicada (a mais recente é a que vale).
+CREATE TABLE IF NOT EXISTS agent_manual_versions (
+  id           BIGSERIAL PRIMARY KEY,
+  content      TEXT NOT NULL DEFAULT '',
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  published_at TIMESTAMPTZ
+);
+CREATE UNIQUE INDEX IF NOT EXISTS agent_manual_one_draft ON agent_manual_versions ((published_at IS NULL)) WHERE published_at IS NULL;
+-- Atualizações provisórias (ex.: "amanhã fechamos mais cedo"). Valem de starts_at até ends_at (momento escolhido pela pessoa).
+CREATE TABLE IF NOT EXISTS agent_updates (
+  id         BIGSERIAL PRIMARY KEY,
+  text       TEXT NOT NULL,
+  starts_at  TIMESTAMPTZ,
+  ends_at    TIMESTAMPTZ,
+  active     BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

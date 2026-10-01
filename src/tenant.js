@@ -9,7 +9,11 @@ const baseline = fs.readFileSync(path.join(dir, '..', 'db', 'tenant.sql'), 'utf8
 // Alterações futuras na estrutura das empresas: cada item roda uma vez em CADA schema (company_<id>),
 // em ordem. O número da versão é a posição na lista (a base, tenant.sql, é a versão 1).
 // Exemplo: { version: 2, sql: "ALTER TABLE customers ADD COLUMN IF NOT EXISTS algo TEXT" }
-export const TENANT_STEPS = [];
+const atendenteSql = baseline.slice(baseline.indexOf('-- ========== ATENDENTE'));
+export const TENANT_STEPS = [
+  // 2: manual e avisos do atendente (empresas criadas antes dele; as novas já nascem com isso na base)
+  { version: 2, sql: atendenteSql },
+];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 
 // Cria o schema de uma empresa. Deve ser chamado dentro de uma transação aberta em `cx`.

@@ -132,6 +132,118 @@ async function validCategoryIds(ids) {
 export function buildRouter() {
   const r = Router();
 
+  // ---------- ATENDENTE: MANUAL E ATUALIZAÇÕES PROVISÓRIAS ----------
+  const MANUAL_MAX = 30000, UPDATE_MAX = 1000, UPDATES_MAX = 10;
+  // Momento escolhido pela pessoa, no horário da empresa: "aaaa-mm-ddThh:mm"
+  const isMoment = (v) => v === null || v === undefined || v === '' || /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(String(v));
+  const mOrNull = (v) => (v ? String(v) : null);
+  const tzSql = "(SELECT timezone FROM public.companies WHERE id=$1)";
+  const toTs = (n) => `$${n}::text::timestamp AT TIME ZONE ${tzSql}`;
+  const fromTs = (col) => `to_char(${col} AT TIME ZONE ${tzSql}, 'YYYY-MM-DD"T"HH24:MI')`;
+  const ACTIVE_NOW = "n.active AND (n.starts_at IS NULL OR n.starts_at <= now()) AND (n.ends_at IS NULL OR n.ends_at > now())";
+
+  r.get('/agent-manual', wrap(async (req, res) => {
+    const { rows } = await q(
+      `SELECT id, content, created_at, published_at FROM agent_manual_versions ORDER BY COALESCE(published_at, created_at) DESC, id DESC`);
+    const draft = rows.find((v) => !v.published_at) || null;
+    const published = rows.filter((v) => v.published_at);
+    res.json({
+      draft: draft ? { content: draft.content, updated_at: draft.created_at } : null,
+      current: published[0] || null,
+      versions: published.map((v) => ({ id: v.id, published_at: v.published_at, content: v.content })),
+    });
+  }));
+  // Salva o rascunho (não muda o que o atendente usa até publicar)
+  r.put('/agent-manual', wrap(async (req, res) => {
+    const content = String(req.body.content ?? '');
+    if (content.length > MANUAL_MAX) return res.status(400).json({ error: `O manual passou do limite de ${MANUAL_MAX} caracteres` });
+    await q(
+      `INSERT INTO agent_manual_versions (content) VALUES ($1)
+       ON CONFLICT ((published_at IS NULL)) WHERE published_at IS NULL DO UPDATE SET content=EXCLUDED.content, created_at=now()`, [content]);
+    res.json({ ok: true });
+  }));
+  // Publica o rascunho: passa a valer para o atendente
+  r.post('/agent-manual/publish', wrap(async (req, res) => {
+    const { rows } = await q(
+      `UPDATE agent_manual_versions SET published_at=now() WHERE published_at IS NULL AND btrim(content) <> '' RETURNING id`);
+    rows[0] ? res.json({ ok: true }) : res.status(400).json({ error: 'Escreva o manual antes de publicar' });
+  }));
+  // Volta uma versão antiga: ela vira o rascunho (e você publica quando quiser)
+  r.post('/agent-manual/restore/:id', wrap(async (req, res) => {
+    const v = (await q('SELECT content FROM agent_manual_versions WHERE id=$1 AND published_at IS NOT NULL', [req.params.id])).rows[0];
+    if (!v) return res.status(404).json({ error: 'Versão não encontrada' });
+    await q(
+      `INSERT INTO agent_manual_versions (content) VALUES ($1)
+       ON CONFLICT ((published_at IS NULL)) WHERE published_at IS NULL DO UPDATE SET content=EXCLUDED.content, created_at=now()`, [v.content]);
+    res.json({ ok: true });
+  }));
+
+  r.get('/agent-updates', wrap(async (req, res) => {
+    const { rows } = await q(
+      `SELECT n.id, n.text, ${fromTs('n.starts_at')} AS starts_at, ${fromTs('n.ends_at')} AS ends_at, n.active,
+              CASE WHEN NOT n.active OR (n.ends_at IS NOT NULL AND n.ends_at <= now()) THEN 'ended'
+                   WHEN n.starts_at IS NOT NULL AND n.starts_at > now() THEN 'upcoming'
+                   ELSE 'active' END AS state
+       FROM agent_updates n ORDER BY n.created_at DESC, n.id DESC`, [req.user.companyId]);
+    res.json({ max: UPDATES_MAX, updates: rows });
+  }));
+  const updateBody = (b) => {
+    const text = String(b.text ?? '').trim();
+    if (!text) return { error: 'Escreva a atualização' };
+    if (text.length > UPDATE_MAX) return { error: `Texto muito longo (máximo ${UPDATE_MAX} caracteres). Atualizações provisórias devem ser curtas.` };
+    if (!isMoment(b.starts_at) || !isMoment(b.ends_at)) return { error: 'Data ou hora inválida' };
+    const starts_at = mOrNull(b.starts_at), ends_at = mOrNull(b.ends_at);
+    if (starts_at && ends_at && ends_at <= starts_at) return { error: 'O fim precisa ser depois do início' };
+    return { text, starts_at, ends_at };
+  };
+  const openCount = async (companyId, exceptId = 0) =>
+    Number((await q(
+      `SELECT count(*) AS n FROM agent_updates n WHERE n.id <> $1 AND n.active AND (n.ends_at IS NULL OR n.ends_at > now())`,
+      [exceptId])).rows[0].n);
+  r.post('/agent-updates', wrap(async (req, res) => {
+    const b = updateBody(req.body);
+    if (b.error) return res.status(400).json({ error: b.error });
+    if ((await openCount(req.user.companyId)) >= UPDATES_MAX)
+      return res.status(400).json({ error: `Já são ${UPDATES_MAX} atualizações em vigor. Encerre alguma antes de criar outra.` });
+    const { rows } = await q(
+      `INSERT INTO agent_updates (text, starts_at, ends_at) VALUES ($2, CASE WHEN $3::text IS NULL THEN NULL ELSE ${toTs(3)} END, CASE WHEN $4::text IS NULL THEN NULL ELSE ${toTs(4)} END) RETURNING id`,
+      [req.user.companyId, b.text, b.starts_at, b.ends_at]);
+    res.status(201).json(rows[0]);
+  }));
+  // Editar, encerrar ({active:false}) ou reativar ({active:true, ends_at: novo momento ou vazio})
+  r.put('/agent-updates/:id', wrap(async (req, res) => {
+    const cur = (await q(`SELECT n.*, ${fromTs('n.starts_at')} AS s_local, ${fromTs('n.ends_at')} AS e_local FROM agent_updates n WHERE n.id=$2`, [req.user.companyId, req.params.id])).rows[0];
+    if (!cur) return res.status(404).json({ error: 'Atualização não encontrada' });
+    const b = updateBody({ text: req.body.text ?? cur.text,
+      starts_at: 'starts_at' in req.body ? req.body.starts_at : cur.s_local,
+      ends_at: 'ends_at' in req.body ? req.body.ends_at : cur.e_local });
+    if (b.error) return res.status(400).json({ error: b.error });
+    const active = 'active' in req.body ? !!req.body.active : cur.active;
+    if (active && !cur.active && (await openCount(req.user.companyId, cur.id)) >= UPDATES_MAX)
+      return res.status(400).json({ error: `Já são ${UPDATES_MAX} atualizações em vigor. Encerre alguma antes de reativar esta.` });
+    await q(
+      `UPDATE agent_updates SET text=$3, starts_at=CASE WHEN $4::text IS NULL THEN NULL ELSE ${toTs(4)} END,
+         ends_at=CASE WHEN $5::text IS NULL THEN NULL ELSE ${toTs(5)} END, active=$6 WHERE id=$2`,
+      [req.user.companyId, cur.id, b.text, b.starts_at, b.ends_at, active]);
+    res.json({ ok: true });
+  }));
+  r.delete('/agent-updates/:id', wrap(async (req, res) => {
+    await q('DELETE FROM agent_updates WHERE id=$1', [req.params.id]);
+    res.json({ ok: true });
+  }));
+
+  // Texto pronto para o atendente: manual publicado + avisos em vigor hoje. O N8N chama isto antes do agente de IA.
+  r.get('/agent/prompt', wrap(async (req, res) => {
+    const man = (await q('SELECT content, published_at FROM agent_manual_versions WHERE published_at IS NOT NULL ORDER BY published_at DESC, id DESC LIMIT 1')).rows[0];
+    const updates = (await q(
+      `SELECT n.text, ${fromTs('n.ends_at')} AS ends_at FROM agent_updates n WHERE ${ACTIVE_NOW} ORDER BY n.created_at, n.id`, [req.user.companyId])).rows;
+    let prompt = man ? man.content.trim() : '';
+    if (updates.length)
+      prompt += `${prompt ? '\n\n' : ''}ATUALIZAÇÕES RECENTES (informações mais novas que o manual: se alguma contrariar o manual, vale a atualização):\n` +
+        updates.map((n) => `- ${n.text}`).join('\n');
+    res.json({ prompt, manual: man ? man.content : '', updates, published_at: man ? man.published_at : null });
+  }));
+
   // ---------- CATEGORIAS ----------
   // Devolve cada categoria com seus serviços e os profissionais que atendem nela
   // (profissional sem serviços marcados = faz todos, então entra em todas as categorias).

@@ -11,6 +11,7 @@ import Importar from './pages/Importar.jsx';
 import Inativos from './pages/Inativos.jsx';
 import Config from './pages/Config.jsx';
 import Admin from './pages/Admin.jsx';
+import Atendente from './pages/Atendente.jsx';
 import { moduleOn } from './modules.js';
 
 const THEMES = [
@@ -34,6 +35,7 @@ const BASE_MENU = [
   { id: 'profissionais', module: 'agenda', label: 'Profissionais', icon: '✂️', comp: Profissionais },
   { id: 'servicos', module: 'agenda', label: 'Serviços', icon: '🏢', comp: Servicos },
   { id: 'importar', module: 'clientes', label: 'Importar planilha', icon: '📥', comp: Importar },
+  { id: 'atendente', module: 'atendente', label: 'Atendente', icon: '🤖', comp: Atendente },
   { id: 'config', label: 'Configurações', icon: '⚙️', comp: Config },
 ];
 
