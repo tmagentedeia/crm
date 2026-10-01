@@ -2,10 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
 
 const KINDS = [
-  { k: 'off', title: 'Desligar o agente', help: 'Desliga por 24h (soberano). Ex.: /off' },
-  { k: 'on', title: 'Ligar o agente', help: 'Liga de volta e limpa qualquer pausa. Ex.: /on' },
-  { k: 'pause', title: 'Pausar a conversa', help: 'O agente para de responder naquela conversa. Ex.: "Pode deixar comigo"' },
-  { k: 'resume', title: 'Retomar a conversa', help: 'O agente volta a responder. Ex.: "Segue com a Vitória"' },
+  { k: 'off', title: 'Desligar o agente', help: 'Bloqueio total da conversa por 24h. Ex.: /off' },
+  { k: 'pause', title: 'Pausar (bloqueio total)', help: 'Também bloqueio total daquela conversa. Ex.: "Thiago aqui"' },
+  { k: 'on', title: 'Ligar o agente', help: 'Retomada total: limpa todos os bloqueios. Ex.: /on' },
+  { k: 'resume', title: 'Retomar (retomada total)', help: 'Também retomada total. Ex.: "Tá contigo, Diana"' },
 ];
 
 export default function ComandosAgente() {
@@ -30,7 +30,8 @@ export default function ComandosAgente() {
     setErr('');
     try { setTestRes(await api('/agent-commands/classify', { method: 'POST', body: { text: test } })); } catch (e) { setErr(e.message); }
   };
-  const label = { off: 'desligar', on: 'ligar', pause: 'pausar a conversa', resume: 'retomar a conversa', none: 'nada (o agente segue normal)' };
+  const label = { off: 'desligar (bloqueio total)', on: 'ligar (retomada total)', pause: 'bloqueio total', resume: 'retomada total', none: 'nada (o agente segue normal)' };
+  const labelGeral = { pause: 'pausa simples da conversa', resume: 'retomada simples da conversa' };
 
   return (
     <div className="card" style={{ marginTop: 16 }}>
@@ -93,11 +94,11 @@ export default function ComandosAgente() {
           <input value={test} onChange={(e) => { setTest(e.target.value); setTestRes(null); }} placeholder="Digite como se fosse você mandando no WhatsApp" style={{ flex: 1 }} />
           <button className="btn" onClick={runTest}>Testar</button>
         </div>
-        {testRes && <p style={{ marginTop: 6 }}>O agente iria: <strong>{label[testRes.action]}</strong>{testRes.rule === 'geral' && <span className="muted"> (regra geral)</span>}</p>}
+        {testRes && <p style={{ marginTop: 6 }}>O agente iria: <strong>{testRes.rule === 'geral' ? labelGeral[testRes.action] : label[testRes.action]}</strong>{testRes.rule === 'geral' && <span className="muted"> (regra geral)</span>}</p>}
       </div>
       <p className="muted">A frase vale quando a mensagem <em>começa</em> com ela. Maiúsculas, acentos e vírgulas não fazem diferença.</p>
-      <p className="muted"><strong>Regra geral:</strong> qualquer outra mensagem sua numa conversa <strong>pausa</strong> o agente ali; se terminar com <strong>?</strong> ou <strong>...</strong>, ele <strong>retoma</strong>. Mensagens que começam com “/” e não são comandos são ignoradas.</p>
-      <p className="muted"><strong>Frases cadastradas mandam mais:</strong> se a mensagem começa com uma frase cadastrada (ou automática), vale o tipo dela, mesmo que termine com <strong>?</strong> ou <strong>...</strong>. Ex.: “Will aqui...” pausa; “Segue com a Vitória?” retoma.</p>
+      <p className="muted"><strong>Regra geral:</strong> qualquer outra mensagem sua numa conversa <strong>pausa</strong> o agente ali (pausa simples); se terminar com <strong>?</strong> ou <strong>...</strong>, ele <strong>retoma</strong> (retomada simples). Mensagens que começam com “/” e não são comandos são ignoradas.</p>
+      <p className="muted"><strong>Frases cadastradas mandam mais:</strong> se a mensagem começa com uma frase cadastrada (ou automática), vale o tipo dela, mesmo que termine com <strong>?</strong> ou <strong>...</strong>. Ex.: “Will aqui...” bloqueia; “Tá contigo, Diana?” retoma tudo.</p>
     </div>
   );
 }
