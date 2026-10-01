@@ -50,7 +50,7 @@ export default function ComandosAgente() {
         </div>
         <button className="btn" onClick={() => run(() => api('/agent-config', { method: 'PUT', body: { agent_name: agent, adm_name: adm } }), 'Nomes salvos')}>Salvar nomes</button>
       </div>
-      <p className="muted" style={{ marginTop: -6 }}>Use os mesmos nomes que estão no fluxo do N8N (<code>agentname</code> e <code>admname</code>). Eles geram as frases fixas “<em>proprietário</em> aqui” (bloquear) e “tá contigo <em>agente</em>” (liberar).</p>
+      <p className="muted" style={{ marginTop: -6 }}>Esses nomes geram as frases prontas “<em>proprietário</em> aqui” (bloquear) e “tá contigo <em>agente</em>” (liberar).</p>
 
       <div className="field">
         <label>Atendentes extras <span className="muted">(cada nome vira “nome aqui”, que bloqueia o agente por 24h, além do proprietário)</span></label>
