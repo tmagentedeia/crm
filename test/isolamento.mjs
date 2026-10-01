@@ -187,5 +187,14 @@ check('e A não vê', !(await call('GET', '/api/customers', { token: A.token }))
 check('token inválido = 401', (await call('GET', '/api/customers', { token: 'x' })).status === 401);
 check('sem token = 401', (await call('GET', '/api/customers')).status === 401);
 
+// ---- exportação para planilha ----
+const exA = (await call('GET', '/api/customers/export', { token: A.token })).body;
+const exB = (await call('GET', '/api/customers/export', { token: B.token })).body;
+check('exportação traz todos os clientes da empresa', exA.length >= cA.length && exA.every((c) => 'name' in c && 'phone' in c && 'status' in c));
+check('exportação separada por empresa', exB.some((c) => c.name === 'Cliente Dois') && !exA.some((c) => c.name === 'Cliente Dois') && !exB.some((c) => cA.some((a) => a.name === c.name)));
+check('exportação respeita o filtro', (await call('GET', '/api/customers/export?status=lead', { token: A.token })).body.every((c) => c.status === 'lead'));
+check('exportação no N8N exige chave', (await call('GET', '/n8n/customers/export', { n8n: 1 })).status === 200);
+check('exportação sem login = 401', (await call('GET', '/api/customers/export')).status === 401);
+
 console.log(`\n${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);

@@ -1,6 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { api, fmtDate, fmtPhone, fmtTime, money } from '../api.js';
 
+// Planilha: células que começam com = + - @ viram texto (evita fórmula embutida em nome ou observação)
+const cel = (v) => {
+  const t = String(v ?? '').replace(/\r?\n/g, ' ').replace(/\t/g, ' ');
+  return /^[=+\-@]/.test(t) ? "'" + t : t;
+};
+const dataBr = (d) => (d ? new Date(d).toLocaleDateString('pt-BR') : '');
+const COLUNAS = ['Nome', 'Telefone', 'Tipo', 'Origem', 'Última visita', 'Cadastrado em', 'Observações'];
+const linhas = (rows) => rows.map((c) => [c.name, c.phone, c.status === 'client' ? 'Cliente' : 'Lead', c.source === 'ia' ? 'Agente IA' : 'Manual', dataBr(c.last_visit_at), dataBr(c.created_at), c.notes].map(cel));
+
 const STATUS = { scheduled: 'Agendado', attended: 'Compareceu', no_show: 'Faltou', cancelled: 'Cancelado' };
 
 export default function Clientes() {
@@ -12,6 +21,30 @@ export default function Clientes() {
 
   const load = () => api(`/customers?status=${tab}&search=${encodeURIComponent(search)}`).then(setList);
   useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [tab, search]);
+
+  const [aviso, setAviso] = useState('');
+  const exportar = () => api(`/customers/export?status=${tab}&search=${encodeURIComponent(search)}`);
+  // Copia em formato de tabela: é só colar numa célula do Google Planilhas ou do Excel
+  const copiar = async () => {
+    try {
+      const rows = await exportar();
+      await navigator.clipboard.writeText([COLUNAS, ...linhas(rows)].map((l) => l.join('\t')).join('\n'));
+      setAviso(`${rows.length} registro(s) copiados. Cole em uma célula da planilha.`);
+    } catch { setAviso('Não consegui copiar. Use "Baixar planilha".'); }
+  };
+  const baixar = async () => {
+    try {
+      const rows = await exportar();
+      const aspas = (v) => '"' + String(v).replace(/"/g, '""') + '"';
+      const csv = '\ufeff' + [COLUNAS, ...linhas(rows)].map((l) => l.map(aspas).join(';')).join('\r\n');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+      a.download = 'clientes.csv';
+      a.click();
+      URL.revokeObjectURL(a.href);
+      setAviso(`${rows.length} registro(s) baixados.`);
+    } catch { setAviso('Não consegui baixar a planilha.'); }
+  };
 
   const open = (id) => api('/customers/' + id).then(setDetail);
 
@@ -26,7 +59,10 @@ export default function Clientes() {
           <button key={v} className={'btn' + (tab === v ? ' primary' : '')} onClick={() => setTab(v)}>{l}</button>
         ))}
         <input placeholder="Buscar por nome ou telefone…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ maxWidth: 300 }} />
+        <button className="btn" onClick={copiar} title="Copia a lista para colar numa planilha">Copiar para planilha</button>
+        <button className="btn" onClick={baixar} title="Baixa um arquivo que abre no Excel e no Google Planilhas">Baixar planilha</button>
       </div>
+      {aviso && <p className="muted" style={{ marginBottom: 8 }}>{aviso}</p>}
       <div className="card table-wrap">
         <table>
           <thead><tr><th>Nome</th><th>Telefone</th><th>Tipo</th><th>Origem</th><th>Última visita</th></tr></thead>

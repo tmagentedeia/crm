@@ -392,6 +392,17 @@ export function buildRouter() {
       [status || null, search || null]);
     res.json(rows);
   }));
+  // Todos os clientes e leads (sem o limite da listagem), para baixar ou copiar para uma planilha. Mesmos filtros da listagem.
+  r.get('/customers/export', wrap(async (req, res) => {
+    const { status, search } = req.query;
+    const { rows } = await q(
+      `SELECT name, phone, status, source, notes, last_visit_at, created_at FROM customers
+       WHERE ($1::text IS NULL OR status=$1)
+       AND ($2::text IS NULL OR name ILIKE '%'||$2||'%' OR phone LIKE '%'||$2||'%')
+       ORDER BY created_at DESC`,
+      [status || null, search || null]);
+    res.json(rows);
+  }));
   // Upsert por telefone: o agente de IA chama isso quando um lead novo conversa
   r.post('/customers', wrap(async (req, res) => {
     const { name, phone, chat_id, source = 'manual', notes, status } = req.body;
