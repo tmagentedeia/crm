@@ -11,6 +11,7 @@ const KINDS = [
 export default function ComandosAgente() {
   const [cfg, setCfg] = useState(null);
   const [agent, setAgent] = useState('');
+  const [adm, setAdm] = useState('');
   const [att, setAtt] = useState('');
   const [nw, setNw] = useState({});
   const [err, setErr] = useState('');
@@ -18,7 +19,7 @@ export default function ComandosAgente() {
   const [test, setTest] = useState('');
   const [testRes, setTestRes] = useState(null);
 
-  const load = () => api('/agent-config').then((c) => { setCfg(c); setAgent(c.agent_name || ''); });
+  const load = () => api('/agent-config').then((c) => { setCfg(c); setAgent(c.agent_name || ''); setAdm(c.adm_name || ''); });
   useEffect(() => { load(); }, []);
   if (!cfg) return null;
 
@@ -40,16 +41,21 @@ export default function ComandosAgente() {
       {msg && <div style={{ color: 'var(--ok)', marginBottom: 8 }}>{msg}</div>}
       {err && <div className="error">{err}</div>}
 
-      <div className="row" style={{ alignItems: 'flex-end', marginBottom: 14 }}>
-        <div className="field" style={{ flex: 1, margin: 0 }}>
+      <div className="row" style={{ alignItems: 'flex-end', marginBottom: 14, flexWrap: 'wrap' }}>
+        <div className="field" style={{ flex: 1, margin: 0, minWidth: 160 }}>
           <label>Nome do agente</label>
           <input value={agent} onChange={(e) => setAgent(e.target.value)} placeholder="ex.: Vitória" />
         </div>
-        <button className="btn" onClick={() => run(() => api('/agent-config', { method: 'PUT', body: { agent_name: agent } }), 'Nome salvo')}>Salvar nome</button>
+        <div className="field" style={{ flex: 1, margin: 0, minWidth: 160 }}>
+          <label>Proprietário / ADM</label>
+          <input value={adm} onChange={(e) => setAdm(e.target.value)} placeholder="ex.: Thiago" />
+        </div>
+        <button className="btn" onClick={() => run(() => api('/agent-config', { method: 'PUT', body: { agent_name: agent, adm_name: adm } }), 'Nomes salvos')}>Salvar nomes</button>
       </div>
+      <p className="muted" style={{ marginTop: -6 }}>Use os mesmos nomes que estão no fluxo do N8N (<code>agentname</code> e <code>admname</code>). Eles geram as frases fixas “<em>proprietário</em> aqui” (bloqueio total) e “tá contigo <em>agente</em>” (retomada total).</p>
 
       <div className="field">
-        <label>Atendentes que podem pausar <span className="muted">(cada nome vira “nome aqui”)</span></label>
+        <label>Atendentes extras <span className="muted">(cada nome vira “nome aqui”, além do proprietário)</span></label>
         <div className="row" style={{ flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
           {cfg.attendants.map((a) => (
             <span key={a.id} className="row" style={{ gap: 6, border: '1px solid var(--border, #ddd)', borderRadius: 999, padding: '4px 10px' }}>
@@ -72,7 +78,9 @@ export default function ComandosAgente() {
           <div className="field" key={k}>
             <label>{title} <span className="muted">— {help} (até {cfg.limits[k]} frases próprias)</span></label>
             <div className="row" style={{ flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-              {auto.map((c) => <span key={c.phrase} className="muted" style={{ border: '1px dashed #bbb', borderRadius: 999, padding: '4px 10px' }} title="Automática">{c.phrase}</span>)}
+              {auto.map((c) => <span key={c.phrase} className="muted" style={{ border: '1px dashed #bbb', borderRadius: 999, padding: '4px 10px' }} title="Frase fixa">{c.phrase}</span>)}
+              {k === 'pause' && !cfg.adm_name && <span className="muted" style={{ border: '1px dashed #e0a030', borderRadius: 999, padding: '4px 10px' }} title="Preencha o nome do proprietário acima">{'{proprietário}'} aqui</span>}
+              {k === 'resume' && !cfg.agent_name && <span className="muted" style={{ border: '1px dashed #e0a030', borderRadius: 999, padding: '4px 10px' }} title="Preencha o nome do agente acima">tá contigo {'{agente}'}</span>}
               {own.map((c) => (
                 <span key={c.id} className="row" style={{ gap: 6, border: '1px solid var(--border, #ddd)', borderRadius: 999, padding: '4px 10px' }}>
                   {c.phrase}

@@ -620,18 +620,20 @@ export function buildRouter() {
   // "/off" e "/on" mantêm a barra (a pontuação acima não a remove)
   async function agentCommandSet(salonId) {
     const [sal, cmds, atts] = await Promise.all([
-      q('SELECT agent_name FROM salons WHERE id=$1', [salonId]),
+      q('SELECT agent_name, adm_name FROM salons WHERE id=$1', [salonId]),
       q('SELECT id,kind,phrase,phrase_norm FROM agent_commands WHERE salon_id=$1 ORDER BY id', [salonId]),
       q('SELECT id,name,name_norm FROM agent_attendants WHERE salon_id=$1 ORDER BY id', [salonId]),
     ]);
     const agent = sal.rows[0]?.agent_name || '';
+    const adm = sal.rows[0]?.adm_name || '';
     const auto = [{ kind: 'off', phrase: '/off', fixed: true }, { kind: 'on', phrase: '/on', fixed: true }];
+    if (adm) auto.push({ kind: 'pause', phrase: `${adm} aqui`, fixed: true });
     for (const a of atts.rows) auto.push({ kind: 'pause', phrase: `${a.name} aqui`, attendant_id: a.id });
     if (agent) {
       auto.push({ kind: 'resume', phrase: `tá contigo ${agent}`, from_agent: true });
       auto.push({ kind: 'resume', phrase: `segue com a ${agent}`, from_agent: true });
     }
-    return { agent, custom: cmds.rows, attendants: atts.rows, auto };
+    return { agent, adm, custom: cmds.rows, attendants: atts.rows, auto };
   }
   const allPhrases = (set) => [
     ...set.auto.map((x) => ({ kind: x.kind, norm: normCmd(x.phrase) })),
@@ -639,15 +641,19 @@ export function buildRouter() {
   ];
   r.get('/agent-config', wrap(async (req, res) => {
     const set = await agentCommandSet(req.user.salonId);
-    res.json({ agent_name: set.agent, attendants: set.attendants.map(({ id, name }) => ({ id, name })),
+    res.json({ agent_name: set.agent, adm_name: set.adm, attendants: set.attendants.map(({ id, name }) => ({ id, name })),
       commands: set.custom.map(({ id, kind, phrase }) => ({ id, kind, phrase })),
       automatic: set.auto.map(({ kind, phrase, fixed }) => ({ kind, phrase, fixed: !!fixed })),
       limits: LIMITS });
   }));
   r.put('/agent-config', wrap(async (req, res) => {
-    const name = String(req.body?.agent_name ?? '').trim();
-    if (name.length > 40) return res.status(400).json({ error: 'Nome do agente muito longo' });
-    await q('UPDATE salons SET agent_name=$2 WHERE id=$1', [req.user.salonId, name || null]);
+    const b = req.body || {};
+    for (const [k, label, col] of [['agent_name', 'Nome do agente', 'agent_name'], ['adm_name', 'Nome do proprietário', 'adm_name']]) {
+      if (b[k] === undefined) continue;
+      const name = String(b[k] ?? '').trim();
+      if (name.length > 40) return res.status(400).json({ error: `${label} muito longo` });
+      await q(`UPDATE salons SET ${col}=$2 WHERE id=$1`, [req.user.salonId, name || null]);
+    }
     res.json({ ok: true });
   }));
   // limite por tipo conta frases próprias (+ atendentes, no caso de "pause")
@@ -693,7 +699,7 @@ export function buildRouter() {
   r.post('/agent-commands/classify', wrap(async (req, res) => {
     const text = normCmd(req.body?.text);
     const set = await agentCommandSet(req.user.salonId);
-    const send = (o) => res.json({ ...o, agent_name: set.agent || null, adm_name: set.attendants[0]?.name || null, attendants: set.attendants.map((a) => a.name) });
+    const send = (o) => res.json({ ...o, agent_name: set.agent || null, adm_name: set.adm || set.attendants[0]?.name || null, attendants: set.attendants.map((a) => a.name) });
     if (!text) return send({ action: 'none' });
     let best = null;
     for (const x of allPhrases(set)) {
