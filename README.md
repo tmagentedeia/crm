@@ -15,6 +15,10 @@ tema claro/escuro e logotipo customizável.
 ## Administração: novas empresas e módulos
 Quem tem o e-mail em `ADMIN_EMAILS` vê a tela Administração:
 - **Nova empresa:** cria a empresa, o login do responsável, o schema e a chave de integração, já com os módulos escolhidos.
+- **Modelos:** "Salvar como modelo" (em cada empresa) guarda a estrutura: módulos, configurações (dias de inatividade, fuso, lembrete),
+  categorias, serviços e o manual do atendente publicado. Nunca guarda clientes, agenda, profissionais, atualizações provisórias, logotipo,
+  telefone nem a chave. Em "Nova empresa", "Começar do modelo" cria a empresa já com tudo isso (os módulos vêm marcados como no modelo e podem ser ajustados).
+  Apagar um modelo não muda as empresas já criadas com ele.
 - **Módulos por empresa** (`companies.modules`): Agenda, Clientes e Leads, Dashboard e Atendente. O menu de cada empresa mostra só
   o que está ligado; Configurações sempre aparece. Um módulo só está desligado quando vale explicitamente `false`, então empresas
   que nunca tiveram módulos configurados continuam vendo tudo. Desligar um módulo esconde o item do menu; as rotas da API

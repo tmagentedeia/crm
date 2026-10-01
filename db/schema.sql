@@ -38,3 +38,12 @@ CREATE TABLE tenant_versions (
   company_id      BIGINT PRIMARY KEY REFERENCES companies(id) ON DELETE CASCADE,
   version         INT NOT NULL
 );
+
+-- Modelos de empresa (só a estrutura: módulos, configurações, categorias, serviços e manual do atendente; nunca dados de clientes)
+CREATE TABLE company_templates (
+  id                BIGSERIAL PRIMARY KEY,
+  name              TEXT NOT NULL UNIQUE,
+  description       TEXT,
+  data              JSONB NOT NULL,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);

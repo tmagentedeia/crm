@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import { pool } from './db.js';
 import { createCompanySchema } from './tenant.js';
 import { newApiKey } from './apikeys.js';
+import { applyTemplate } from './templates.js';
 
 const slugOf = (name) => String(name).toLowerCase().normalize('NFD').replace(/[^\w]+/g, '-').replace(/^-|-$/g, '')
   + '-' + Math.random().toString(36).slice(2, 6);
@@ -9,7 +10,7 @@ const slugOf = (name) => String(name).toLowerCase().normalize('NFD').replace(/[^
 // Cria a empresa, o schema dela, o usuário dono e a chave de integração, tudo numa transação.
 // Devolve também apiKey: a chave em texto, que não fica guardada em lugar nenhum (só o hash) — mostre-a uma única vez.
 // Lança um erro com code '23505' se o e-mail já existir.
-export async function createCompany({ name, ownerName, email, password, modules = {} }) {
+export async function createCompany({ name, ownerName, email, password, modules = {}, template = null }) {
   const hash = await bcrypt.hash(password, 10);
   const k = newApiKey();
   const cx = await pool.connect();
@@ -24,6 +25,7 @@ export async function createCompany({ name, ownerName, email, password, modules 
       "INSERT INTO users (company_id,name,email,password_hash,role) VALUES ($1,$2,$3,$4,'owner') RETURNING *",
       [c.id, ownerName, email, hash])).rows[0];
     await createCompanySchema(cx, c.id);
+    if (template) await applyTemplate(cx, c.id, template);
     await cx.query('COMMIT');
     // nada da chave sai junto com os dados da empresa
     delete c.api_key_hash; delete c.api_key_hint; delete c.api_key_created_at;

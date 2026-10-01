@@ -15,6 +15,8 @@ try {
     await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS api_key_hash TEXT');
     await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS api_key_hint TEXT');
     await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS api_key_created_at TIMESTAMPTZ');
+    await pool.query(`CREATE TABLE IF NOT EXISTS company_templates (
+      id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL UNIQUE, description TEXT, data JSONB NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
     const n = await upgradeAllCompanies();
     console.log(`Estrutura em dia (${n} empresa(s)).`);
   } else {

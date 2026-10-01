@@ -6,6 +6,8 @@ import { fileURLToPath } from 'url';
 import 'dotenv/config';
 import { q, qg, runAs } from './db.js';
 import { createCompany } from './companies.js';
+import { snapshotCompany } from './templates.js';
+import { pool } from './db.js';
 import { newApiKey } from './apikeys.js';
 import { cleanModules } from './modules.js';
 import { requireUser, requireN8n, requireAdmin, isAdmin, signToken } from './auth.js';
@@ -115,12 +117,48 @@ app.post('/api/admin/companies', requireUser, requireAdmin, async (req, res) => 
     return res.status(400).json({ error: 'Preencha o nome da empresa, o nome e o e-mail do responsável e uma senha com 8 ou mais caracteres' });
   if (!modules) return res.status(400).json({ error: 'Módulos inválidos' });
   try {
-    const { company, apiKey } = await createCompany({ name, ownerName, email, password, modules });
+    let template = null;
+    if (req.body.template_id) {
+      template = (await qg('SELECT data FROM company_templates WHERE id=$1', [Number(req.body.template_id) || 0])).rows[0]?.data;
+      if (!template) return res.status(400).json({ error: 'Modelo não encontrado' });
+    }
+    const { company, apiKey } = await createCompany({ name, ownerName, email, password, modules, template });
     res.status(201).json({ id: company.id, name: company.name, owner_email: email, modules: company.modules, api_key: apiKey });
   } catch (e) {
     if (e.code === '23505') return res.status(409).json({ error: 'E-mail já cadastrado' });
     console.error(e); res.status(500).json({ error: 'Erro interno' });
   }
+});
+
+// ---------- Modelos de empresa ----------
+app.get('/api/admin/templates', requireUser, requireAdmin, async (req, res) => {
+  const { rows } = await qg('SELECT id, name, description, created_at, data FROM company_templates ORDER BY name');
+  res.json(rows.map(({ data, ...t }) => ({ ...t, modules: data.modules || {},
+    categorias: (data.categories || []).length, servicos: (data.services || []).length, tem_manual: !!data.manual })));
+});
+
+// "Salvar como modelo": guarda a estrutura de uma empresa existente (sem nenhum dado de cliente)
+app.post('/api/admin/templates', requireUser, requireAdmin, async (req, res) => {
+  const name = String(req.body.name || '').trim();
+  const description = String(req.body.description || '').trim() || null;
+  const companyId = Number(req.body.company_id);
+  if (!name) return res.status(400).json({ error: 'Dê um nome ao modelo' });
+  if (!Number.isSafeInteger(companyId) || companyId <= 0) return res.status(404).json({ error: 'Empresa não encontrada' });
+  const cx = await pool.connect();
+  try {
+    const data = await snapshotCompany(companyId, cx);
+    if (!data) return res.status(404).json({ error: 'Empresa não encontrada' });
+    const { rows } = await qg('INSERT INTO company_templates (name, description, data) VALUES ($1,$2,$3) RETURNING id, name', [name, description, JSON.stringify(data)]);
+    res.status(201).json(rows[0]);
+  } catch (e) {
+    if (e.code === '23505') return res.status(409).json({ error: 'Já existe um modelo com esse nome' });
+    console.error(e); res.status(500).json({ error: 'Erro interno' });
+  } finally { cx.release(); }
+});
+
+app.delete('/api/admin/templates/:id', requireUser, requireAdmin, async (req, res) => {
+  await qg('DELETE FROM company_templates WHERE id=$1', [Number(req.params.id) || 0]);
+  res.json({ ok: true });
 });
 
 // Liga e desliga os módulos de uma empresa (só os informados mudam; os demais ficam como estão).

@@ -3,7 +3,7 @@ import { api, fmtDate } from '../api.js';
 import { MODULES, moduleOn } from '../modules.js';
 
 const FORM_VAZIO = () => ({
-  name: '', owner_name: '', email: '', password: '',
+  name: '', owner_name: '', email: '', password: '', template_id: '',
   modules: Object.fromEntries(MODULES.map((m) => [m.key, true])),
 });
 
@@ -16,8 +16,33 @@ export default function Admin() {
   const [copiada, setCopiada] = useState(false);
   const [form, setForm] = useState(null); // null = formulário "Nova empresa" fechado
   const [criando, setCriando] = useState(false);
-  const load = () => api('/admin/companies').then(setList).catch((e) => setErr(e.message));
+  const [modelos, setModelos] = useState([]);
+  const [salvarModelo, setSalvarModelo] = useState(null); // { company_id, empresa, name, description }
+  const loadModelos = () => api('/admin/templates').then(setModelos).catch((e) => setErr(e.message));
+  const load = () => { loadModelos(); return api('/admin/companies').then(setList).catch((e) => setErr(e.message)); };
   useEffect(() => { load(); }, []);
+
+  async function guardarModelo(e) {
+    e.preventDefault();
+    setErr(''); setMsg('');
+    try {
+      await api('/admin/templates', { method: 'POST', body: { company_id: salvarModelo.company_id, name: salvarModelo.name, description: salvarModelo.description } });
+      setMsg(`Modelo "${salvarModelo.name}" salvo, sem nenhum dado de clientes.`);
+      setSalvarModelo(null);
+      loadModelos();
+    } catch (e2) { setErr(e2.message); }
+  }
+  async function apagarModelo(m) {
+    if (!window.confirm(`Apagar o modelo "${m.name}"? As empresas já criadas com ele não mudam.`)) return;
+    setErr(''); setMsg('');
+    try { await api('/admin/templates/' + m.id, { method: 'DELETE' }); loadModelos(); } catch (e2) { setErr(e2.message); }
+  }
+  // Escolher um modelo na tela "Nova empresa" já marca os módulos dele (dá para ajustar antes de criar)
+  function escolherModelo(id) {
+    const m = modelos.find((x) => String(x.id) === String(id));
+    setForm({ ...form, template_id: id,
+      modules: m ? Object.fromEntries(MODULES.map((x) => [x.key, moduleOn(m.modules, x.key)])) : form.modules });
+  }
 
   const shown = (s) => (s.id in edit ? edit[s.id] : s.max_professionals ?? '');
 
@@ -81,6 +106,14 @@ export default function Admin() {
       {form && (
         <form className="card" style={{ marginBottom: 16 }} onSubmit={criarEmpresa}>
           <h2 style={{ marginBottom: 10 }}>Nova empresa</h2>
+          <div className="field">
+            <label>Começar do modelo</label>
+            <select value={form.template_id} onChange={(e) => escolherModelo(e.target.value)}>
+              <option value="">Em branco (sem modelo)</option>
+              {modelos.map((m) => <option key={m.id} value={m.id}>{m.name} — {m.categorias} categoria(s), {m.servicos} serviço(s)</option>)}
+            </select>
+            {form.template_id && <span className="muted">Traz módulos, categorias, serviços, configurações e o manual do atendente. Não traz clientes, agenda nem profissionais.</span>}
+          </div>
           <div className="field"><label>Nome da empresa</label><input value={form.name} onChange={setF('name')} required /></div>
           <div className="field"><label>Nome do responsável</label><input value={form.owner_name} onChange={setF('owner_name')} required /></div>
           <div className="field"><label>E-mail do responsável (é o login dele)</label><input type="email" value={form.email} onChange={setF('email')} required /></div>
@@ -102,6 +135,19 @@ export default function Admin() {
         </form>
       )}
 
+      {salvarModelo && (
+        <form className="card" style={{ marginBottom: 16 }} onSubmit={guardarModelo}>
+          <h2 style={{ marginBottom: 6 }}>Salvar "{salvarModelo.empresa}" como modelo</h2>
+          <p className="muted" style={{ marginBottom: 10 }}>Guarda módulos, configurações, categorias, serviços e o manual do atendente publicado. Não guarda clientes, agenda, profissionais, atualizações provisórias, logotipo nem dados da empresa.</p>
+          <div className="field"><label>Nome do modelo</label><input value={salvarModelo.name} onChange={(e) => setSalvarModelo({ ...salvarModelo, name: e.target.value })} required /></div>
+          <div className="field"><label>Descrição (opcional)</label><input value={salvarModelo.description} onChange={(e) => setSalvarModelo({ ...salvarModelo, description: e.target.value })} /></div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn primary">Salvar modelo</button>
+            <button type="button" className="btn" onClick={() => setSalvarModelo(null)}>Cancelar</button>
+          </div>
+        </form>
+      )}
+
       {novaChave && (
         <div className="card" style={{ marginBottom: 16 }}>
           <strong>Chave de "{novaChave.empresa}" · código da empresa: {novaChave.id}</strong>
@@ -117,7 +163,7 @@ export default function Admin() {
 
       <div className="card table-wrap">
         <table>
-          <thead><tr><th>Código</th><th>Empresa</th><th>E-mail do responsável</th><th>Criado em</th><th>Ativos</th><th>Limite</th><th>Módulos</th><th>Chave de integração</th><th></th></tr></thead>
+          <thead><tr><th>Código</th><th>Empresa</th><th>E-mail do responsável</th><th>Criado em</th><th>Ativos</th><th>Limite</th><th>Módulos</th><th>Chave de integração</th><th>Modelo</th><th></th></tr></thead>
           <tbody>
             {list.map((s) => {
               const changed = s.id in edit;
@@ -148,16 +194,38 @@ export default function Admin() {
                     {' '}
                     <button className="btn sm" onClick={() => gerarChave(s)}>{s.api_key_hint ? 'Regenerar' : 'Gerar chave'}</button>
                   </td>
+                  <td>
+                    <button className="btn sm" onClick={() => setSalvarModelo({ company_id: s.id, empresa: s.name, name: '', description: '' })}>Salvar como modelo</button>
+                  </td>
                   <td style={{ textAlign: 'right' }}>
                     {changed && <button className="btn sm primary" onClick={() => save(s)}>Salvar</button>}
                   </td>
                 </tr>
               );
             })}
-            {!list.length && <tr><td colSpan="9" className="muted">Nenhuma empresa cadastrada.</td></tr>}
+            {!list.length && <tr><td colSpan="10" className="muted">Nenhuma empresa cadastrada.</td></tr>}
           </tbody>
         </table>
       </div>
+    
+      {modelos.length > 0 && (
+        <div className="card table-wrap" style={{ marginTop: 16 }}>
+          <h2 style={{ marginBottom: 10 }}>Modelos</h2>
+          <table>
+            <thead><tr><th>Modelo</th><th>Descrição</th><th>Conteúdo</th><th></th></tr></thead>
+            <tbody>
+              {modelos.map((m) => (
+                <tr key={m.id}>
+                  <td>{m.name}</td>
+                  <td>{m.description || <span className="muted">—</span>}</td>
+                  <td className="muted">{m.categorias} categoria(s) · {m.servicos} serviço(s){m.tem_manual ? ' · manual do atendente' : ''}</td>
+                  <td style={{ textAlign: 'right' }}><button className="btn sm" onClick={() => apagarModelo(m)}>Apagar</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </>
   );
 }
