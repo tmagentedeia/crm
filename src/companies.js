@@ -26,6 +26,14 @@ export async function createCompany({ name, ownerName, email, password, modules 
       [c.id, ownerName, email, hash])).rows[0];
     await createCompanySchema(cx, c.id);
     if (template) await applyTemplate(cx, c.id, template);
+    else {
+      // sem modelo: a empresa nasce com o menu padrão definido pelo administrador (se houver)
+      const padrao = (await cx.query("SELECT value FROM public.platform_settings WHERE key='default_menu'")).rows[0]?.value?.menu_custom;
+      if (padrao && Object.keys(padrao).length) {
+        await cx.query('UPDATE public.companies SET menu_custom=$2::jsonb WHERE id=$1', [c.id, JSON.stringify(padrao)]);
+        c.menu_custom = padrao;
+      }
+    }
     await cx.query('COMMIT');
     // nada da chave sai junto com os dados da empresa
     delete c.api_key_hash; delete c.api_key_hint; delete c.api_key_created_at;

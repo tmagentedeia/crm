@@ -166,6 +166,27 @@ app.post('/api/admin/companies', requireUser, requireAdmin, async (req, res) => 
   }
 });
 
+// ---------- Menu padrão das empresas novas ----------
+// Vale só para empresa criada SEM modelo; empresas já existentes e as criadas de um modelo não mudam.
+app.get('/api/admin/default-menu', requireUser, requireAdmin, async (req, res) => {
+  const v = (await qg("SELECT value FROM platform_settings WHERE key='default_menu'")).rows[0]?.value;
+  res.json(v || { menu_custom: {}, from_company_name: null });
+});
+
+app.put('/api/admin/default-menu', requireUser, requireAdmin, async (req, res) => {
+  if (req.body.clear) {
+    await qg("DELETE FROM platform_settings WHERE key='default_menu'");
+    return res.json({ menu_custom: {}, from_company_name: null });
+  }
+  const id = Number(req.body.company_id);
+  const c = Number.isSafeInteger(id) && id > 0 ? (await qg('SELECT id, name, menu_custom FROM companies WHERE id=$1', [id])).rows[0] : null;
+  if (!c) return res.status(404).json({ error: 'Empresa não encontrada' });
+  const value = { menu_custom: c.menu_custom || {}, from_company_id: c.id, from_company_name: c.name };
+  await qg(`INSERT INTO platform_settings (key, value) VALUES ('default_menu', $1::jsonb)
+            ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=now()`, [JSON.stringify(value)]);
+  res.json(value);
+});
+
 // ---------- Modelos de empresa ----------
 app.get('/api/admin/templates', requireUser, requireAdmin, async (req, res) => {
   const { rows } = await qg('SELECT id, name, description, created_at, data FROM company_templates ORDER BY name');

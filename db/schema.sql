@@ -50,6 +50,13 @@ CREATE TABLE admin_access_log (
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Ajustes da plataforma inteira (ex.: menu padrão das empresas novas)
+CREATE TABLE platform_settings (
+  key               TEXT PRIMARY KEY,
+  value             JSONB NOT NULL,
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE company_templates (
   id                BIGSERIAL PRIMARY KEY,
   name              TEXT NOT NULL UNIQUE,

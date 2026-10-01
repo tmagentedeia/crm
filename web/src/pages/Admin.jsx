@@ -13,6 +13,8 @@ export default function Admin() {
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
   const [versao, setVersao] = useState(null);
+  const [menuPadrao, setMenuPadrao] = useState(null);
+  const [origemMenu, setOrigemMenu] = useState('');
   const [acessos, setAcessos] = useState(null); // null = fechado
   const [novaChave, setNovaChave] = useState(null); // { id, empresa, chave } — mostrada uma única vez
   const [copiada, setCopiada] = useState(false);
@@ -21,7 +23,8 @@ export default function Admin() {
   const [modelos, setModelos] = useState([]);
   const [salvarModelo, setSalvarModelo] = useState(null); // { company_id, empresa, name, description }
   const loadModelos = () => api('/admin/templates').then(setModelos).catch((e) => setErr(e.message));
-  useEffect(() => { api('/admin/version').then(setVersao).catch(() => {}); }, []);
+  useEffect(() => { api('/admin/version').then(setVersao).catch(() => {}); api('/admin/default-menu').then(setMenuPadrao).catch(() => {}); }, []);
+  const definirMenuPadrao = (body, ok) => { setErr(''); setMsg(''); api('/admin/default-menu', { method: 'PUT', body }).then((r) => { setMenuPadrao(r); setMsg(ok); }).catch((e) => setErr(e.message)); };
   const verAcessos = () => (acessos ? setAcessos(null) : api('/admin/access-log').then(setAcessos).catch((e) => setErr(e.message)));
   const load = () => { loadModelos(); return api('/admin/companies').then(setList).catch((e) => setErr(e.message)); };
   useEffect(() => { load(); }, []);
@@ -247,6 +250,24 @@ export default function Admin() {
             </tbody>
           </table>
         )}
+      </div>
+
+      <div className="card" style={{ marginTop: 16 }}>
+        <h2 style={{ marginBottom: 6 }}>Menu padrão das empresas novas</h2>
+        <p className="muted" style={{ marginBottom: 10 }}>
+          Nomes e ícones do menu com que nasce uma empresa criada <strong>sem modelo</strong>. Empresas que já existem e as criadas de um modelo não mudam.
+          {' '}{menuPadrao && Object.keys(menuPadrao.menu_custom || {}).length
+            ? <>Hoje vale o menu de <strong>{menuPadrao.from_company_name}</strong>.</>
+            : 'Hoje vale o menu original.'}
+        </p>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <select value={origemMenu} onChange={(e) => setOrigemMenu(e.target.value)} style={{ width: 'auto' }}>
+            <option value="">Escolha a empresa de onde copiar</option>
+            {list.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+          <button className="btn primary" disabled={!origemMenu} onClick={() => definirMenuPadrao({ company_id: Number(origemMenu) }, 'Menu padrão atualizado.')}>Usar o menu desta empresa</button>
+          <button className="btn" onClick={() => definirMenuPadrao({ clear: true }, 'Voltou ao menu original.')}>Voltar ao menu original</button>
+        </div>
       </div>
 
       {modelos.length > 0 && (

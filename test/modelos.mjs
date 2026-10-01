@@ -64,6 +64,25 @@ check('sem modelo = empresa em branco', branca.status === 201 && (await call('GE
 const ruim = await call('POST', '/api/admin/companies', { token: A.token, body: { name: 'Ruim', owner_name: 'X', email: 'ruim@x.com', password: 'senhasenha', template_id: 99999 } });
 check('modelo inexistente = 400 e nada criado', ruim.status === 400 && !(await login('ruim@x.com', 'senhasenha')).token);
 
+
+// ---- menu padrão das empresas novas (só para empresa criada sem modelo)
+check('não administrador não define menu padrão', (await call('PUT', '/api/admin/default-menu', { token: B.token, body: { company_id: 1 } })).status === 403);
+check('empresa inexistente = 404', (await call('PUT', '/api/admin/default-menu', { token: A.token, body: { company_id: 999 } })).status === 404);
+await call('PUT', '/api/company', { token: A.token, body: { menu_custom: { fila: { icon: '🕒', label: 'Espera' } } } });
+const dm = await call('PUT', '/api/admin/default-menu', { token: A.token, body: { company_id: 1 } });
+check('define o menu da empresa 1 como padrão', dm.status === 200 && dm.body.menu_custom.fila.label === 'Espera', JSON.stringify(dm.body));
+check('administrador lê o menu padrão', (await call('GET', '/api/admin/default-menu', { token: A.token })).body.menu_custom.fila.icon === '🕒');
+const semModelo = await call('POST', '/api/admin/companies', { token: A.token, body: { name: 'Sem Modelo', owner_name: 'Dona', email: 'sem@x.com', password: 'senhasenha' } });
+const S1 = await login('sem@x.com', 'senhasenha');
+check('empresa sem modelo nasce com o menu padrão', semModelo.status === 201 && S1.company.menu_custom?.fila?.label === 'Espera', JSON.stringify(S1.company));
+const comModelo = await call('POST', '/api/admin/companies', { token: A.token, body: { name: 'Com Modelo', owner_name: 'Dono', email: 'com@x.com', password: 'senhasenha', template_id: m.id } });
+const S2 = await login('com@x.com', 'senhasenha');
+check('empresa de modelo usa o menu do modelo, não o padrão', comModelo.status === 201 && !S2.company.menu_custom?.fila, JSON.stringify(S2.company.menu_custom));
+check('empresas que já existiam não mudam', !(await call('GET', '/api/company', { token: B.token })).body.menu_custom?.fila);
+check('voltar ao menu original', Object.keys((await call('PUT', '/api/admin/default-menu', { token: A.token, body: { clear: true } })).body.menu_custom).length === 0);
+const aposLimpar = await call('POST', '/api/admin/companies', { token: A.token, body: { name: 'Sem Modelo 2', owner_name: 'Dona', email: 'sem2@x.com', password: 'senhasenha' } });
+check('depois de limpar, empresa nova nasce com o menu original', Object.keys((await login('sem2@x.com', 'senhasenha')).company.menu_custom || {}).length === 0 && aposLimpar.status === 201);
+await call('PUT', '/api/company', { token: A.token, body: { menu_custom: {} } });
 check('apagar modelo', (await call('DELETE', `/api/admin/templates/${m.id}`, { token: A.token })).status === 200
   && !(await call('GET', '/api/admin/templates', { token: A.token })).body.some((x) => x.id === m.id));
 check('empresa criada continua depois de apagar o modelo', (await call('GET', '/api/services', { token: N.token })).body.length === svA.length);
