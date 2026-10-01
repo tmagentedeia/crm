@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { api, getToken, setToken } from './api.js';
+import { api, getToken, setToken, ADMIN_KEY } from './api.js';
 import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Servicos from './pages/Servicos.jsx';
@@ -85,6 +85,15 @@ export default function App() {
     location.hash = id;
     if (window.innerWidth < 760) setCollapsed(true);
   };
+  // Administrador vendo o painel de uma empresa ("Abrir painel" na Administração)
+  const modoAdmin = !!localStorage.getItem(ADMIN_KEY);
+  const voltarAdmin = () => {
+    setToken(localStorage.getItem(ADMIN_KEY));
+    localStorage.removeItem(ADMIN_KEY);
+    localStorage.removeItem('crm_company');
+    location.hash = 'admin';
+    location.reload();
+  };
   const atual = MENU.find((m) => m.id === page) || inicial;
   const Current = atual.comp;
 
@@ -102,11 +111,17 @@ export default function App() {
           </button>
         ))}
         <div className="spacer" />
-        <button className="nav-item" onClick={() => { setToken(null); localStorage.removeItem('crm_company'); setLogged(false); }}>
+        <button className="nav-item" onClick={() => { setToken(null); localStorage.removeItem(ADMIN_KEY); localStorage.removeItem('crm_company'); setLogged(false); }}>
           <span className="nav-icon">🚪</span><span>Sair</span>
         </button>
       </aside>
       <main className="main">
+        {modoAdmin && (
+          <div className="admin-banner">
+            <span>Você está vendo o painel de <strong>{company.name}</strong> como administrador.</span>
+            <button className="btn sm" onClick={voltarAdmin}>Voltar à administração</button>
+          </div>
+        )}
         <div className="topbar">
           <button className="btn" onClick={() => setCollapsed(!collapsed)}>☰ Menu</button>
           <select value={theme} onChange={(e) => setTheme(e.target.value)} style={{ width: 'auto' }} title="Tema">

@@ -40,6 +40,15 @@ CREATE TABLE tenant_versions (
 );
 
 -- Modelos de empresa (só a estrutura: módulos, configurações, categorias, serviços e manual do atendente; nunca dados de clientes)
+-- Registro dos acessos do administrador ao painel de uma empresa ("abrir painel")
+CREATE TABLE admin_access_log (
+  id                BIGSERIAL PRIMARY KEY,
+  admin_user_id     BIGINT NOT NULL,
+  company_id        BIGINT NOT NULL,
+  target_user_id    BIGINT,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE company_templates (
   id                BIGSERIAL PRIMARY KEY,
   name              TEXT NOT NULL UNIQUE,

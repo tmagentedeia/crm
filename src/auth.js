@@ -14,7 +14,7 @@ export function requireUser(req, res, next) {
     return res.status(401).json({ error: 'Sessão inválida ou expirada' });
   }
   if (!p.companyId) return res.status(401).json({ error: 'Sessão inválida ou expirada' });
-  req.user = { id: p.id, companyId: p.companyId, role: p.role };
+  req.user = { id: p.id, companyId: p.companyId, role: p.role, imp: p.imp || null };
   runAs(p.companyId, next);
 }
 
@@ -44,6 +44,10 @@ export async function requireN8n(req, res, next) {
 
 export const signToken = (u) =>
   jwt.sign({ id: u.id, companyId: u.company_id, role: u.role }, process.env.JWT_SECRET, { expiresIn: '7d' });
+
+// Acesso temporário do administrador ao painel de uma empresa (sem saber a senha): vale 2 horas e leva a marca "imp".
+export const signImpersonationToken = (u, adminUserId) =>
+  jwt.sign({ id: u.id, companyId: u.company_id, role: u.role, imp: adminUserId }, process.env.JWT_SECRET, { expiresIn: '2h' });
 
 // Administrador da plataforma = e-mail listado em ADMIN_EMAILS (separados por vírgula)
 const adminEmails = () => (process.env.ADMIN_EMAILS || '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);

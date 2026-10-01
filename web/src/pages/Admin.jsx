@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { api, fmtDate } from '../api.js';
+import { api, fmtDate, getToken, setToken, ADMIN_KEY } from '../api.js';
 import { MODULES, moduleOn } from '../modules.js';
 
 const FORM_VAZIO = () => ({
@@ -53,6 +53,18 @@ export default function Admin() {
       setEdit(({ [s.id]: _, ...rest }) => rest);
       setMsg(`Limite de "${s.name}" atualizado.`);
       load();
+    } catch (e) { setErr(e.message); }
+  }
+
+  // Entra no painel da empresa sem usar a senha dela (acesso temporário, registrado). O acesso do administrador fica guardado para voltar.
+  async function abrirPainel(s) {
+    try {
+      const r = await api(`/admin/companies/${s.id}/impersonate`, { method: 'POST' });
+      localStorage.setItem(ADMIN_KEY, getToken());
+      setToken(r.token);
+      localStorage.setItem('crm_company', JSON.stringify(r.company));
+      location.hash = 'dashboard';
+      location.reload();
     } catch (e) { setErr(e.message); }
   }
 
@@ -198,6 +210,7 @@ export default function Admin() {
                     <button className="btn sm" onClick={() => setSalvarModelo({ company_id: s.id, empresa: s.name, name: '', description: '' })}>Salvar como modelo</button>
                   </td>
                   <td style={{ textAlign: 'right' }}>
+                    <button className="btn sm" onClick={() => abrirPainel(s)}>Abrir painel</button>{' '}
                     {changed && <button className="btn sm primary" onClick={() => save(s)}>Salvar</button>}
                   </td>
                 </tr>

@@ -73,3 +73,7 @@ Principais rotas:
 1. `docker compose up -d --build`
 2. `docker compose exec app node src/seed_demo.js` (opcional: empresa de demonstração)
 3. Abra http://localhost:3000 e entre com `demo@demo.com` / `demo1234`
+
+
+## Abrir painel (administrador)
+Na Administração, o botão **Abrir painel** entra no painel da empresa como o responsável dela, sem senha. O acesso dura 2 horas, mostra uma faixa "Voltar à administração" e cada abertura fica registrada na tabela `admin_access_log` (administrador, empresa, data). Não dá para encadear de uma empresa para outra.

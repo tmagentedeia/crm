@@ -10,7 +10,7 @@ import { snapshotCompany } from './templates.js';
 import { pool } from './db.js';
 import { newApiKey } from './apikeys.js';
 import { cleanModules } from './modules.js';
-import { requireUser, requireN8n, requireAdmin, isAdmin, signToken } from './auth.js';
+import { requireUser, requireN8n, requireAdmin, isAdmin, signToken, signImpersonationToken } from './auth.js';
 import { buildRouter } from './routes.js';
 
 const app = express();
@@ -69,7 +69,7 @@ app.put('/api/company', requireUser, async (req, res) => {
 
 // ---------- Administração da plataforma (só e-mails em ADMIN_EMAILS) ----------
 app.get('/api/me', requireUser, async (req, res) => {
-  res.json({ admin: await isAdmin(req.user.id) });
+  res.json({ admin: await isAdmin(req.user.id), impersonating: !!req.user.imp });
 });
 
 app.get('/api/admin/companies', requireUser, requireAdmin, async (req, res) => {
@@ -91,6 +91,20 @@ app.put('/api/admin/companies/:id', requireUser, requireAdmin, async (req, res) 
     return res.status(400).json({ error: 'Limite inválido' });
   const { rows } = await qg('UPDATE companies SET max_professionals=$2 WHERE id=$1 RETURNING id, name, max_professionals', [req.params.id, max_professionals]);
   rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Empresa não encontrada' });
+});
+
+// "Abrir painel": o administrador entra no painel da empresa como o responsável dela, sem usar a senha.
+// O acesso dura 2 horas e fica registrado (admin_access_log). Não funciona estando já dentro de outra empresa.
+app.post('/api/admin/companies/:id/impersonate', requireUser, requireAdmin, async (req, res) => {
+  if (req.user.imp) return res.status(403).json({ error: 'Volte à administração antes de abrir outra empresa' });
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id <= 0) return res.status(404).json({ error: 'Empresa não encontrada' });
+  const company = (await qg('SELECT id,name,inactive_days,logo,modules FROM companies WHERE id=$1', [id])).rows[0];
+  if (!company) return res.status(404).json({ error: 'Empresa não encontrada' });
+  const u = (await qg('SELECT * FROM users WHERE company_id=$1 ORDER BY (role = \'owner\') DESC, id LIMIT 1', [id])).rows[0];
+  if (!u) return res.status(404).json({ error: 'Essa empresa não tem usuário' });
+  await qg('INSERT INTO admin_access_log (admin_user_id, company_id, target_user_id) VALUES ($1,$2,$3)', [req.user.id, id, u.id]);
+  res.json({ token: signImpersonationToken(u, req.user.id), user: { id: u.id, name: u.name, role: u.role }, company });
 });
 
 // Gera (ou regenera) a chave de integração da empresa. A chave em texto só aparece nesta resposta;

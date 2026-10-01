@@ -1,4 +1,5 @@
 const KEY = 'crm_token';
+export const ADMIN_KEY = 'crm_admin_token'; // guarda o acesso do administrador enquanto ele vê o painel de uma empresa
 export const getToken = () => localStorage.getItem(KEY);
 export const setToken = (t) => (t ? localStorage.setItem(KEY, t) : localStorage.removeItem(KEY));
 
@@ -14,6 +15,7 @@ export async function api(path, { method = 'GET', body } = {}) {
   const data = await res.json().catch(() => ({}));
   if (res.status === 401 && path !== '/auth/login') {
     setToken(null);
+    localStorage.removeItem(ADMIN_KEY);
     location.reload();
   }
   if (!res.ok) throw new Error(data.error || 'Erro na requisição');
