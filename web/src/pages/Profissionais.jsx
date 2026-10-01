@@ -21,15 +21,15 @@ function toForm(b) {
   };
 }
 
-export default function Barbeiros() {
+export default function Profissionais() {
   const [list, setList] = useState([]);
   const [edit, setEdit] = useState(null);
   const [err, setErr] = useState('');
   const [max, setMax] = useState(null);
   const [services, setServices] = useState([]);
   const [cats, setCats] = useState([]);
-  const load = () => api('/barbers').then(setList);
-  useEffect(() => { load(); api('/salon').then((s) => setMax(s.max_barbers)); api('/services').then((l) => setServices(l.filter((x) => x.active))); api('/categories').then(setCats); }, []);
+  const load = () => api('/professionals').then(setList);
+  useEffect(() => { load(); api('/company').then((s) => setMax(s.max_professionals)); api('/services').then((l) => setServices(l.filter((x) => x.active))); api('/categories').then(setCats); }, []);
   const ativos = list.filter((b) => b.active).length;
   const cheio = max !== null && ativos >= max;
 
@@ -48,8 +48,8 @@ export default function Barbeiros() {
     const allOn = visible.every((x) => sel.includes(String(x.id)));
     const body = { category_ids: cids, name: edit.name, color: edit.color, phone: edit.phone, google_calendar_id: edit.google_calendar_id || '', service_ids: allOn ? [] : visible.filter((x) => sel.includes(String(x.id))).map((x) => x.id), schedules };
     try {
-      if (edit.id) await api('/barbers/' + edit.id, { method: 'PUT', body });
-      else await api('/barbers', { method: 'POST', body });
+      if (edit.id) await api('/professionals/' + edit.id, { method: 'PUT', body });
+      else await api('/professionals', { method: 'POST', body });
       setEdit(null); load();
     } catch (e2) { setErr(e2.message); }
   }
@@ -75,7 +75,7 @@ export default function Barbeiros() {
     setEdit({ ...edit, service_ids: cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k] });
   };
   const setSched = (i, k, v) => setEdit({ ...edit, sched: edit.sched.map((s, j) => (j === i ? { ...s, [k]: v } : s)) });
-  const toggle = (b) => api('/barbers/' + b.id, { method: 'PUT', body: { active: !b.active } }).then(load).catch((e) => alert(e.message));
+  const toggle = (b) => api('/professionals/' + b.id, { method: 'PUT', body: { active: !b.active } }).then(load).catch((e) => alert(e.message));
 
   return (
     <>

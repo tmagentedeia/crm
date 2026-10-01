@@ -22,7 +22,7 @@ export default function Fila() {
             {list.map((w) => (
               <tr key={w.id} style={{ opacity: w.status === 'waiting' ? 1 : 0.55 }}>
                 <td>{w.customer_name || '—'}</td><td>{fmtPhone(w.customer_phone)}</td>
-                <td>{w.barber_name || 'Qualquer um'}</td><td>{fmt(w.desired_at)}</td>
+                <td>{w.professional_name || 'Qualquer um'}</td><td>{fmt(w.desired_at)}</td>
                 <td>{LABEL[w.status]}</td>
                 <td style={{ textAlign: 'right' }}>{w.status === 'waiting' && <button className="btn sm" onClick={() => remove(w)}>Remover</button>}</td>
               </tr>

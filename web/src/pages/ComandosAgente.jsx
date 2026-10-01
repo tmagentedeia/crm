@@ -35,7 +35,7 @@ export default function ComandosAgente() {
   return (
     <div className="card" style={{ marginTop: 16 }}>
       <h2>Comandos do agente</h2>
-      <p className="muted">Mensagens que <strong>você</strong> envia pelo WhatsApp do salão para controlar o agente. Só valem quando a mensagem é sua, nunca do cliente.</p>
+      <p className="muted">Mensagens que <strong>você</strong> envia pelo WhatsApp da empresa para controlar o agente. Só valem quando a mensagem é sua, nunca do cliente.</p>
       {msg && <div style={{ color: 'var(--ok)', marginBottom: 8 }}>{msg}</div>}
       {err && <div className="error">{err}</div>}
 

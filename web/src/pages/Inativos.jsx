@@ -5,8 +5,8 @@ export default function Inativos() {
   const [days, setDays] = useState(30);
   const [list, setList] = useState([]);
 
-  // começa pelo valor configurado no salão
-  useEffect(() => { api('/salon').then((s) => setDays(s.inactive_days)); }, []);
+  // começa pelo valor configurado na empresa
+  useEffect(() => { api('/company').then((s) => setDays(s.inactive_days)); }, []);
   useEffect(() => {
     const t = setTimeout(() => api('/customers-inactive?days=' + (days || 30)).then(setList), 300);
     return () => clearTimeout(t);

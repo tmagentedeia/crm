@@ -3,7 +3,7 @@ import { api, setToken } from '../api.js';
 
 export default function Login({ onLogin }) {
   const [mode, setMode] = useState('login');
-  const [f, setF] = useState({ salon_name: '', name: '', email: '', password: '' });
+  const [f, setF] = useState({ company_name: '', name: '', email: '', password: '' });
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
@@ -14,20 +14,20 @@ export default function Login({ onLogin }) {
     try {
       let data = await api(mode === 'login' ? '/auth/login' : '/auth/register', { method: 'POST', body: f });
       setToken(data.token);
-      localStorage.setItem('crm_salon', JSON.stringify(data.salon || {}));
-      onLogin(data.salon || {});
+      localStorage.setItem('crm_company', JSON.stringify(data.company || {}));
+      onLogin(data.company || {});
     } catch (e2) { setErr(e2.message); } finally { setBusy(false); }
   }
 
   return (
     <div className="login-wrap">
       <form className="card login" onSubmit={submit}>
-        <h1>{mode === 'login' ? 'Entrar' : 'Criar conta do salão'}</h1>
+        <h1>{mode === 'login' ? 'Entrar' : 'Criar conta da empresa'}</h1>
         <p className="muted">Painel de gestão e atendimento</p>
         {err && <div className="error">{err}</div>}
         {mode === 'register' && (
           <>
-            <div className="field"><label>Nome do salão</label><input value={f.salon_name} onChange={set('salon_name')} required /></div>
+            <div className="field"><label>Nome da empresa</label><input value={f.company_name} onChange={set('company_name')} required /></div>
             <div className="field"><label>Seu nome</label><input value={f.name} onChange={set('name')} required /></div>
           </>
         )}

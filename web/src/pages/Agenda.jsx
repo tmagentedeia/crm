@@ -7,15 +7,15 @@ const shift = (s, n) => { const d = new Date(s + 'T12:00:00'); d.setDate(d.getDa
 
 export default function Agenda() {
   const [date, setDate] = useState(todayStr());
-  const [barbers, setBarbers] = useState([]);
+  const [professionals, setProfessionals] = useState([]);
   const [appts, setAppts] = useState([]);
   const [modal, setModal] = useState(null);
 
   const load = useCallback(async () => {
     const from = new Date(date + 'T00:00:00').toISOString();
     const to = new Date(shift(date, 1) + 'T00:00:00').toISOString();
-    const [b, a] = await Promise.all([api('/barbers'), api(`/appointments?from=${from}&to=${to}`)]);
-    setBarbers(b.filter((x) => x.active));
+    const [b, a] = await Promise.all([api('/professionals'), api(`/appointments?from=${from}&to=${to}`)]);
+    setProfessionals(b.filter((x) => x.active));
     setAppts(a);
   }, [date]);
   useEffect(() => { load(); }, [load]);
@@ -32,17 +32,17 @@ export default function Agenda() {
           <input type="date" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} style={{ width: 'auto' }} />
           <button className="btn" onClick={() => setDate(shift(date, 1))}>→</button>
           <button className="btn" onClick={() => setDate(todayStr())}>Hoje</button>
-          <button className="btn primary" onClick={() => setModal({ barber_id: barbers[0]?.id })}>+ Agendar</button>
+          <button className="btn primary" onClick={() => setModal({ professional_id: professionals[0]?.id })}>+ Agendar</button>
         </div>
       </div>
-      {!barbers.length && <div className="card muted">Cadastre um profissional para começar a usar a agenda.</div>}
+      {!professionals.length && <div className="card muted">Cadastre um profissional para começar a usar a agenda.</div>}
       <div className="agenda">
-        {barbers.map((b) => {
-          const mine = appts.filter((a) => a.barber_id === b.id);
+        {professionals.map((b) => {
+          const mine = appts.filter((a) => a.professional_id === b.id);
           return (
             <div className="card" key={b.id} style={{ borderTop: `4px solid ${b.color}` }}>
               <div className="col-head"><span className="dot" style={{ background: b.color }} />{b.name}
-                <button className="btn sm" style={{ marginLeft: 'auto' }} onClick={() => setModal({ barber_id: b.id })}>+</button>
+                <button className="btn sm" style={{ marginLeft: 'auto' }} onClick={() => setModal({ professional_id: b.id })}>+</button>
               </div>
               {mine.map((a) => (
                 <div key={a.id} className={'appt' + (a.status !== 'scheduled' ? ' done' : '')} style={{ borderLeftColor: b.color }}>
@@ -67,15 +67,15 @@ export default function Agenda() {
           );
         })}
       </div>
-      {modal && <NewAppointment init={modal} date={date} barbers={barbers} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
+      {modal && <NewAppointment init={modal} date={date} professionals={professionals} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
     </>
   );
 }
 
-function NewAppointment({ init, date, barbers, onClose, onSaved }) {
+function NewAppointment({ init, date, professionals, onClose, onSaved }) {
   const [customers, setCustomers] = useState([]);
   const [services, setServices] = useState([]);
-  const [f, setF] = useState({ barber_id: init.barber_id, customer_id: '', service_id: '', time: '09:00', name: '', phone: '' });
+  const [f, setF] = useState({ professional_id: init.professional_id, customer_id: '', service_id: '', time: '09:00', name: '', phone: '' });
   const [err, setErr] = useState('');
   useEffect(() => {
     api('/customers').then(setCustomers);
@@ -92,7 +92,7 @@ function NewAppointment({ init, date, barbers, onClose, onSaved }) {
         customer_id = c.id;
       }
       const starts_at = new Date(`${date}T${f.time}:00`).toISOString();
-      await api('/appointments', { method: 'POST', body: { barber_id: Number(f.barber_id), customer_id: Number(customer_id), service_id: Number(f.service_id), starts_at } });
+      await api('/appointments', { method: 'POST', body: { professional_id: Number(f.professional_id), customer_id: Number(customer_id), service_id: Number(f.service_id), starts_at } });
       onSaved();
     } catch (e2) { setErr(e2.message); }
   }
@@ -103,10 +103,10 @@ function NewAppointment({ init, date, barbers, onClose, onSaved }) {
         <h2>Novo agendamento</h2>
         {err && <div className="error">{err}</div>}
         <div className="field"><label>Profissional</label>
-          <select value={f.barber_id} onChange={set('barber_id')} required>{barbers.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select></div>
+          <select value={f.professional_id} onChange={set('professional_id')} required>{professionals.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select></div>
         <div className="field"><label>Serviço</label>
           <select value={f.service_id} onChange={set('service_id')} required><option value="">Selecione…</option>
-            {services.filter((s) => { const b = barbers.find((x) => String(x.id) === String(f.barber_id)); return !b || (b.does_service_ids || []).map(String).includes(String(s.id)); }).map((s) => <option key={s.id} value={s.id}>{s.name} — {money(s.price)} ({s.duration_min} min)</option>)}</select></div>
+            {services.filter((s) => { const b = professionals.find((x) => String(x.id) === String(f.professional_id)); return !b || (b.does_service_ids || []).map(String).includes(String(s.id)); }).map((s) => <option key={s.id} value={s.id}>{s.name} — {money(s.price)} ({s.duration_min} min)</option>)}</select></div>
         <div className="field"><label>Cliente</label>
           <select value={f.customer_id} onChange={set('customer_id')} required><option value="">Selecione…</option>
             <option value="new">➕ Novo cliente (presencial)</option>

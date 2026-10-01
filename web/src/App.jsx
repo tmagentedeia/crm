@@ -3,7 +3,7 @@ import { api, getToken, setToken } from './api.js';
 import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Servicos from './pages/Servicos.jsx';
-import Barbeiros from './pages/Barbeiros.jsx';
+import Profissionais from './pages/Profissionais.jsx';
 import Agenda from './pages/Agenda.jsx';
 import Clientes from './pages/Clientes.jsx';
 import Fila from './pages/Fila.jsx';
@@ -29,8 +29,8 @@ const BASE_MENU = [
   { id: 'fila', label: 'Fila de espera', icon: '⏳', comp: Fila },
   { id: 'clientes', label: 'Clientes e Leads', icon: '👥', comp: Clientes },
   { id: 'inativos', label: 'Retorno de inativos', icon: '🔁', comp: Inativos },
-  { id: 'barbeiros', label: 'Profissionais', icon: '✂️', comp: Barbeiros },
-  { id: 'servicos', label: 'Serviços', icon: '💈', comp: Servicos },
+  { id: 'profissionais', label: 'Profissionais', icon: '✂️', comp: Profissionais },
+  { id: 'servicos', label: 'Serviços', icon: '🏢', comp: Servicos },
   { id: 'importar', label: 'Importar planilha', icon: '📥', comp: Importar },
   { id: 'config', label: 'Configurações', icon: '⚙️', comp: Config },
 ];
@@ -40,7 +40,7 @@ export default function App() {
   const [logged, setLogged] = useState(!!getToken());
   const [page, setPage] = useState(() => location.hash.slice(1) || 'dashboard');
   const [collapsed, setCollapsed] = useState(window.innerWidth < 760);
-  const [salon, setSalon] = useState(() => JSON.parse(localStorage.getItem('crm_salon') || '{}'));
+  const [company, setCompany] = useState(() => JSON.parse(localStorage.getItem('crm_company') || '{}'));
   const [theme, setTheme] = useState(() => localStorage.getItem('crm_theme') ||
     (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
 
@@ -57,14 +57,14 @@ export default function App() {
 
   // Config.jsx dispara este evento ao salvar nome/logo
   useEffect(() => {
-    const h = (e) => { setSalon(e.detail); localStorage.setItem('crm_salon', JSON.stringify(e.detail)); };
-    window.addEventListener('salon-updated', h);
-    return () => window.removeEventListener('salon-updated', h);
+    const h = (e) => { setCompany(e.detail); localStorage.setItem('crm_company', JSON.stringify(e.detail)); };
+    window.addEventListener('company-updated', h);
+    return () => window.removeEventListener('company-updated', h);
   }, []);
 
   const MENU = admin ? [...BASE_MENU, ADMIN_ITEM] : BASE_MENU;
 
-  if (!logged) return <Login theme={theme} onLogin={(s) => { setSalon(s); setLogged(true); }} />;
+  if (!logged) return <Login theme={theme} onLogin={(s) => { setCompany(s); setLogged(true); }} />;
 
   const go = (id) => {
     setPage(id);
@@ -77,8 +77,8 @@ export default function App() {
     <div className="layout">
       <aside className={'sidebar' + (collapsed ? ' collapsed' : '')}>
         <div className="brand">
-          {salon.logo ? <img className="logo-img" src={salon.logo} alt="" /> : <span className="nav-icon">💈</span>}
-          <span>{salon.name || 'Meu Salão'}</span>
+          {company.logo ? <img className="logo-img" src={company.logo} alt="" /> : <span className="nav-icon">🏢</span>}
+          <span>{company.name || 'Minha Empresa'}</span>
         </div>
         {MENU.map((m) => (
           <button key={m.id} className={'nav-item' + (page === m.id ? ' active' : '')} onClick={() => go(m.id)} title={m.label}>
@@ -87,7 +87,7 @@ export default function App() {
           </button>
         ))}
         <div className="spacer" />
-        <button className="nav-item" onClick={() => { setToken(null); localStorage.removeItem('crm_salon'); setLogged(false); }}>
+        <button className="nav-item" onClick={() => { setToken(null); localStorage.removeItem('crm_company'); setLogged(false); }}>
           <span className="nav-icon">🚪</span><span>Sair</span>
         </button>
       </aside>

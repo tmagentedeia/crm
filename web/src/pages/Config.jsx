@@ -29,16 +29,16 @@ export default function Config() {
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
 
-  useEffect(() => { api('/salon').then(setS); }, []);
+  useEffect(() => { api('/company').then(setS); }, []);
   if (!s) return <p className="muted">Carregando…</p>;
 
-  const publish = (salon) => window.dispatchEvent(new CustomEvent('salon-updated', { detail: salon }));
+  const publish = (company) => window.dispatchEvent(new CustomEvent('company-updated', { detail: company }));
 
   async function save(patch, okMsg = 'Salvo!') {
     setErr(''); setMsg('');
     try {
-      const salon = await api('/salon', { method: 'PUT', body: patch });
-      setS(salon); publish(salon); setMsg(okMsg);
+      const company = await api('/company', { method: 'PUT', body: patch });
+      setS(company); publish(company); setMsg(okMsg);
     } catch (e) { setErr(e.message); }
   }
 
@@ -52,7 +52,7 @@ export default function Config() {
   return (
     <>
       <h1>Configurações</h1>
-      <p className="muted" style={{ marginBottom: 18 }}>Identidade e regras do seu salão</p>
+      <p className="muted" style={{ marginBottom: 18 }}>Identidade e regras da sua empresa</p>
       {msg && <div className="card" style={{ marginBottom: 12, color: 'var(--ok)' }}>{msg}</div>}
       {err && <div className="error">{err}</div>}
       <div className="grid cols-2">
@@ -69,7 +69,7 @@ export default function Config() {
           <p className="muted" style={{ marginTop: 8 }}>PNG, JPG, WEBP ou SVG. Aparece no menu lateral.</p>
         </div>
         <form className="card" onSubmit={(e) => { e.preventDefault(); save({ name: s.name, phone: s.phone, inactive_days: Number(s.inactive_days), reminder_minutes: s.reminder_minutes ? Number(s.reminder_minutes) : null }); }}>
-          <h2>Dados do salão</h2>
+          <h2>Dados da empresa</h2>
           <div className="field"><label>Nome</label><input value={s.name || ''} onChange={(e) => setS({ ...s, name: e.target.value })} required /></div>
           <div className="field"><label>Telefone</label><input value={s.phone || ''} onChange={(e) => setS({ ...s, phone: e.target.value })} /></div>
           <div className="field">

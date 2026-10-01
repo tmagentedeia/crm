@@ -75,7 +75,7 @@ export default function Dashboard() {
       <div className="grid cols-2">
         <Chart title="Dias mais movimentados" data={week} x="dia" />
         <Chart title="Serviços mais procurados" data={d.servicos} x="service" layout="vertical" />
-        <Chart title="Profissionais mais requisitados" data={d.barbeiros} x="barber" layout="vertical" />
+        <Chart title="Profissionais mais requisitados" data={d.profissionais} x="professional" layout="vertical" />
       </div>
     </>
   );

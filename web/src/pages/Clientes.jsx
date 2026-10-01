@@ -89,7 +89,7 @@ function Detail({ c, onClose, onSaved, onDeleted }) {
         <h2>Histórico</h2>
         {c.history.length ? (
           <table><tbody>{c.history.map((h, i) => (
-            <tr key={i}><td>{fmtDate(h.starts_at)} {fmtTime(h.starts_at)}</td><td>{h.service}</td><td>{h.barber}</td><td><span className={'badge ' + h.status}>{STATUS[h.status]}</span></td></tr>
+            <tr key={i}><td>{fmtDate(h.starts_at)} {fmtTime(h.starts_at)}</td><td>{h.service}</td><td>{h.professional}</td><td><span className={'badge ' + h.status}>{STATUS[h.status]}</span></td></tr>
           ))}</tbody></table>
         ) : <p className="muted">Sem agendamentos ainda.</p>}
       </div>

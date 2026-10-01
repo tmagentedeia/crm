@@ -4,7 +4,8 @@ import bcrypt from 'bcryptjs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import 'dotenv/config';
-import { q } from './db.js';
+import { q, qg, runAs } from './db.js';
+import { createCompany } from './companies.js';
 import { requireUser, requireN8n, requireAdmin, isAdmin, signToken } from './auth.js';
 import { buildRouter } from './routes.js';
 
@@ -15,55 +16,49 @@ app.use(express.json({ limit: '4mb' }));
 // ---------- Login / cadastro ----------
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
-  const { rows } = await q('SELECT * FROM users WHERE lower(email)=lower($1)', [email || '']);
+  const { rows } = await qg('SELECT * FROM users WHERE lower(email)=lower($1)', [email || '']);
   const u = rows[0];
   if (!u || !(await bcrypt.compare(password || '', u.password_hash)))
     return res.status(401).json({ error: 'E-mail ou senha incorretos' });
-  const salon = (await q('SELECT id,name,inactive_days,logo FROM salons WHERE id=$1', [u.salon_id])).rows[0];
-  res.json({ token: signToken(u), user: { id: u.id, name: u.name, role: u.role }, salon });
+  const company = (await qg('SELECT id,name,inactive_days,logo FROM companies WHERE id=$1', [u.company_id])).rows[0];
+  res.json({ token: signToken(u), user: { id: u.id, name: u.name, role: u.role }, company });
 });
 
-// Cria salão + dono. Deixe ALLOW_SIGNUP=false depois de criar o seu (ou proteja com sua própria regra).
+// Cria empresa + dono. Deixe ALLOW_SIGNUP=false depois de criar a sua (ou proteja com sua própria regra).
 app.post('/api/auth/register', async (req, res) => {
   if (process.env.ALLOW_SIGNUP !== 'true') return res.status(403).json({ error: 'Cadastro desativado' });
-  const { salon_name, name, email, password } = req.body;
-  if (!salon_name || !name || !email || !password || password.length < 8)
+  const { company_name, name, email, password } = req.body;
+  if (!company_name || !name || !email || !password || password.length < 8)
     return res.status(400).json({ error: 'Preencha tudo (senha com 8+ caracteres)' });
   try {
-    const slug = salon_name.toLowerCase().normalize('NFD').replace(/[^\w]+/g, '-').replace(/^-|-$/g, '')
-      + '-' + Math.random().toString(36).slice(2, 6);
-    const s = await q('INSERT INTO salons (name,slug) VALUES ($1,$2) RETURNING *', [salon_name, slug]);
-    const hash = await bcrypt.hash(password, 10);
-    const u = await q(
-      "INSERT INTO users (salon_id,name,email,password_hash,role) VALUES ($1,$2,$3,$4,'owner') RETURNING *",
-      [s.rows[0].id, name, email, hash]);
-    res.status(201).json({ token: signToken(u.rows[0]), salon: s.rows[0] });
+    const { company, user } = await createCompany({ name: company_name, ownerName: name, email, password });
+    res.status(201).json({ token: signToken(user), company });
   } catch (e) {
     if (e.code === '23505') return res.status(409).json({ error: 'E-mail já cadastrado' });
     console.error(e); res.status(500).json({ error: 'Erro interno' });
   }
 });
 
-// ---------- Configurações do salão ----------
-app.get('/api/salon', requireUser, async (req, res) => {
-  const { rows } = await q('SELECT id,name,phone,inactive_days,logo,max_barbers,reminder_minutes FROM salons WHERE id=$1', [req.user.salonId]);
+// ---------- Configurações da empresa ----------
+app.get('/api/company', requireUser, async (req, res) => {
+  const { rows } = await qg('SELECT id,name,phone,inactive_days,logo,max_professionals,reminder_minutes,modules FROM companies WHERE id=$1', [req.user.companyId]);
   res.json(rows[0]);
 });
 
-app.put('/api/salon', requireUser, async (req, res) => {
+app.put('/api/company', requireUser, async (req, res) => {
   const { name, phone, inactive_days, logo, reminder_minutes } = req.body;
   if (reminder_minutes != null && (!Number.isInteger(Number(reminder_minutes)) || Number(reminder_minutes) < 30 || Number(reminder_minutes) > 4320))
     return res.status(400).json({ error: 'Antecedência do lembrete deve ficar entre 30 minutos e 72 horas' });
   // logo: data URL de imagem, ou null para remover (string vazia = remover)
   if (logo && (!/^data:image\/(png|jpeg|webp|svg\+xml);base64,/.test(logo) || logo.length > 700000))
     return res.status(400).json({ error: 'Logotipo inválido ou grande demais' });
-  const { rows } = await q(
-    `UPDATE salons SET name=COALESCE($2,name), phone=COALESCE($3,phone),
+  const { rows } = await qg(
+    `UPDATE companies SET name=COALESCE($2,name), phone=COALESCE($3,phone),
      inactive_days=COALESCE($4,inactive_days),
      logo = CASE WHEN $5::boolean THEN NULLIF($6,'') ELSE logo END,
      reminder_minutes = CASE WHEN $7::boolean THEN $8::int ELSE reminder_minutes END
-     WHERE id=$1 RETURNING id,name,phone,inactive_days,logo,max_barbers,reminder_minutes`,
-    [req.user.salonId, name, phone, inactive_days, logo !== undefined, logo ?? null,
+     WHERE id=$1 RETURNING id,name,phone,inactive_days,logo,max_professionals,reminder_minutes,modules`,
+    [req.user.companyId, name, phone, inactive_days, logo !== undefined, logo ?? null,
      reminder_minutes !== undefined, reminder_minutes == null ? null : Number(reminder_minutes)]);
   res.json(rows[0]);
 });
@@ -73,22 +68,25 @@ app.get('/api/me', requireUser, async (req, res) => {
   res.json({ admin: await isAdmin(req.user.id) });
 });
 
-app.get('/api/admin/salons', requireUser, requireAdmin, async (req, res) => {
-  const { rows } = await q(
-    `SELECT s.id, s.name, s.max_barbers, s.created_at,
-            (SELECT u.email FROM users u WHERE u.salon_id = s.id ORDER BY (u.role = 'owner') DESC, u.id LIMIT 1) AS owner_email,
-            (SELECT COUNT(*)::int FROM barbers b WHERE b.salon_id = s.id AND b.active) AS ativos
-     FROM salons s ORDER BY s.id`);
+app.get('/api/admin/companies', requireUser, requireAdmin, async (req, res) => {
+  const { rows } = await qg(
+    `SELECT c.id, c.name, c.max_professionals, c.created_at,
+            (SELECT u.email FROM users u WHERE u.company_id = c.id ORDER BY (u.role = 'owner') DESC, u.id LIMIT 1) AS owner_email
+     FROM companies c ORDER BY c.id`);
+  // profissionais ativos: contados dentro do schema de cada empresa
+  for (const c of rows) {
+    c.ativos = await runAs(c.id, async () => (await q('SELECT COUNT(*)::int AS n FROM professionals WHERE active')).rows[0].n);
+  }
   res.json(rows);
 });
 
-app.put('/api/admin/salons/:id', requireUser, requireAdmin, async (req, res) => {
-  let { max_barbers } = req.body; // null/'' = sem limite
-  max_barbers = max_barbers === null || max_barbers === '' || max_barbers === undefined ? null : Number(max_barbers);
-  if (max_barbers !== null && (!Number.isInteger(max_barbers) || max_barbers < 0))
+app.put('/api/admin/companies/:id', requireUser, requireAdmin, async (req, res) => {
+  let { max_professionals } = req.body; // null/'' = sem limite
+  max_professionals = max_professionals === null || max_professionals === '' || max_professionals === undefined ? null : Number(max_professionals);
+  if (max_professionals !== null && (!Number.isInteger(max_professionals) || max_professionals < 0))
     return res.status(400).json({ error: 'Limite inválido' });
-  const { rows } = await q('UPDATE salons SET max_barbers=$2 WHERE id=$1 RETURNING id, name, max_barbers', [req.params.id, max_barbers]);
-  rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Salão não encontrado' });
+  const { rows } = await qg('UPDATE companies SET max_professionals=$2 WHERE id=$1 RETURNING id, name, max_professionals', [req.params.id, max_professionals]);
+  rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Empresa não encontrada' });
 });
 
 // ---------- API do painel (JWT) e do N8N (x-api-key + x-company-id) ----------
@@ -104,4 +102,4 @@ app.get('*', (req, res, next) => {
   res.sendFile(path.join(pub, 'index.html'), (err) => err && next());
 });
 
-app.listen(process.env.PORT || 3000, () => console.log('CRM Salão rodando na porta', process.env.PORT || 3000));
+app.listen(process.env.PORT || 3000, () => console.log('CRM rodando na porta', process.env.PORT || 3000));
