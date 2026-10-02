@@ -34,6 +34,7 @@ let o = await ped(P1, 'Trem das Onze', { dedication: 'para meu pai' });
 check('sem live = fila', o.status === 201 && o.body.status === 'queued' && o.body.kind === null && o.body.live === null, JSON.stringify(o.body));
 let bal = (await T('GET', '/api/orders/balance?phone=' + P1)).body;
 check('saldo mostra o pedido na fila e nenhuma live', bal.found && bal.queued === 1 && bal.next_live === null && bal.franchise === 2 && bal.remaining === 2, JSON.stringify(bal));
+check('saldo traz o nome do cadastro', typeof bal.name === 'string' && bal.name.length > 0 && 'last_name' in bal, JSON.stringify(bal));
 await ped(P2, 'Detalhes');
 await ped(P3, 'Sozinho', { amount_paid: 10 });
 const fila = (await T('GET', '/api/orders?queue=1')).body;

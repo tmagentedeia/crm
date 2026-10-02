@@ -269,9 +269,9 @@ export function registerOrderRoutes(r, wrap) {
     await tx(currentCompany(), converterCortesias);
     const phone = normPhone(req.query.phone);
     const tz = await fuso();
-    const c = (await q('SELECT id, name FROM customers WHERE phone=$1', [phone])).rows[0];
+    const c = (await q('SELECT id, name, last_name FROM customers WHERE phone=$1', [phone])).rows[0];
     const live = await proximaLive((s, p) => q(s, p), tz);
-    const out = { found: !!c, next_live: live ? { id: live.id, title: live.title, starts_at: live.starts_at } : null,
+    const out = { found: !!c, name: c?.name || null, last_name: c?.last_name || null, next_live: live ? { id: live.id, title: live.title, starts_at: live.starts_at } : null,
       queued: c ? (await q('SELECT count(*)::int AS n FROM song_orders WHERE customer_id=$1 AND live_id IS NULL', [c.id])).rows[0].n : 0 };
     if (c) Object.assign(out, await saldo((s, p) => q(s, p), tz, c.id, live?.starts_at || null));
     res.json(out);
