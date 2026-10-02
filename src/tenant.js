@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { pool, schemaOf } from './db.js';
+import { PEDIDOS_SQL } from './pedidos.js';
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const baseline = fs.readFileSync(path.join(dir, '..', 'db', 'tenant.sql'), 'utf8');
@@ -16,7 +17,7 @@ const frasesSql = baseline.slice(baseline.indexOf('-- ========== CAMPANHAS: SAUD
 const clubeSql = `
     CREATE TABLE IF NOT EXISTS loyalty_settings (
       id SMALLINT PRIMARY KEY CHECK (id = 1),
-      program_name TEXT NOT NULL DEFAULT 'Clube'
+      program_name TEXT NOT NULL DEFAULT 'Programa de benefícios'
     );
     INSERT INTO loyalty_settings (id) VALUES (1) ON CONFLICT DO NOTHING;
     CREATE TABLE IF NOT EXISTS loyalty_levels (
@@ -68,6 +69,8 @@ export const TENANT_STEPS = [
   { version: 6, sql: 'ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS last_play_at TIMESTAMPTZ' },
   // 7: ficha do cliente (aniversário, cidade) e programa de benefícios ("Clube") com níveis
   { version: 7, sql: clubeSql },
+  // 8: lives e pedidos de música (franquia do programa de benefícios)
+  { version: 8, sql: PEDIDOS_SQL },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 
@@ -79,6 +82,7 @@ export async function createCompanySchema(cx, companyId) {
   await cx.query(`SET LOCAL search_path TO ${s}, public`);
   await cx.query(baseline.replaceAll('__COMPANY_ID__', String(Number(companyId))));
   await cx.query(clubeSql);
+  await cx.query(PEDIDOS_SQL);
   await cx.query('SET LOCAL search_path TO public');
   await cx.query('INSERT INTO tenant_versions (company_id, version) VALUES ($1, 1)', [companyId]);
 }

@@ -53,5 +53,13 @@ check('reimportar com campo vazio não apaga', c1b.city === 'Londrina' && c1b.cl
 await call('POST', '/api/import', T, { customers: [{ Nome: 'Antigo', Telefone: '553299990007' }], dry_run: false });
 check('planilha simples = cliente', (await por('553299990007')).status === 'client');
 
+// clientes mandados como "serviços" por engano: nada pode virar serviço
+const antesSv = (await call('GET', '/api/services', T)).body.length;
+const eng = (await call('POST', '/api/import', T, { services: [{ Nome: 'Pessoa Um', Telefone: '553299991001' }, { Nome: 'Pessoa Dois', Telefone: '553299991002' }], dry_run: false })).body;
+check('clientes como serviços: recusa e avisa', eng.services.created === 0 && eng.errors.some((e) => /parecem ser clientes/.test(e)), JSON.stringify(eng));
+check('nenhum serviço foi criado', (await call('GET', '/api/services', T)).body.length === antesSv);
+const svcOk = (await call('POST', '/api/import', T, { services: [{ Serviço: 'Corte Teste Import', Preço: 50, 'Duração (min)': 30 }], dry_run: true })).body;
+check('serviço de verdade continua passando', svcOk.services.created === 1 && svcOk.errors.length === 0, JSON.stringify(svcOk));
+
 console.log(`importar_clube: ${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);

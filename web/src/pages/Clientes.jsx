@@ -74,7 +74,7 @@ export default function Clientes({ company }) {
         {clube && (
           <>
             <select value={sit} onChange={(e) => { setSit(e.target.value); setNivel(''); }} style={{ maxWidth: 190 }} title="Situação no programa">
-              <option value="">{club?.program_name || 'Clube'}: todos</option>
+              <option value="">{club?.program_name || 'Programa de benefícios'}: todos</option>
               {Object.entries(SITUACAO).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               <option value="none">Fora do programa</option>
             </select>
@@ -93,7 +93,7 @@ export default function Clientes({ company }) {
       {aviso && <p className="muted" style={{ marginBottom: 8 }}>{aviso}</p>}
       <div className="card table-wrap">
         <table>
-          <thead><tr><th>Nome</th><th>Telefone</th><th>Tipo</th>{clube && <th>{club?.program_name || 'Clube'}</th>}<th>Cidade</th><th>Última visita</th></tr></thead>
+          <thead><tr><th>Nome</th><th>Telefone</th><th>Tipo</th>{clube && <th>{club?.program_name || 'Programa de benefícios'}</th>}<th>Cidade</th><th>Última visita</th></tr></thead>
           <tbody>
             {list.map((c) => (
               <tr key={c.id} className="click" onClick={() => open(c.id)}>
@@ -130,7 +130,7 @@ function FichaCampos({ f, setF, clube, club }) {
       </div>
       {clube && (
         <div className="row">
-          <div className="field"><label>{club?.program_name || 'Clube'}</label>
+          <div className="field"><label>{club?.program_name || 'Programa de benefícios'}</label>
             <select value={f.club_status} onChange={(e) => setF({ ...f, club_status: e.target.value, club_level_id: e.target.value === 'member' ? f.club_level_id : '' })}>
               <option value="">Fora do programa</option>{Object.entries(SITUACAO).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
           {f.club_status === 'member' && (
@@ -195,6 +195,17 @@ function Detail({ c, clube, club, onClose, onSaved, onDeleted }) {
           <a className="btn" href={'https://wa.me/' + c.phone} target="_blank" rel="noreferrer">WhatsApp</a>
           <button className="btn bad" style={{ marginLeft: 'auto' }} onClick={remove}>Excluir</button>
         </div>
+        {(c.orders?.length > 0 || c.balance?.franchise > 0) && (
+          <>
+            <h2>Pedidos de música</h2>
+            {c.balance?.franchise > 0 && <p className="muted">Franquia do mês: usou {c.balance.used} de {c.balance.franchise} · restam {c.balance.remaining}</p>}
+            {c.orders?.length > 0 ? (
+              <table><tbody>{c.orders.map((o) => (
+                <tr key={o.id}><td>{o.live_starts_at ? new Date(o.live_starts_at).toLocaleDateString('pt-BR') : 'Na fila'}</td><td>{o.song}</td><td>{o.kind === 'franchise' ? 'Franquia' : o.kind === 'paid' ? 'Pago' : '—'}</td></tr>
+              ))}</tbody></table>
+            ) : <p className="muted">Sem pedidos ainda.</p>}
+          </>
+        )}
         <h2>Histórico</h2>
         {c.history.length ? (
           <table><tbody>{c.history.map((h, i) => (

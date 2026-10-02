@@ -1,0 +1,265 @@
+// Pedidos de música, lives e franquia mensal do programa de benefícios.
+// Regras:
+//  - o pedido vai para a próxima live que ainda não encerrou; sem live marcada, fica na fila (live_id nulo)
+//  - sai pela franquia quando o cliente é membro com nível que tem benefícios, é o primeiro pedido dele naquela live
+//    e ainda sobra franquia no mês da live; senão é pago
+//  - o mês é o da data da live (fuso da empresa); a contagem vem dos próprios pedidos, não há contador para zerar
+import { q, qg, tx, currentCompany } from './db.js';
+import { normPhone } from './phone.js';
+
+export const PEDIDOS_SQL = `
+  CREATE TABLE IF NOT EXISTS lives (
+    id          BIGSERIAL PRIMARY KEY,
+    title       TEXT,
+    starts_at   TIMESTAMPTZ NOT NULL,
+    ends_at     TIMESTAMPTZ,                 -- vazio = vale até o fim do dia da live
+    closed_at   TIMESTAMPTZ,                 -- encerrada à mão
+    external_id TEXT UNIQUE,                 -- identificação em outro sistema (ex.: o vídeo da live)
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+  CREATE INDEX IF NOT EXISTS idx_lives_starts ON lives (starts_at);
+  CREATE TABLE IF NOT EXISTS song_orders (
+    id          BIGSERIAL PRIMARY KEY,
+    customer_id BIGINT NOT NULL REFERENCES customers(id),
+    live_id     BIGINT REFERENCES lives(id),   -- vazio = na fila, aguardando uma live
+    song        TEXT NOT NULL,
+    dedication  TEXT,
+    amount_paid NUMERIC(10,2),
+    kind        TEXT CHECK (kind IN ('franchise','paid')),   -- vazio enquanto está na fila
+    level_name  TEXT,                          -- nível do cliente na hora do pedido
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    notified_at TIMESTAMPTZ
+  );
+  CREATE INDEX IF NOT EXISTS idx_song_orders_live ON song_orders (live_id);
+  CREATE INDEX IF NOT EXISTS idx_song_orders_customer ON song_orders (customer_id);`;
+
+const ABERTA = (p) => `(l.closed_at IS NULL AND COALESCE(l.ends_at, ((date_trunc('day', l.starts_at AT TIME ZONE ${p}) + interval '1 day') AT TIME ZONE ${p})) > now())`;
+const MES = (col, p) => `to_char(${col} AT TIME ZONE ${p}, 'YYYY-MM')`;
+
+async function fuso() {
+  return (await qg('SELECT timezone FROM companies WHERE id=$1', [currentCompany()])).rows[0]?.timezone || 'America/Sao_Paulo';
+}
+const proximaLive = async (t, tz) =>
+  (await t(`SELECT l.* FROM lives l WHERE ${ABERTA('$1')} ORDER BY l.starts_at, l.id LIMIT 1`, [tz])).rows[0] || null;
+
+// franquia do cliente no mês de refTs: { club_status, level_name, franchise, used, remaining, month }
+async function saldo(t, tz, customerId, refTs = null) {
+  const c = (await t(`SELECT c.club_status, lv.name AS level_name, COALESCE(lv.benefit_qty,0) AS franchise
+                      FROM customers c LEFT JOIN loyalty_levels lv ON lv.id=c.club_level_id WHERE c.id=$1`, [customerId])).rows[0];
+  const ref = refTs || new Date();
+  const mes = (await t(`SELECT ${MES('$1::timestamptz', '$2')} AS m`, [ref, tz])).rows[0].m;
+  const used = (await t(`SELECT count(*)::int AS n FROM song_orders o JOIN lives l ON l.id=o.live_id
+                         WHERE o.customer_id=$1 AND o.kind='franchise' AND ${MES('l.starts_at', '$2')}=$3`, [customerId, tz, mes])).rows[0].n;
+  const member = c?.club_status === 'member';
+  const franchise = member ? c.franchise : 0;
+  return { club_status: c?.club_status || null, level_name: member ? c.level_name : null, franchise, used, remaining: Math.max(0, franchise - used), month: mes };
+}
+
+async function decidirTipo(t, tz, customerId, live) {
+  const s = await saldo(t, tz, customerId, live.starts_at);
+  if (!(s.franchise > 0)) return 'paid';
+  const ja = (await t('SELECT 1 FROM song_orders WHERE customer_id=$1 AND live_id=$2 LIMIT 1', [customerId, live.id])).rowCount;
+  if (ja) return 'paid';
+  return s.used < s.franchise ? 'franchise' : 'paid';
+}
+
+// pedidos da fila entram na próxima live aberta, na ordem de chegada
+async function entrarNaLive(t, tz) {
+  const live = await proximaLive(t, tz);
+  if (!live) return [];
+  const fila = (await t('SELECT id, customer_id, amount_paid FROM song_orders WHERE live_id IS NULL ORDER BY created_at, id')).rows;
+  const out = [];
+  for (const o of fila) {
+    const kind = await decidirTipo(t, tz, o.customer_id, live);
+    const lv = (await t(`SELECT lv.name FROM customers c LEFT JOIN loyalty_levels lv ON lv.id=c.club_level_id WHERE c.id=$1`, [o.customer_id])).rows[0]?.name || null;
+    await t('UPDATE song_orders SET live_id=$2, kind=$3, amount_paid=CASE WHEN $3=\'franchise\' THEN 0 ELSE amount_paid END, level_name=$4 WHERE id=$1', [o.id, live.id, kind, lv]);
+    out.push({ id: o.id, kind });
+  }
+  return out;
+}
+
+export async function historicoDoCliente(customerId) {
+  const tz = await fuso();
+  const orders = (await q(
+    `SELECT o.id, o.song, o.dedication, o.kind, o.amount_paid, o.created_at, o.live_id, l.title AS live_title, l.starts_at AS live_starts_at
+     FROM song_orders o LEFT JOIN lives l ON l.id=o.live_id WHERE o.customer_id=$1 ORDER BY o.created_at DESC, o.id DESC`, [customerId])).rows;
+  const bal = await saldo((s, p) => q(s, p), tz, customerId);
+  return { orders, balance: bal };
+}
+
+const txt = (v, max) => { const s = String(v ?? '').trim(); return s.length <= max && !/[\u0000-\u0008\u000b-\u001f<>]/.test(s) ? s : null; };
+const dataOk = (v) => { const d = new Date(v); return v && !isNaN(d) ? d : null; };
+const dinheiro = (v) => { if (v === undefined || v === null || v === '') return null; const n = Number(String(v).replace(',', '.')); return Number.isFinite(n) && n >= 0 && n < 100000 ? Math.round(n * 100) / 100 : NaN; };
+
+export function registerOrderRoutes(r, wrap) {
+  const run = async (fn) => { const tz = await fuso(); return tx(currentCompany(), (t) => fn(t, tz)); };
+
+  // ---------- LIVES ----------
+  r.get('/lives', wrap(async (req, res) => {
+    const tz = await fuso();
+    const so = req.query.open === '1';
+    const { rows } = await q(
+      `SELECT l.*, ${ABERTA('$1')} AS open,
+              (SELECT count(*)::int FROM song_orders o WHERE o.live_id=l.id) AS orders
+       FROM lives l WHERE ($2::boolean IS NOT TRUE OR ${ABERTA('$1')}) ORDER BY l.starts_at DESC, l.id DESC LIMIT 200`, [tz, so]);
+    res.json(rows);
+  }));
+  // cria a live (ou atualiza, se vier a mesma identificação externa) e já encaixa quem estava na fila
+  r.post('/lives', wrap(async (req, res) => {
+    const starts = dataOk(req.body.starts_at);
+    const ends = req.body.ends_at ? dataOk(req.body.ends_at) : null;
+    const title = txt(req.body.title, 100);
+    const ext = req.body.external_id ? txt(req.body.external_id, 100) : null;
+    if (!starts) return res.status(400).json({ error: 'Informe a data e a hora da live' });
+    if (req.body.ends_at && (!ends || ends <= starts)) return res.status(400).json({ error: 'O fim da live precisa ser depois do começo' });
+    if (title === null) return res.status(400).json({ error: 'Título inválido (até 100 letras)' });
+    const out = await run(async (t, tz) => {
+      let live;
+      if (ext) {
+        live = (await t(`INSERT INTO lives (title,starts_at,ends_at,external_id) VALUES ($1,$2,$3,$4)
+                         ON CONFLICT (external_id) DO UPDATE SET title=EXCLUDED.title, starts_at=EXCLUDED.starts_at, ends_at=EXCLUDED.ends_at
+                         RETURNING *, (xmax = 0) AS created`, [title || null, starts, ends, ext])).rows[0];
+      } else {
+        live = (await t('INSERT INTO lives (title,starts_at,ends_at) VALUES ($1,$2,$3) RETURNING *, true AS created', [title || null, starts, ends])).rows[0];
+      }
+      return { live, attached: await entrarNaLive(t, tz) };
+    });
+    res.status(out.live.created ? 201 : 200).json(out);
+  }));
+  r.put('/lives/:id', wrap(async (req, res) => {
+    const b = req.body;
+    const starts = b.starts_at === undefined ? null : dataOk(b.starts_at);
+    const ends = b.ends_at ? dataOk(b.ends_at) : null;
+    const title = b.title === undefined ? null : txt(b.title, 100);
+    if (b.starts_at !== undefined && !starts) return res.status(400).json({ error: 'Data e hora inválidas' });
+    if (b.ends_at && !ends) return res.status(400).json({ error: 'Fim da live inválido' });
+    if (b.title !== undefined && title === null) return res.status(400).json({ error: 'Título inválido (até 100 letras)' });
+    const out = await run(async (t, tz) => {
+      const live = (await t(`UPDATE lives SET title=CASE WHEN $2::boolean THEN NULLIF($3,'') ELSE title END,
+                              starts_at=COALESCE($4,starts_at), ends_at=CASE WHEN $5::boolean THEN $6 ELSE ends_at END
+                             WHERE id=$1 RETURNING *`, [req.params.id, b.title !== undefined, title, starts, b.ends_at !== undefined, ends])).rows[0];
+      if (!live) return null;
+      return { live, attached: await entrarNaLive(t, tz) };
+    });
+    out ? res.json(out) : res.status(404).json({ error: 'Não encontrado' });
+  }));
+  r.post('/lives/:id/close', wrap(async (req, res) => {
+    const { rows } = await q('UPDATE lives SET closed_at=COALESCE(closed_at, now()) WHERE id=$1 RETURNING *', [req.params.id]);
+    rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Não encontrado' });
+  }));
+  r.post('/lives/:id/reopen', wrap(async (req, res) => {
+    const out = await run(async (t, tz) => {
+      const live = (await t('UPDATE lives SET closed_at=NULL WHERE id=$1 RETURNING *', [req.params.id])).rows[0];
+      return live ? { live, attached: await entrarNaLive(t, tz) } : null;
+    });
+    out ? res.json(out) : res.status(404).json({ error: 'Não encontrado' });
+  }));
+  r.delete('/lives/:id', wrap(async (req, res) => {
+    const l = await q('SELECT id FROM lives WHERE id=$1', [req.params.id]);
+    if (!l.rows[0]) return res.status(404).json({ error: 'Não encontrado' });
+    const n = (await q('SELECT count(*)::int AS n FROM song_orders WHERE live_id=$1', [req.params.id])).rows[0].n;
+    if (n) return res.status(409).json({ error: `Esta live tem ${n} pedido(s). Apague ou mude os pedidos antes.` });
+    await q('DELETE FROM lives WHERE id=$1', [req.params.id]);
+    res.json({ ok: true });
+  }));
+
+  // ---------- PEDIDOS ----------
+  // Registra um pedido. O painel decide se é franquia ou pago e se entra numa live ou na fila.
+  r.post('/orders', wrap(async (req, res) => {
+    const phone = normPhone(req.body.phone);
+    const song = txt(req.body.song, 200);
+    const dedication = txt(req.body.dedication ?? '', 500);
+    const valor = dinheiro(req.body.amount_paid);
+    const nome = txt(req.body.name ?? '', 120);
+    if (phone.length < 12) return res.status(400).json({ error: 'Telefone inválido (use DDD + número)' });
+    if (!song) return res.status(400).json({ error: 'Informe o nome da música' });
+    if (dedication === null || nome === null) return res.status(400).json({ error: 'Texto inválido' });
+    if (Number.isNaN(valor)) return res.status(400).json({ error: 'Valor inválido' });
+    const out = await run(async (t, tz) => {
+      const cli = (await t(
+        `INSERT INTO customers (name,phone,status,source) VALUES (NULLIF($1,''),$2,'lead','ia')
+         ON CONFLICT (phone) DO UPDATE SET name=COALESCE(customers.name, NULLIF(EXCLUDED.name,'')) RETURNING id`, [nome || '', phone])).rows[0];
+      await t('SELECT id FROM customers WHERE id=$1 FOR UPDATE', [cli.id]); // dois pedidos juntos do mesmo cliente não furam a franquia
+      const live = await proximaLive(t, tz);
+      let kind = null, level = null;
+      if (live) {
+        kind = await decidirTipo(t, tz, cli.id, live);
+        level = (await t(`SELECT lv.name FROM customers c LEFT JOIN loyalty_levels lv ON lv.id=c.club_level_id WHERE c.id=$1`, [cli.id])).rows[0]?.name || null;
+      }
+      const o = (await t(
+        `INSERT INTO song_orders (customer_id, live_id, song, dedication, amount_paid, kind, level_name)
+         VALUES ($1,$2,$3,NULLIF($4,''),$5,$6,$7) RETURNING *`,
+        [cli.id, live?.id || null, song, dedication, kind === 'franchise' ? 0 : valor, kind, level])).rows[0];
+      const bal = await saldo(t, tz, cli.id, live?.starts_at || null);
+      return { order: o, live, balance: bal };
+    });
+    res.status(201).json({
+      id: out.order.id,
+      status: out.live ? 'confirmed' : 'queued',   // queued = anotado para a próxima live, data a confirmar
+      kind: out.order.kind,                        // franchise (sem cobrança) | paid (cobrar) | null (na fila)
+      live: out.live ? { id: out.live.id, title: out.live.title, starts_at: out.live.starts_at } : null,
+      balance: out.balance,
+    });
+  }));
+  // Saldo de franquia e situação do cliente (a agente usa para responder "quantos pedidos eu ainda tenho?")
+  r.get('/orders/balance', wrap(async (req, res) => {
+    const phone = normPhone(req.query.phone);
+    const tz = await fuso();
+    const c = (await q('SELECT id, name FROM customers WHERE phone=$1', [phone])).rows[0];
+    const live = await proximaLive((s, p) => q(s, p), tz);
+    const out = { found: !!c, next_live: live ? { id: live.id, title: live.title, starts_at: live.starts_at } : null,
+      queued: c ? (await q('SELECT count(*)::int AS n FROM song_orders WHERE customer_id=$1 AND live_id IS NULL', [c.id])).rows[0].n : 0 };
+    if (c) Object.assign(out, await saldo((s, p) => q(s, p), tz, c.id, live?.starts_at || null));
+    res.json(out);
+  }));
+  r.get('/orders/summary', wrap(async (req, res) => {
+    const tz = await fuso();
+    const mes = /^\d{4}-(0[1-9]|1[0-2])$/.test(String(req.query.month || '')) ? req.query.month : (await q(`SELECT ${MES('now()', '$1')} AS m`, [tz])).rows[0].m;
+    const { rows } = await q(
+      `SELECT c.id AS customer_id, c.name, c.last_name, c.phone, c.club_status, lv.name AS level_name,
+              CASE WHEN c.club_status='member' THEN COALESCE(lv.benefit_qty,0) ELSE 0 END AS franchise,
+              count(*) FILTER (WHERE o.kind='franchise')::int AS used,
+              count(*) FILTER (WHERE o.kind='paid')::int AS paid_count,
+              COALESCE(sum(o.amount_paid) FILTER (WHERE o.kind='paid'),0)::float AS paid_total,
+              count(*)::int AS total
+       FROM song_orders o JOIN lives l ON l.id=o.live_id JOIN customers c ON c.id=o.customer_id
+       LEFT JOIN loyalty_levels lv ON lv.id=c.club_level_id
+       WHERE ${MES('l.starts_at', '$1')}=$2
+       GROUP BY c.id, lv.name, lv.benefit_qty ORDER BY lower(COALESCE(c.name,'')), c.id`, [tz, mes]);
+    res.json({ month: mes, rows: rows.map((x) => ({ ...x, remaining: Math.max(0, x.franchise - x.used) })),
+      totals: { orders: rows.reduce((s, x) => s + x.total, 0), franchise: rows.reduce((s, x) => s + x.used, 0), paid: rows.reduce((s, x) => s + x.paid_count, 0), paid_total: Math.round(rows.reduce((s, x) => s + x.paid_total, 0) * 100) / 100 } });
+  }));
+  r.get('/orders', wrap(async (req, res) => {
+    const fila = req.query.queue === '1';
+    const live = /^\d+$/.test(String(req.query.live_id || '')) ? req.query.live_id : null;
+    const { rows } = await q(
+      `SELECT o.*, c.name AS customer_name, c.last_name AS customer_last_name, c.phone AS customer_phone, c.club_status
+       FROM song_orders o JOIN customers c ON c.id=o.customer_id
+       WHERE (($1::boolean AND o.live_id IS NULL) OR (NOT $1::boolean AND $2::bigint IS NOT NULL AND o.live_id=$2))
+       ORDER BY o.created_at, o.id`, [fila, live]);
+    res.json(rows);
+  }));
+  r.put('/orders/:id', wrap(async (req, res) => {
+    const b = req.body;
+    const song = b.song === undefined ? null : txt(b.song, 200);
+    const ded = b.dedication === undefined ? null : txt(b.dedication, 500);
+    const valor = dinheiro(b.amount_paid);
+    if (b.song !== undefined && !song) return res.status(400).json({ error: 'Informe o nome da música' });
+    if (b.dedication !== undefined && ded === null) return res.status(400).json({ error: 'Texto inválido' });
+    if (Number.isNaN(valor)) return res.status(400).json({ error: 'Valor inválido' });
+    if (b.kind !== undefined && !['franchise', 'paid'].includes(b.kind)) return res.status(400).json({ error: 'Cobrança inválida' });
+    const atual = (await q('SELECT live_id FROM song_orders WHERE id=$1', [req.params.id])).rows[0];
+    if (!atual) return res.status(404).json({ error: 'Não encontrado' });
+    if (b.kind !== undefined && !atual.live_id) return res.status(400).json({ error: 'Pedido na fila ainda não tem cobrança: ela é definida quando a live for marcada' });
+    const { rows } = await q(
+      `UPDATE song_orders SET song=COALESCE($2,song), dedication=CASE WHEN $3::boolean THEN NULLIF($4,'') ELSE dedication END,
+         kind=COALESCE($5::text,kind),
+         amount_paid=CASE WHEN $5::text='franchise' THEN 0 WHEN $6::boolean THEN $7 ELSE amount_paid END
+       WHERE id=$1 RETURNING *`, [req.params.id, song, b.dedication !== undefined, ded, b.kind ?? null, b.amount_paid !== undefined, valor]);
+    res.json(rows[0]);
+  }));
+  r.delete('/orders/:id', wrap(async (req, res) => {
+    const { rowCount } = await q('DELETE FROM song_orders WHERE id=$1', [req.params.id]);
+    rowCount ? res.json({ ok: true }) : res.status(404).json({ error: 'Não encontrado' });
+  }));
+}

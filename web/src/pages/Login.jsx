@@ -1,3 +1,4 @@
+import CampoSenha from '../senha.jsx';
 import React, { useState } from 'react';
 import { api, setToken } from '../api.js';
 
@@ -32,7 +33,7 @@ export default function Login({ onLogin }) {
           </>
         )}
         <div className="field"><label>E-mail</label><input type="email" value={f.email} onChange={set('email')} required /></div>
-        <div className="field"><label>Senha</label><input type="password" value={f.password} onChange={set('password')} required minLength={mode === 'register' ? 8 : 1} /></div>
+        <div className="field"><label>Senha</label><CampoSenha value={f.password} onChange={set('password')} required minLength={mode === 'register' ? 8 : 1} autoComplete={mode === 'register' ? 'new-password' : 'current-password'} /></div>
         <button className="btn primary" style={{ width: '100%' }} disabled={busy}>{busy ? 'Aguarde…' : mode === 'login' ? 'Entrar' : 'Criar conta'}</button>
         <p className="muted" style={{ textAlign: 'center', marginTop: 14 }}>
           <a href="#" onClick={(e) => { e.preventDefault(); setMode(mode === 'login' ? 'register' : 'login'); setErr(''); }}>

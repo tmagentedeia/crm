@@ -4,7 +4,8 @@ export const MODULES = [
   { key: 'dashboard', label: 'Dashboard', desc: 'Tela de números e gráficos' },
   { key: 'atendente', label: 'Atendente', desc: 'Manual e atualizações provisórias do atendente' },
   { key: 'clientes', label: 'Clientes e Leads', desc: 'Cadastro de clientes e leads' },
-  { key: 'clube', label: 'Clube (programa de benefícios)', desc: 'Marcar clientes como membros de um programa com níveis e benefícios mensais' },
+  { key: 'clube', label: 'Programa de benefícios', desc: 'Marcar clientes como membros de um programa com níveis e benefícios' },
+  { key: 'pedidos', label: 'Pedidos', desc: 'Pedidos de música por live, com franquia do programa de benefícios e resumo do mês' },
   { key: 'agenda', label: 'Agenda', desc: 'Agenda de horários' },
   { key: 'profissionais', label: 'Profissionais', desc: 'Cadastro e horários dos profissionais' },
   { key: 'servicos', label: 'Serviços', desc: 'Serviços, preços e categorias' },
@@ -21,7 +22,7 @@ export const MODULES = [
 const PAI = { fila: 'agenda', profissionais: 'agenda', servicos: 'agenda', inativos: 'clientes', campanhas: 'clientes', clube: 'clientes', importar: 'clientes', comandos: 'atendente', bloqueios: 'atendente' };
 
 // Um módulo só está desligado quando vale explicitamente false: empresas que nunca tiveram módulos configurados veem tudo.
-// O Clube é opcional: só aparece quando o administrador liga.
+// O programa de benefícios e os Pedidos são opcionais: só aparece quando o administrador liga.
 export const moduleOn = (modules, key) =>
-  key === 'clube' ? modules?.clube === true :
+  key === 'clube' || key === 'pedidos' ? modules?.[key] === true :
   modules?.[key] !== undefined ? modules[key] !== false : PAI[key] ? modules?.[PAI[key]] !== false : true;

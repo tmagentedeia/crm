@@ -123,3 +123,9 @@ tr.click { cursor: pointer; } tr.click:hover td { background: var(--bg); }
 .logo-big { max-width: 220px; max-height: 110px; object-fit: contain; border: 1px dashed var(--line); border-radius: 12px; padding: 10px; background: var(--bg); }
 
 .admin-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; padding: 10px 14px; border-radius: 8px; background: #fef3c7; color: #78350f; border: 1px solid #f59e0b; }
+
+/* campo de senha com botão de mostrar/ocultar */
+.senha-wrap { position: relative; }
+.senha-wrap input { padding-right: 42px; }
+.senha-olho { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); background: none; border: 0; cursor: pointer; font-size: 18px; line-height: 1; padding: 4px 6px; opacity: .75; }
+.senha-olho:hover { opacity: 1; }

@@ -19,7 +19,7 @@ export default function Clube() {
   return (
     <>
       <h1>{d.program_name}</h1>
-      <p className="muted" style={{ marginBottom: 16 }}>Marque seus clientes como membros, ex-membros ou contribuintes, e defina os níveis e quantos benefícios cada nível tem por mês.</p>
+      <p className="muted" style={{ marginBottom: 16 }}>Marque seus clientes como membros de um programa com níveis e benefícios. Aqui você dá nome ao programa e define os níveis e os benefícios de cada um.</p>
       {err && <div className="error">{err}</div>}
       {msg && <p className="muted" style={{ marginBottom: 8 }}>{msg}</p>}
 

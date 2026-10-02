@@ -1,3 +1,4 @@
+import CampoSenha from '../senha.jsx';
 import React, { useEffect, useState } from 'react';
 import { api, fmtDate, getToken, setToken, ADMIN_KEY } from '../api.js';
 import { MODULES, moduleOn } from '../modules.js';
@@ -174,7 +175,7 @@ export default function Admin() {
           <div className="field"><label>Nome da empresa</label><input value={form.name} onChange={setF('name')} required /></div>
           <div className="field"><label>Nome do responsável</label><input value={form.owner_name} onChange={setF('owner_name')} required /></div>
           <div className="field"><label>E-mail do responsável (é o login dele)</label><input type="email" value={form.email} onChange={setF('email')} required /></div>
-          <div className="field"><label>Senha inicial (8 ou mais caracteres)</label><input type="password" value={form.password} onChange={setF('password')} required minLength={8} autoComplete="new-password" /></div>
+          <div className="field"><label>Senha inicial (8 ou mais caracteres)</label><CampoSenha value={form.password} onChange={setF('password')} required minLength={8} autoComplete="new-password" /></div>
           <div className="field">
             <label>Módulos liberados</label>
             {MODULES.map((m) => (

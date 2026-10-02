@@ -7,6 +7,9 @@ import { parseBirthday, parseCityState, parseDateTimeBr } from './ficha.js';
 const digits = (s) => String(s ?? '').replace(/\D/g, '');
 const txt = (v) => String(v ?? '').trim();
 
+// nome de coluna sem acento, maiúscula nem parênteses
+const chave = (k) => norm(k).replace(/\(.*?\)/g, '').replace(/[^a-z0-9 ]/g, '').trim();
+
 // aceita cabeçalhos com acento/maiúscula/parênteses: "Duração (min)" -> "duracao"
 function rowGet(row, ...names) {
   const map = {};
@@ -93,6 +96,13 @@ export async function runImport(companyId, data, dryRun) {
     };
 
     // --- serviços ---
+    // trava de segurança: linhas com telefone e sem preço são clientes mandados como serviços por engano
+    const colsSvc = new Set((data.services || []).flatMap((r) => Object.keys(r || {})).map(chave));
+    const pareceCliente = ['telefone', 'celular', 'whatsapp'].some((c) => colsSvc.has(c)) && !['preco', 'valor'].some((c) => colsSvc.has(c));
+    if (pareceCliente) {
+      rep.errors.push('Os dados enviados como "Serviços" têm coluna de telefone e nenhuma de preço: parecem ser clientes. Nada foi importado como serviço. Escolha "Clientes" e confira de novo.');
+      data = { ...data, services: [] };
+    }
     for (const [i, row] of (data.services || []).entries()) {
       const line = `Serviços, linha ${i + 2}`;
       const name = txt(rowGet(row, 'servico', 'nome', 'servicos'));
@@ -194,7 +204,6 @@ export async function runImport(companyId, data, dryRun) {
       // colunas que o painel entende (as outras são ignoradas e aparecem no relatório)
       const CONHECIDAS = ['nome', 'cliente', 'sobrenome', 'telefone', 'celular', 'whatsapp', 'tipo', 'situacao', 'programa', 'plano', 'nivel',
         'aniversario', 'nascimento', 'data de nascimento', 'cidade', 'estado', 'uf', 'genero', 'sexo', 'data do cadastro', 'cadastro', 'observacoes', 'obs'];
-      const chave = (k) => norm(k).replace(/\(.*?\)/g, '').replace(/[^a-z0-9 ]/g, '').trim();
       const vistas = new Set();
       custRows.forEach((r) => Object.keys(r || {}).forEach((k) => vistas.add(k)));
       rep.ignored_columns = [...vistas].filter((k) => !CONHECIDAS.includes(chave(k)));

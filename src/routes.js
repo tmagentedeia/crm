@@ -4,6 +4,7 @@ import { runImport } from './importer.js';
 import { registerCampaignRoutes } from './campaigns.js';
 import { normPhone } from './phone.js';
 import { parseBirthday } from './ficha.js';
+import { registerOrderRoutes, historicoDoCliente } from './pedidos.js';
 
 const digits = (s) => String(s || '').replace(/\D/g, '');
 const custPhone = normPhone;
@@ -503,7 +504,7 @@ export function buildRouter() {
     const h = await q(
       'SELECT * FROM v_customer_history WHERE customer_id=$1 ORDER BY starts_at DESC',
       [req.params.id]);
-    res.json({ ...c.rows[0], history: h.rows });
+    res.json({ ...c.rows[0], history: h.rows, ...(await historicoDoCliente(req.params.id)) });
   }));
   r.put('/customers/:id', wrap(async (req, res) => {
     const { name, phone, notes, status } = req.body;
@@ -533,7 +534,7 @@ export function buildRouter() {
     const cont = (await q(`SELECT club_status, count(*)::int AS n FROM customers WHERE club_status IS NOT NULL GROUP BY 1`)).rows;
     const counts = { member: 0, former: 0, supporter: 0 };
     cont.forEach((c) => { counts[c.club_status] = c.n; });
-    res.json({ program_name: s?.program_name || 'Clube', levels, counts });
+    res.json({ program_name: s?.program_name || 'Programa de benefícios', levels, counts });
   }));
   r.put('/club', wrap(async (req, res) => {
     const nome = nomeOk(req.body.program_name, 30);
@@ -579,6 +580,7 @@ export function buildRouter() {
     const snaps = [];
     for (const a of ids) snaps.push(await apptSnapshot(a.id));
     await q('DELETE FROM waitlist WHERE customer_id=$1', [req.params.id]);
+    await q('DELETE FROM song_orders WHERE customer_id=$1', [req.params.id]);
     await q('DELETE FROM appointments WHERE customer_id=$1', [req.params.id]);
     await q('DELETE FROM customers WHERE id=$1', [req.params.id]);
     res.json({ ok: true, appointments_deleted: snaps.length });
@@ -1006,5 +1008,6 @@ export function buildRouter() {
   }));
 
   registerCampaignRoutes(r, wrap);
+  registerOrderRoutes(r, wrap);
   return r;
 }
