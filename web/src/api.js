@@ -13,7 +13,10 @@ export async function api(path, { method = 'GET', body } = {}) {
     body: body ? JSON.stringify(body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
-  if (res.status === 401 && path !== '/auth/login') {
+  const renovado = res.headers.get('x-new-token');
+  if (renovado && getToken()) setToken(renovado);   // sessão renovada pelo uso
+  // só sai quando a sessão realmente acabou (um 401 de outro tipo não derruba o login)
+  if (res.status === 401 && path !== '/auth/login' && /Sessão inválida|Não autenticado/.test(data.error || '')) {
     setToken(null);
     localStorage.removeItem(ADMIN_KEY);
     location.reload();

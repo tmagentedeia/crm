@@ -265,9 +265,9 @@ export function registerCampaignRoutes(r, wrap) {
     let todos = [];
     if (mode === 'selected') {
       const ids = (sel.ids || []).map(Number).filter(Number.isInteger);
-      if (ids.length) todos = (await q('SELECT id,name,phone,chat_id FROM customers WHERE id = ANY($1)', [ids])).rows;
+      if (ids.length) todos = (await q('SELECT id,name,phone,chat_id FROM customers WHERE id = ANY($1) AND phone IS NOT NULL', [ids])).rows;
     } else {
-      const where = mode === 'clients' ? "WHERE status='client'" : mode === 'leads' ? "WHERE status='lead'" : mode === 'all' ? '' : null;
+      const where = mode === 'clients' ? "WHERE phone IS NOT NULL AND status='client'" : mode === 'leads' ? "WHERE phone IS NOT NULL AND status='lead'" : mode === 'all' ? 'WHERE phone IS NOT NULL' : null;
       if (where !== null) todos = (await q(`SELECT id,name,phone,chat_id FROM customers ${where}`)).rows;
     }
     if (!todos.length) return Object.assign([], { ignorados: 0 });

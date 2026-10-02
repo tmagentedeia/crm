@@ -210,19 +210,26 @@ export function registerOrderRoutes(r, wrap) {
   // ---------- PEDIDOS ----------
   // Registra um pedido. O painel decide se é franquia ou pago e se entra numa live ou na fila.
   r.post('/orders', wrap(async (req, res) => {
-    const phone = normPhone(req.body.phone);
+    const phoneInformado = String(req.body.phone ?? '').trim() !== '';
+    const phone = phoneInformado ? normPhone(req.body.phone) : null;
     const song = txt(req.body.song, 200);
     const dedication = txt(req.body.dedication ?? '', 500);
     const valor = dinheiro(req.body.amount_paid);
     const nome = txt(req.body.name ?? '', 120);
-    if (phone.length < 12) return res.status(400).json({ error: 'Telefone inválido (use DDD + número)' });
+    // telefone é opcional na anotação manual (exceções), mas sem telefone o nome é obrigatório
+    if (phoneInformado && phone.length < 12) return res.status(400).json({ error: 'Telefone inválido (use DDD + número)' });
+    if (!phoneInformado && !nome) return res.status(400).json({ error: 'Informe o telefone ou, pelo menos, o nome do cliente' });
     if (!song) return res.status(400).json({ error: 'Informe o nome da música' });
     if (dedication === null || nome === null) return res.status(400).json({ error: 'Texto inválido' });
     if (Number.isNaN(valor)) return res.status(400).json({ error: 'Valor inválido' });
     const out = await run(async (t, tz) => {
-      const cli = (await t(
-        `INSERT INTO customers (name,phone,status,source) VALUES (NULLIF($1,''),$2,'lead','ia')
-         ON CONFLICT (phone) DO UPDATE SET name=COALESCE(customers.name, NULLIF(EXCLUDED.name,'')) RETURNING id`, [nome || '', phone])).rows[0];
+      // sem telefone: reaproveita o cliente sem telefone que tenha o mesmo nome (não duplica) ou cria um só com o nome
+      const cli = phone
+        ? (await t(
+          `INSERT INTO customers (name,phone,status,source) VALUES (NULLIF($1,''),$2,'lead','ia')
+           ON CONFLICT (phone) DO UPDATE SET name=COALESCE(customers.name, NULLIF(EXCLUDED.name,'')) RETURNING id`, [nome || '', phone])).rows[0]
+        : ((await t(`SELECT id FROM customers WHERE phone IS NULL AND lower(btrim(name))=lower($1) ORDER BY id LIMIT 1`, [nome])).rows[0]
+          || (await t(`INSERT INTO customers (name,phone,status,source) VALUES ($1,NULL,'lead','manual') RETURNING id`, [nome])).rows[0]);
       await t('SELECT id FROM customers WHERE id=$1 FOR UPDATE', [cli.id]); // dois pedidos juntos do mesmo cliente não furam a franquia
       const live = await proximaLive(t, tz);
       let kind = null, level = null;

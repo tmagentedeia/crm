@@ -221,8 +221,8 @@ function NovoPedido({ L, onClose, onSaved }) {
             {ok.balance.franchise > 0 ? ` Franquia do mês: ${ok.balance.used} de ${ok.balance.franchise}.` : ''}
           </p>
         )}
-        <div className="field"><label>Telefone (com DDD) *</label><input value={f.phone} onChange={set('phone')} required /></div>
-        <div className="field"><label>Nome (se for cliente novo)</label><input value={f.name} onChange={set('name')} /></div>
+        <div className="field"><label>Telefone (com DDD)</label><input value={f.phone} onChange={set('phone')} placeholder="pode deixar em branco" /></div>
+        <div className="field"><label>{f.phone.trim() ? 'Nome (se for cliente novo)' : 'Nome *'}</label><input value={f.name} onChange={set('name')} required={!f.phone.trim()} /></div>
         <div className="field"><label>{L.song} *</label><input value={f.song} onChange={set('song')} required /></div>
         <div className="field"><label>{L.dedication}</label><input value={f.dedication} onChange={set('dedication')} /></div>
         <div className="field"><label>Valor pago (R$)</label><input inputMode="decimal" value={f.amount_paid} onChange={set('amount_paid')} placeholder="só se for cobrado" /></div>

@@ -89,6 +89,8 @@ export const TENANT_STEPS = [
   { version: 11, sql: FINANCEIRO_SQL },
   // 12: cortesia do 1º pedido (tipo novo no pedido e marca na ficha)
   { version: 12, sql: CORTESIA_SQL },
+  // 13: cliente pode existir só com o nome (pedido anotado na mão, sem telefone). O telefone continua único quando existe.
+  { version: 13, sql: 'ALTER TABLE customers ALTER COLUMN phone DROP NOT NULL' },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 

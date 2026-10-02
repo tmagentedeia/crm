@@ -152,5 +152,16 @@ check('assinatura estável sem mudança', (await T('GET', '/api/orders/changes')
 await T('POST', '/api/orders', { phone: '553288880055', song: 'Mudou a assinatura', amount_paid: 30 });
 check('assinatura muda com pedido novo', (await T('GET', '/api/orders/changes')).body.sig !== sg1);
 check('outra empresa tem assinatura própria', (await T('GET', '/api/orders/changes', null, B)).body.sig !== (await T('GET', '/api/orders/changes')).body.sig);
+// pedido sem telefone (exceção): só com o nome
+const sp1 = await T('POST', '/api/orders', { name: 'Fulano Sem Fone', song: 'Música sem telefone' });
+check('pedido só com o nome é aceito', sp1.status === 201, JSON.stringify(sp1.body));
+const sp2 = await T('POST', '/api/orders', { name: ' fulano sem fone ', song: 'Segunda sem telefone' });
+check('mesmo nome sem telefone reaproveita o cliente', sp2.status === 201 && (await T('GET', '/api/customers?search=Fulano Sem Fone')).body.length === 1);
+check('sem telefone e sem nome = 400', (await T('POST', '/api/orders', { song: 'Nada' })).status === 400);
+check('telefone curto continua inválido', (await T('POST', '/api/orders', { phone: '123', song: 'Nada' })).status === 400);
+const todosPed = [...(await T('GET', '/api/orders?queue=1')).body, ...(await T('GET', '/api/orders?live_id=' + (sp1.body.live?.id ?? 0))).body];
+check('pedido sem telefone aparece na lista com o nome', todosPed.some((o) => o.song === 'Música sem telefone' && o.customer_name === 'Fulano Sem Fone' && o.customer_phone === null));
+const sim = await T('POST', '/api/campaigns/simulate', { messages: ['Oi'], recipients: { mode: 'all' } });
+check('contato sem telefone fica fora das campanhas', sim.status === 200 && sim.body.total === (await T('GET', '/api/customers/export')).body.filter((c) => c.phone).length, JSON.stringify(sim.body).slice(0, 200));
 console.log(`pedidos: ${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);

@@ -3,7 +3,7 @@ import { qg, runAs } from './db.js';
 import { matchesCompanyKey, matchesGlobalKey } from './apikeys.js';
 
 // Autenticação do painel (JWT do usuário logado). A partir daqui, tudo roda "como" a empresa do usuário.
-export function requireUser(req, res, next) {
+export async function requireUser(req, res, next) {
   const h = req.headers.authorization || '';
   const token = h.startsWith('Bearer ') ? h.slice(7) : null;
   if (!token) return res.status(401).json({ error: 'Não autenticado' });
@@ -15,6 +15,15 @@ export function requireUser(req, res, next) {
   }
   if (!p.companyId) return res.status(401).json({ error: 'Sessão inválida ou expirada' });
   req.user = { id: p.id, companyId: p.companyId, role: p.role, imp: p.imp || null };
+  // Sessão que renova com o uso: se o login tem mais de 1 dia, devolve um novo (30 dias) no cabeçalho x-new-token.
+  // Quem usa o painel pelo menos uma vez por mês nunca precisa entrar de novo. Só renova se o usuário ainda existir
+  // (não prolonga acesso de quem foi removido). O acesso temporário do administrador não renova.
+  if (!p.imp && p.id && p.iat && Date.now() / 1000 - p.iat > RENOVAR_APOS_S) {
+    try {
+      const { rows } = await qg('SELECT id, company_id, role FROM users WHERE id=$1', [p.id]);
+      if (rows[0] && String(rows[0].company_id) === String(p.companyId)) res.setHeader('x-new-token', signToken(rows[0]));
+    } catch { /* sem renovação desta vez; a sessão atual continua valendo */ }
+  }
   runAs(p.companyId, next);
 }
 
@@ -42,12 +51,13 @@ export async function requireN8n(req, res, next) {
   runAs(companyId, next);
 }
 
+const RENOVAR_APOS_S = 24 * 3600;
 export const signToken = (u) =>
-  jwt.sign({ id: u.id, companyId: u.company_id, role: u.role }, process.env.JWT_SECRET, { expiresIn: '7d' });
+  jwt.sign({ id: u.id, companyId: u.company_id, role: u.role }, process.env.JWT_SECRET, { expiresIn: '30d' });
 
-// Acesso temporário do administrador ao painel de uma empresa (sem saber a senha): vale 2 horas e leva a marca "imp".
+// Acesso temporário do administrador ao painel de uma empresa (sem saber a senha): vale 12 horas e leva a marca "imp".
 export const signImpersonationToken = (u, adminUserId) =>
-  jwt.sign({ id: u.id, companyId: u.company_id, role: u.role, imp: adminUserId }, process.env.JWT_SECRET, { expiresIn: '2h' });
+  jwt.sign({ id: u.id, companyId: u.company_id, role: u.role, imp: adminUserId }, process.env.JWT_SECRET, { expiresIn: '12h' });
 
 // Administrador da plataforma = e-mail listado em ADMIN_EMAILS (separados por vírgula)
 const adminEmails = () => (process.env.ADMIN_EMAILS || '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
