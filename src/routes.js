@@ -3,6 +3,7 @@ import { q, qg, tx, currentCompany } from './db.js';
 import { runImport } from './importer.js';
 import { registerCampaignRoutes } from './campaigns.js';
 import { normPhone } from './phone.js';
+import { parseBirthday } from './ficha.js';
 
 const digits = (s) => String(s || '').replace(/\D/g, '');
 const custPhone = normPhone;
@@ -414,27 +415,12 @@ export function buildRouter() {
   const filtroArgs = (qs) => [qs.status || null, qs.search || null, qs.club || null,
     /^\d+$/.test(String(qs.level || '')) ? qs.level : null];
 
-  // Aniversário: aceita "dd/mm", "dd/mm/aaaa" ou "aaaa-mm-dd" (o ano é ignorado). Vazio apaga.
-  function parseBirthday(v) {
-    if (v === null || v === '') return { birth_day: null, birth_month: null, birth_year: null };
-    const t = String(v).trim();
-    let m = t.match(/^(\d{1,2})[\/.\-](\d{1,2})(?:[\/.\-](\d{2,4}))?$/), d, mo, y = null;
-    if (m) { d = +m[1]; mo = +m[2]; if (m[3]) y = m[3].length === 2 ? null : +m[3]; }
-    else if ((m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) { y = +m[1]; mo = +m[2]; d = +m[3]; }
-    else return null;
-    const max = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][mo - 1];
-    if (!(mo >= 1 && mo <= 12) || !(d >= 1 && d <= max)) return null;
-    if (y !== null && (y < 1900 || y > new Date().getFullYear())) return null;
-    const out = { birth_day: d, birth_month: mo };
-    if (y !== null) out.birth_year = y; // sem ano na digitação: mantém o ano que já estava
-    return out;
-  }
   // Campos da ficha (aniversário, cidade, Clube). Devolve { erro } ou { campos } só com o que veio no corpo.
   async function lerFicha(body, atual = null) {
     const campos = {};
     if (body.birthday !== undefined) {
       const b = parseBirthday(body.birthday);
-      if (!b) return { erro: 'Aniversário inválido (use dia/mês, ex.: 25/09)' };
+      if (!b) return { erro: 'Data de nascimento inválida (use dia/mês/ano, ex.: 25/09/1990; o ano é opcional)' };
       Object.assign(campos, b);
     }
     for (const [k, rot, max] of [['last_name', 'Sobrenome', 80], ['state', 'Estado', 2]]) {

@@ -14,7 +14,7 @@ const SAMPLE = {
     { Nome: 'Mariana', Telefone: '(32) 99999-0000', Categorias: 'Cabelo, Manicure', Serviços: 'Corte feminino, Escova, Esmaltação', Dias: 'Seg-Sáb', Horário: '09:00-18:00', Pausa: '12:00-13:00', 'ID Google Agenda': '' },
     { Nome: 'Ian', Telefone: '', Categorias: 'Cabelo', Serviços: 'Corte masculino', Dias: 'Ter, Qui, Sex', Horário: '10:00-19:00', Pausa: '', 'ID Google Agenda': '' },
   ],
-  Clientes: [{ Nome: 'Ana Souza', Telefone: '(32) 98888-7777' }],
+  Clientes: [{ Nome: 'Ana', Sobrenome: 'Souza', Telefone: '(32) 98888-7777', Tipo: '', Plano: '', 'Data de nascimento': '25/09/1990', Cidade: 'Juiz de Fora - MG', 'Data do cadastro': '11/09/2026' }],
 };
 
 const kindOf = (name) => {
@@ -135,6 +135,7 @@ export default function Importar() {
               <li>Profissionais: {rep.professionals.created} novos, {rep.professionals.updated} atualizados</li>
               <li>Clientes: {rep.customers.created} novos, {rep.customers.updated} atualizados</li>
             </ul>
+            {rep.ignored_columns?.length > 0 && <p className="muted">Colunas não usadas (não fazem parte do cadastro): {rep.ignored_columns.join(', ')}.</p>}
             {rep.errors.length > 0 && <div className="error"><strong>Linhas ignoradas ({rep.errors.length}):</strong><ul>{rep.errors.map((x, i) => <li key={i}>{x}</li>)}</ul></div>}
             {rep.warnings.length > 0 && <div className="muted"><strong>Avisos:</strong><ul>{rep.warnings.map((x, i) => <li key={i}>{x}</li>)}</ul></div>}
           </div>

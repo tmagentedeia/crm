@@ -3,6 +3,7 @@ import { tx, qg } from './db.js';
 // ---------- utilidades ----------
 const norm = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 import { normPhone } from './phone.js';
+import { parseBirthday, parseCityState, parseDateTimeBr } from './ficha.js';
 const digits = (s) => String(s ?? '').replace(/\D/g, '');
 const txt = (v) => String(v ?? '').trim();
 
@@ -72,7 +73,7 @@ export async function runImport(companyId, data, dryRun) {
     dry_run: !!dryRun,
     services: { created: 0, updated: 0 }, categories: { created: 0 },
     professionals: { created: 0, updated: 0 }, customers: { created: 0, updated: 0 },
-    warnings: [], errors: [],
+    warnings: [], errors: [], ignored_columns: [],
   };
   class Desfazer extends Error {}
   try {
@@ -188,18 +189,66 @@ export async function runImport(companyId, data, dryRun) {
     }
 
     // --- clientes ---
-    for (const [i, row] of (data.customers || []).entries()) {
-      const name = txt(rowGet(row, 'nome', 'cliente'));
-      const rawPhone = rowGet(row, 'telefone', 'celular', 'whatsapp');
-      if (!name && !rawPhone) continue;
-      const line = `Clientes, linha ${i + 2}${name ? ` (${name})` : ''}`;
-      const phone = normPhone(rawPhone);
-      if (phone.length < 12) { rep.errors.push(`${line}: telefone inválido (use DDD + número)`); continue; }
-      const r = await q(
-        `INSERT INTO customers (name,phone,status,source) VALUES ($1,$2,'client','manual')
-         ON CONFLICT (phone) DO UPDATE SET name=COALESCE(NULLIF(EXCLUDED.name,''),customers.name)
-         RETURNING (xmax = 0) AS inserted`, [name || null, phone]);
-      r.rows[0].inserted ? rep.customers.created++ : rep.customers.updated++;
+    const custRows = data.customers || [];
+    if (custRows.length) {
+      // colunas que o painel entende (as outras são ignoradas e aparecem no relatório)
+      const CONHECIDAS = ['nome', 'cliente', 'sobrenome', 'telefone', 'celular', 'whatsapp', 'tipo', 'situacao', 'programa', 'plano', 'nivel',
+        'aniversario', 'nascimento', 'data de nascimento', 'cidade', 'estado', 'uf', 'genero', 'sexo', 'data do cadastro', 'cadastro', 'observacoes', 'obs'];
+      const chave = (k) => norm(k).replace(/\(.*?\)/g, '').replace(/[^a-z0-9 ]/g, '').trim();
+      const vistas = new Set();
+      custRows.forEach((r) => Object.keys(r || {}).forEach((k) => vistas.add(k)));
+      rep.ignored_columns = [...vistas].filter((k) => !CONHECIDAS.includes(chave(k)));
+      const niveis = new Map((await q('SELECT id,name FROM loyalty_levels')).rows.map((l) => [norm(l.name), l.id]));
+      const SIT = { clube: 'member', membro: 'member', 'ex clube': 'former', 'ex-clube': 'former', 'ex membro': 'former', 'ex-membro': 'former', contribuinte: 'supporter', apoiador: 'supporter' };
+      const tipoDe = (row) => norm(rowGet(row, 'tipo', 'situacao', 'programa')).replace(/\s+/g, ' ');
+      // se a planilha usa a coluna de situação, quem está sem nada é só um contato (lead)
+      const usaPrograma = custRows.some((r) => SIT[tipoDe(r)]);
+      const nivelAvisado = new Set();
+      for (const [i, row] of custRows.entries()) {
+        const name = txt(rowGet(row, 'nome', 'cliente'));
+        const rawPhone = rowGet(row, 'telefone', 'celular', 'whatsapp');
+        if (!name && !rawPhone) continue;
+        const line = `Clientes, linha ${i + 2}${name ? ` (${name})` : ''}`;
+        const phone = normPhone(rawPhone);
+        if (phone.length < 12) { rep.errors.push(`${line}: telefone inválido (use DDD + número)`); continue; }
+
+        const tipo = tipoDe(row);
+        let club = SIT[tipo] || null;
+        let status = tipo === 'lead' ? 'lead' : tipo === 'cliente' ? 'client' : club ? 'client' : usaPrograma ? 'lead' : 'client';
+        let levelId = null;
+        const plano = txt(rowGet(row, 'plano', 'nivel'));
+        if (plano && club === 'member') {
+          levelId = niveis.get(norm(plano)) || null;
+          if (!levelId && !nivelAvisado.has(norm(plano))) { nivelAvisado.add(norm(plano)); rep.warnings.push(`O nível "${plano}" não existe no Clube. Crie esse nível antes de importar; por enquanto esses clientes entram sem nível.`); }
+        }
+        const nasc = rowGet(row, 'data de nascimento', 'nascimento', 'aniversario');
+        let b = { birth_day: null, birth_month: null, birth_year: null };
+        if (txt(nasc)) { b = parseBirthday(nasc); if (!b) { rep.warnings.push(`${line}: data de nascimento "${txt(nasc)}" não entendida — ignorada`); b = { birth_day: null, birth_month: null, birth_year: null }; } }
+        const cs = parseCityState(rowGet(row, 'cidade'));
+        const uf = txt(rowGet(row, 'estado', 'uf')).toUpperCase();
+        const gRaw = norm(rowGet(row, 'genero', 'sexo'));
+        const gender = ['feminino', 'f', 'mulher'].includes(gRaw) ? 'female' : ['masculino', 'm', 'homem'].includes(gRaw) ? 'male' : gRaw ? 'other' : null;
+        const cad = txt(rowGet(row, 'data do cadastro', 'cadastro'));
+        const created = parseDateTimeBr(cad);
+        if (cad && !created) rep.warnings.push(`${line}: data do cadastro "${cad}" não entendida — usei a data de hoje`);
+        const r = await q(
+          `INSERT INTO customers (name,last_name,phone,status,source,city,state,birth_day,birth_month,birth_year,gender,club_status,club_level_id,notes,created_at)
+           VALUES ($1,$2,$3,$4,'manual',$5,$6,$7,$8,$9,$10,$11,$12,$13,COALESCE($14::timestamptz, now()))
+           ON CONFLICT (phone) DO UPDATE SET
+             name=COALESCE(NULLIF(EXCLUDED.name,''),customers.name),
+             last_name=COALESCE(EXCLUDED.last_name,customers.last_name),
+             city=COALESCE(EXCLUDED.city,customers.city), state=COALESCE(EXCLUDED.state,customers.state),
+             birth_day=COALESCE(EXCLUDED.birth_day,customers.birth_day), birth_month=COALESCE(EXCLUDED.birth_month,customers.birth_month),
+             birth_year=COALESCE(EXCLUDED.birth_year,customers.birth_year), gender=COALESCE(EXCLUDED.gender,customers.gender),
+             club_status=COALESCE(EXCLUDED.club_status,customers.club_status),
+             club_level_id=CASE WHEN EXCLUDED.club_status IS NULL THEN customers.club_level_id ELSE EXCLUDED.club_level_id END,
+             notes=COALESCE(EXCLUDED.notes,customers.notes),
+             updated_at=now()
+           RETURNING (xmax = 0) AS inserted`,
+          [name || null, txt(rowGet(row, 'sobrenome')) || null, phone, status, cs.city, cs.state || uf || null,
+           b.birth_day, b.birth_month, b.birth_year ?? null, gender, club, levelId, txt(rowGet(row, 'observacoes', 'obs')) || null, created]);
+        r.rows[0].inserted ? rep.customers.created++ : rep.customers.updated++;
+      }
     }
 
     if (dryRun) throw new Desfazer(); // simulação: desfaz tudo

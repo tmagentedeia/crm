@@ -12,7 +12,7 @@ const dataBr = (d) => (d ? new Date(d).toLocaleDateString('pt-BR') : '');
 const SITUACAO = { member: 'Membro', former: 'Ex-membro', supporter: 'Contribuinte' };
 const GENERO = { female: 'Feminino', male: 'Masculino', other: 'Outro' };
 const dm = (d, m, y) => (d && m ? String(d).padStart(2, '0') + '/' + String(m).padStart(2, '0') + (y ? '/' + y : '') : '');
-const COLUNAS = ['Nome', 'Sobrenome', 'Telefone', 'Tipo', 'Origem', 'Cidade', 'Estado', 'Aniversário', 'Gênero', 'Situação no programa', 'Nível', 'Última visita', 'Cadastrado em', 'Atualizado em', 'Observações'];
+const COLUNAS = ['Nome', 'Sobrenome', 'Telefone', 'Tipo', 'Origem', 'Cidade', 'Estado', 'Data de nascimento', 'Gênero', 'Situação no programa', 'Nível', 'Última visita', 'Cadastrado em', 'Atualizado em', 'Observações'];
 const linhas = (rows) => rows.map((c) => [c.name, c.last_name, c.phone, c.status === 'client' ? 'Cliente' : 'Lead', c.source === 'ia' ? 'Agente IA' : 'Manual', c.city, c.state, dm(c.birth_day, c.birth_month, c.birth_year), GENERO[c.gender], SITUACAO[c.club_status], c.club_level_name, dataBr(c.last_visit_at), dataBr(c.created_at), dataBr(c.updated_at), c.notes].map(cel));
 // aceita 25/09 ou 25/09/1990; devolve o que o servidor entende
 const nomeCompleto = (c) => [c.name, c.last_name].filter(Boolean).join(' ');
@@ -124,7 +124,7 @@ function FichaCampos({ f, setF, clube, club }) {
         <div className="field" style={{ maxWidth: 90 }}><label>Estado</label><input value={f.state} maxLength={2} placeholder="MG" onChange={set('state')} /></div>
       </div>
       <div className="row">
-        <div className="field"><label>Aniversário</label><input value={f.birthday} placeholder="dd/mm ou dd/mm/aaaa" onChange={set('birthday')} /></div>
+        <div className="field"><label>Data de nascimento</label><input value={f.birthday} placeholder="dd/mm/aaaa (o ano é opcional)" onChange={set('birthday')} /></div>
         <div className="field"><label>Gênero</label>
           <select value={f.gender} onChange={set('gender')}><option value="">—</option>{Object.entries(GENERO).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
       </div>
