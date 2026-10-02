@@ -7,6 +7,14 @@ const FORM_VAZIO = () => ({
   modules: Object.fromEntries(MODULES.map((m) => [m.key, true])),
 });
 
+// Campo com rótulo pequeno em cima (definido aqui fora para os campos não perderem o foco ao digitar)
+const Campo = ({ rotulo, children, style }) => (
+  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, ...style }}>
+    <span className="muted" style={{ fontSize: 12 }}>{rotulo}</span>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, minHeight: 34 }}>{children}</div>
+  </div>
+);
+
 export default function Admin() {
   const [list, setList] = useState([]);
   const [edit, setEdit] = useState({}); // id -> valor digitado
@@ -202,68 +210,71 @@ export default function Admin() {
         </div>
       )}
 
-      <div className="card table-wrap">
-        <table>
-          <thead><tr><th>Código</th><th>Empresa</th><th>E-mail do responsável</th><th>Criado em</th><th>Ativos</th><th>Limite</th><th>Agendamento</th><th>Módulos</th><th>Bloqueios (instância e prefixo)</th><th>Chave de integração</th><th>Modelo</th><th></th></tr></thead>
-          <tbody>
-            {list.map((s) => {
-              const changed = s.id in edit;
-              return (
-                <tr key={s.id}>
-                  <td>{s.id}</td>
-                  <td>{s.name}</td>
-                  <td>{s.owner_email
+      {list.map((s) => {
+        const changed = s.id in edit;
+        return (
+          <div key={s.id} className="card" style={{ marginBottom: 12, display: 'flex', gap: 24, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+            <div style={{ flex: '1 1 560px', display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
+              <div style={{ display: 'flex', gap: 22, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                <Campo rotulo="Código"><strong>{s.id}</strong></Campo>
+                <Campo rotulo="Empresa"><strong>{s.name}</strong></Campo>
+                <Campo rotulo="E-mail do responsável">
+                  {s.owner_email
                     ? <input readOnly value={s.owner_email} title={s.owner_email} onFocus={(e) => e.target.select()} style={{ width: '13ch', minWidth: 0 }} />
-                    : <span className="muted">—</span>}</td>
-                  <td>{fmtDate(s.created_at)}</td>
-                  <td>{s.ativos}</td>
-                  <td style={{ minWidth: 60 }}>
-                    <input type="number" min="0" placeholder="—" value={shown(s)} style={{ width: 50, minWidth: 50 }}
-                      onChange={(e) => setEdit({ ...edit, [s.id]: e.target.value })}
-                      onKeyDown={(e) => e.key === 'Enter' && changed && save(s)} />
-                  </td>
-                  <td style={{ minWidth: 150 }}>
-                    <select value={s.booking_mode || 'auto'} onChange={(e) => salvarModo(s, e.target.value)}>
-                      <option value="auto">Automático (horários fixos)</option>
-                      <option value="confirm">Sob confirmação</option>
-                    </select>
-                  </td>
-                  <td style={{ minWidth: 170 }}>
-                    {MODULES.map((m) => (
-                      <label key={m.key} title={m.desc} style={{ display: 'flex', gap: 6, alignItems: 'center', fontWeight: 'normal', whiteSpace: 'nowrap' }}>
-                        <input type="checkbox" style={{ width: 'auto' }} checked={moduleOn(s.modules, m.key)} onChange={() => alternarModulo(s, m.key)} />
-                        {m.label}
-                      </label>
-                    ))}
-                  </td>
-                  <td style={{ minWidth: 190 }}>
-                    <input placeholder="instância do WhatsApp" value={cx[s.id]?.i ?? s.whatsapp_instance ?? ''}
-                      onChange={(e) => setCx({ ...cx, [s.id]: { i: e.target.value, p: cx[s.id]?.p ?? s.redis_prefix ?? '' } })} />
-                    <input placeholder="prefixo (opcional), ex.: cabeleireira" style={{ marginTop: 4 }} value={cx[s.id]?.p ?? s.redis_prefix ?? ''}
-                      onChange={(e) => setCx({ ...cx, [s.id]: { i: cx[s.id]?.i ?? s.whatsapp_instance ?? '', p: e.target.value } })} />
-                    {s.id in cx && <button className="btn sm primary" style={{ marginTop: 4 }} onClick={() => salvarCx(s)}>Salvar</button>}
-                  </td>
-                  <td>
-                    {s.api_key_hint
-                      ? <><span style={{ fontFamily: 'monospace' }}>crm_…{s.api_key_hint}</span> <span className="muted">· gerada em {fmtDate(s.api_key_created_at)}</span></>
-                      : <span className="muted">Sem chave</span>}
-                    {' '}
-                    <button className="btn sm" onClick={() => gerarChave(s)}>{s.api_key_hint ? 'Regenerar' : 'Gerar chave'}</button>
-                  </td>
-                  <td>
-                    <button className="btn sm" onClick={() => setSalvarModelo({ company_id: s.id, empresa: s.name, name: '', description: '' })}>Salvar como modelo</button>
-                  </td>
-                  <td style={{ textAlign: 'right' }}>
-                    <button className="btn sm" onClick={() => abrirPainel(s)}>Abrir painel</button>{' '}
-                    {changed && <button className="btn sm primary" onClick={() => save(s)}>Salvar</button>}
-                  </td>
-                </tr>
-              );
-            })}
-            {!list.length && <tr><td colSpan="11" className="muted">Nenhuma empresa cadastrada.</td></tr>}
-          </tbody>
-        </table>
-      </div>
+                    : <span className="muted">—</span>}
+                </Campo>
+                <Campo rotulo="Criado em"><span className="muted" style={{ fontSize: 12 }}>{fmtDate(s.created_at)}</span></Campo>
+                <Campo rotulo="Ativos">{s.ativos}</Campo>
+                <Campo rotulo="Limite">
+                  <input type="number" min="0" placeholder="—" value={shown(s)} style={{ width: 50, minWidth: 50 }}
+                    onChange={(e) => setEdit({ ...edit, [s.id]: e.target.value })}
+                    onKeyDown={(e) => e.key === 'Enter' && changed && save(s)} />
+                  {changed && <button className="btn sm primary" onClick={() => save(s)}>Salvar</button>}
+                </Campo>
+                <Campo rotulo="Agendamento">
+                  <select value={s.booking_mode || 'auto'} onChange={(e) => salvarModo(s, e.target.value)}>
+                    <option value="auto">Automático (horários fixos)</option>
+                    <option value="confirm">Sob confirmação</option>
+                  </select>
+                </Campo>
+              </div>
+              <div style={{ display: 'flex', gap: 22, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                <Campo rotulo="Bloqueios (instância e prefixo)">
+                  <input placeholder="instância do WhatsApp" style={{ width: 170 }} value={cx[s.id]?.i ?? s.whatsapp_instance ?? ''}
+                    onChange={(e) => setCx({ ...cx, [s.id]: { i: e.target.value, p: cx[s.id]?.p ?? s.redis_prefix ?? '' } })} />
+                  <input placeholder="prefixo (opcional)" style={{ width: 150 }} value={cx[s.id]?.p ?? s.redis_prefix ?? ''}
+                    onChange={(e) => setCx({ ...cx, [s.id]: { i: cx[s.id]?.i ?? s.whatsapp_instance ?? '', p: e.target.value } })} />
+                  {s.id in cx && <button className="btn sm primary" onClick={() => salvarCx(s)}>Salvar</button>}
+                </Campo>
+                <Campo rotulo="Chave de integração">
+                  {s.api_key_hint
+                    ? <><span style={{ fontFamily: 'monospace' }}>crm_…{s.api_key_hint}</span> <span className="muted">· gerada em {fmtDate(s.api_key_created_at)}</span></>
+                    : <span className="muted">Sem chave</span>}
+                  <button className="btn sm" onClick={() => gerarChave(s)}>{s.api_key_hint ? 'Regenerar' : 'Gerar chave'}</button>
+                </Campo>
+                <Campo rotulo="Modelo">
+                  <button className="btn sm" onClick={() => setSalvarModelo({ company_id: s.id, empresa: s.name, name: '', description: '' })}>Salvar como modelo</button>
+                </Campo>
+                <Campo rotulo="Painel">
+                  <button className="btn sm" onClick={() => abrirPainel(s)}>Abrir painel</button>
+                </Campo>
+              </div>
+            </div>
+            <div style={{ flex: '0 0 auto' }}>
+              <span className="muted" style={{ fontSize: 12 }}>Módulos</span>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, max-content)', columnGap: 22, rowGap: 2, marginTop: 3 }}>
+                {MODULES.map((m) => (
+                  <label key={m.key} title={m.desc} style={{ display: 'flex', gap: 6, alignItems: 'center', fontWeight: 'normal', whiteSpace: 'nowrap' }}>
+                    <input type="checkbox" style={{ width: 'auto' }} checked={moduleOn(s.modules, m.key)} onChange={() => alternarModulo(s, m.key)} />
+                    {m.label}
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+      {!list.length && <div className="card muted">Nenhuma empresa cadastrada.</div>}
     
       <div className="card table-wrap" style={{ marginTop: 16 }}>
         <button className="btn sm" onClick={verAcessos}>{acessos ? 'Esconder' : 'Ver'} acessos do administrador às empresas</button>

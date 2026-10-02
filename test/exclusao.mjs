@@ -42,6 +42,15 @@ if (usado) {
   check('profissional com histórico é excluído com com_historico=1', r4.status === 200, JSON.stringify(r4));
 } else console.log('aviso: sem agendamentos na demo, testes de histórico pulados');
 
+// fila de espera: excluir de vez, em qualquer situação
+const fila = await call('POST', '/api/waitlist', { token: A.token, body: { phone: '32988880001', name: 'Fila teste', desired_at: '2031-03-03T13:00:00Z' } });
+check('entra na fila', fila.status === 201, JSON.stringify(fila));
+await call('DELETE', `/api/waitlist/${fila.body.id}`, { token: A.token }); // vira "Removido"
+check('empresa 2 não exclui da fila da 1', (await call('DELETE', `/api/waitlist/${fila.body.id}/permanent`, { token: B.token })).status === 404);
+check('exclui registro já removido', (await call('DELETE', `/api/waitlist/${fila.body.id}/permanent`, { token: A.token })).status === 200);
+check('sumiu da fila', !(await call('GET', '/api/waitlist', { token: A.token })).body.some((x) => x.id === fila.body.id));
+check('excluir de novo = 404', (await call('DELETE', `/api/waitlist/${fila.body.id}/permanent`, { token: A.token })).status === 404);
+
 // isolamento: a empresa 2 não apaga nada da empresa 1
 const alvo = lista.find((x) => x.id) ;
 check('empresa 2 não exclui serviço da empresa 1', (await call('DELETE', `/api/services/${alvo.id}/permanent`, { token: B.token })).status === 404);

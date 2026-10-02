@@ -668,6 +668,12 @@ export function buildRouter() {
     await q("UPDATE waitlist SET status='cancelled' WHERE id=$1", [req.params.id]);
     res.json({ ok: true });
   }));
+  // Exclui o registro de vez (qualquer situação), para limpar a lista.
+  r.delete('/waitlist/:id/permanent', wrap(async (req, res) => {
+    const { rowCount } = await q('DELETE FROM waitlist WHERE id=$1', [req.params.id]);
+    if (!rowCount) return res.status(404).json({ error: 'Não encontrado' });
+    res.json({ ok: true });
+  }));
 
   // ---------- IMPORTAR PLANILHA ----------
   // body: { services:[...], professionals:[...], customers:[...], dry_run: true|false }

@@ -164,7 +164,10 @@ function Form({ id, voltar, abrir, frases }) {
               {m.trim() && !FIM_OK.test(m.trim()) && (
                 <span className="muted" style={{ color: 'var(--bad)' }}>Termine com a frase de saída em forma de pergunta (“tá?”, “ok?” ou “tudo bem?”).</span>
               )}
-              <button type="button" className="btn sm" onClick={() => setMsg(i, (m.trim() + ' ' + FRASES_SAIDA[i % FRASES_SAIDA.length]).trim())}>Adicionar frase de saída</button>
+              <button type="button" className="btn sm"
+                disabled={!m.trim() || FIM_OK.test(m.trim()) || FRASES_SAIDA.some((x) => m.includes(x))}
+                title={FIM_OK.test(m.trim()) ? 'Esta mensagem já termina com a frase de saída' : ''}
+                onClick={() => setMsg(i, (m.trim() + ' ' + FRASES_SAIDA[i % FRASES_SAIDA.length]).trim())}>Adicionar frase de saída</button>
             </div>
           </div>
         ))}

@@ -10,6 +10,10 @@ export default function Fila() {
   const load = () => api('/waitlist').then(setList);
   useEffect(() => { load(); }, []);
   const remove = async (w) => { await api('/waitlist/' + w.id, { method: 'DELETE' }); load(); };
+  const excluir = async (w) => {
+    if (!window.confirm(`Excluir ${w.customer_name || 'este registro'} da fila? Isso apaga o registro de vez.`)) return;
+    await api('/waitlist/' + w.id + '/permanent', { method: 'DELETE' }); load();
+  };
   return (
     <>
       <div style={{ marginBottom: 16 }}>
@@ -25,7 +29,10 @@ export default function Fila() {
                 <td>{w.customer_name || '—'}</td><td>{fmtPhone(w.customer_phone)}</td>
                 <td>{w.professional_name || 'Qualquer um'}</td><td>{fmt(w.desired_at)}</td>
                 <td>{LABEL[w.status]}</td>
-                <td style={{ textAlign: 'right' }}>{w.status === 'waiting' && <button className="btn sm" onClick={() => remove(w)}>Remover</button>}</td>
+                <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  {w.status === 'waiting' && <button className="btn sm" onClick={() => remove(w)}>Remover</button>}{' '}
+                  <button className="btn sm bad" onClick={() => excluir(w)}>Excluir</button>
+                </td>
               </tr>
             ))}
             {!list.length && <tr><td colSpan="6" className="muted">Ninguém na fila.</td></tr>}
