@@ -65,6 +65,16 @@ function Secoes({ texto, onChange }) {
     novas.splice(i, 1, { corpo: corpo.slice(0, pos).replace(/\n+$/, '') }, { corpo: corpo.slice(pos).replace(/^\n+/, '') });
     aplicar(novas, [i + 1]);
   };
+  // Põe em maiúsculas só o trecho selecionado (o cursor volta para o começo dele, pronto para "Dividir aqui")
+  const maiusculas = (i) => {
+    const ta = document.getElementById(`sec-ta-${i}`);
+    const ini = ta ? ta.selectionStart : 0;
+    const fim = ta ? ta.selectionEnd : 0;
+    if (!ta || fim <= ini) { window.alert('Selecione primeiro o trecho (por exemplo, a frase do título) e aperte “MAIÚSCULAS” de novo.'); return; }
+    const corpo = secs[i].corpo;
+    editar(i, corpo.slice(0, ini) + corpo.slice(ini, fim).toLocaleUpperCase('pt-BR') + corpo.slice(fim));
+    setTimeout(() => { const t = document.getElementById(`sec-ta-${i}`); if (t) { t.focus(); t.setSelectionRange(ini, ini); } }, 0);
+  };
   const nova = (depoisDe) => {
     const novas = [...secs];
     novas.splice(depoisDe + 1, 0, { corpo: '' });
@@ -94,6 +104,7 @@ function Secoes({ texto, onChange }) {
                 <textarea id={`sec-ta-${i}`} value={s.corpo} onChange={(e) => editar(i, e.target.value)}
                   rows={Math.min(30, Math.max(5, s.corpo.split('\n').length + 1))} style={{ width: '100%', fontFamily: 'inherit' }} />
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                  <button className="btn sm" onClick={() => maiusculas(i)} title="Selecione um trecho do texto e aperte para deixá-lo em letras maiúsculas">Colocar em MAIÚSCULAS</button>
                   <button className="btn sm" onClick={() => dividir(i)}>Dividir aqui</button>
                   <button className="btn sm" onClick={() => nova(i)}>＋ Caixa depois desta</button>
                   {i > 0 && <button className="btn sm" onClick={() => juntarComAnterior(i)}>Juntar com a anterior</button>}
