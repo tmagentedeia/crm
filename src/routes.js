@@ -524,7 +524,15 @@ export function buildRouter() {
   }));
 
   r.get('/customers', wrap(async (req, res) => {
-    const { rows } = await q(`${CUST} WHERE ${FILTRO} ORDER BY c.created_at DESC LIMIT 500`, filtroArgs(req.query));
+    // ordem escolhida na tela: nome ou cidade (A-Z / Z-A); sem escolha, os mais recentes primeiro.
+    // Quem não tem o campo preenchido vai sempre para o fim da lista.
+    const dir = req.query.dir === 'desc' ? 'DESC' : 'ASC';
+    const ORDEM = {
+      name: `lower(NULLIF(btrim(c.name),'')) ${dir} NULLS LAST, lower(c.last_name) ${dir} NULLS LAST, c.created_at DESC`,
+      city: `lower(NULLIF(btrim(c.city),'')) ${dir} NULLS LAST, lower(c.name) ASC NULLS LAST, c.created_at DESC`,
+    };
+    const ordem = ORDEM[req.query.sort] || 'c.created_at DESC';
+    const { rows } = await q(`${CUST} WHERE ${FILTRO} ORDER BY ${ordem} LIMIT 500`, filtroArgs(req.query));
     res.json(rows);
   }));
   // Todos os clientes e leads (sem o limite da listagem), para baixar ou copiar para uma planilha. Mesmos filtros da listagem.

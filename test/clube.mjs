@@ -87,6 +87,18 @@ const bp = (await T('/api/customers/by-phone/553291112222')).body;
 check('consulta por telefone devolve o nível (para o agente)', bp.club_level_name === 'Nível 2' && bp.club_benefit_qty === 1, JSON.stringify(bp));
 check('upsert sem ficha não apaga a ficha', (await T('/api/customers', { method: 'POST', body: { name: 'Ana Clube', phone: '32991112222' } })).body.club_level_name === 'Nível 2');
 
+// ordem da lista
+await T('/api/customers', { method: 'POST', body: { name: 'Zeca Ordem', phone: '32988880031', city: 'Ubá' } });
+await T('/api/customers', { method: 'POST', body: { name: 'aline Ordem', phone: '32988880032', city: 'Juiz de Fora' } });
+const ord = async (qs) => (await lista(qs)).filter((x) => /Ordem$/.test(x.name || '')).map((x) => x.name);
+check('ordem por nome A-Z (sem diferenciar maiúscula)', (await ord('sort=name&dir=asc')).join() === 'aline Ordem,Zeca Ordem');
+check('ordem por nome Z-A', (await ord('sort=name&dir=desc')).join() === 'Zeca Ordem,aline Ordem');
+check('ordem por cidade A-Z', (await ord('sort=city&dir=asc')).join() === 'aline Ordem,Zeca Ordem');
+check('ordem por cidade Z-A', (await ord('sort=city&dir=desc')).join() === 'Zeca Ordem,aline Ordem');
+const semCidade = await lista('sort=city&dir=asc');
+check('sem cidade vai para o fim', semCidade[semCidade.length - 1].city === null || semCidade[semCidade.length - 1].city === '');
+check('ordem inválida não quebra', (await T('/api/customers?sort=drop&dir=x')).status === 200);
+
 // contagens e exclusão de nível
 c = (await T('/api/club')).body;
 check('contagem por nível', c.levels.find((l) => l.name === 'Nível 2').members === 1 && c.counts.member >= 1 && c.counts.supporter === 1, JSON.stringify(c));

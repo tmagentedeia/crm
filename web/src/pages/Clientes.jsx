@@ -29,14 +29,16 @@ export default function Clientes({ company }) {
   useEffect(() => { if (clube) api('/club').then(setClub).catch(() => {}); }, [clube]);
   const [tab, setTab] = useState('');
   const [search, setSearch] = useState('');
+  const [ordem, setOrdem] = useState('');   // '', name-asc, name-desc, city-asc, city-desc
   const [list, setList] = useState([]);
   const [detail, setDetail] = useState(null);
   const [adding, setAdding] = useState(false);
   const sel = useSelecao(list);
 
   const qs = `status=${tab}&search=${encodeURIComponent(search)}&club=${sit}&level=${nivel}`;
-  const load = () => api(`/customers?${qs}`).then(setList);
-  useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [tab, search, sit, nivel]);
+  const [campo, sentido] = ordem.split('-');
+  const load = () => api(`/customers?${qs}${campo ? `&sort=${campo}&dir=${sentido}` : ''}`).then(setList);
+  useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [tab, search, sit, nivel, ordem]);
 
   const [aviso, setAviso] = useState('');
   const exportar = () => api(`/customers/export?${qs}`);
@@ -89,6 +91,13 @@ export default function Clientes({ company }) {
             )}
           </>
         )}
+        <select value={ordem} onChange={(e) => setOrdem(e.target.value)} style={{ maxWidth: 190 }} title="Ordem da lista">
+          <option value="">Mais recentes primeiro</option>
+          <option value="name-asc">Nome (A a Z)</option>
+          <option value="name-desc">Nome (Z a A)</option>
+          <option value="city-asc">Cidade (A a Z)</option>
+          <option value="city-desc">Cidade (Z a A)</option>
+        </select>
         <input placeholder="Buscar por nome ou telefone…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ maxWidth: 300 }} />
         <button className="btn" onClick={copiar} title="Copia a lista para colar numa planilha">Copiar para planilha</button>
         <button className="btn" onClick={baixar} title="Baixa um arquivo que abre no Excel e no Google Planilhas">Baixar planilha</button>
