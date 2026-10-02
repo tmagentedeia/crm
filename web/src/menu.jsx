@@ -26,6 +26,7 @@ export const MENU_PADRAO = [
   { id: 'servicos', label: 'Serviços', icon: '🏢' },
   { id: 'inativos', label: 'Retorno de inativos', icon: '🔁' },
   { id: 'campanhas', label: 'Campanhas', icon: '📣' },
+  { id: 'clube', label: 'Clube', icon: '⭐' },
   { id: 'fila', label: 'Fila de espera', icon: '⏳' },
   { id: 'comandos', label: 'Comandos', icon: '🎛️' },
   { id: 'bloqueios', label: 'Atendimentos bloqueados', icon: '🚫' },

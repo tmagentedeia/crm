@@ -12,6 +12,34 @@ const baseline = fs.readFileSync(path.join(dir, '..', 'db', 'tenant.sql'), 'utf8
 const atendenteSql = baseline.slice(baseline.indexOf('-- ========== ATENDENTE'), baseline.indexOf('-- ========== CAMPANHAS'));
 const campanhasSql = baseline.slice(baseline.indexOf('-- ========== CAMPANHAS'), baseline.indexOf('-- ========== CAMPANHAS: SAUDA'));
 const frasesSql = baseline.slice(baseline.indexOf('-- ========== CAMPANHAS: SAUDA'));
+// Ficha do cliente e Clube. Idempotente: roda na criação de empresas novas e como passo 7 nas existentes.
+const clubeSql = `
+    CREATE TABLE IF NOT EXISTS loyalty_settings (
+      id SMALLINT PRIMARY KEY CHECK (id = 1),
+      program_name TEXT NOT NULL DEFAULT 'Clube'
+    );
+    INSERT INTO loyalty_settings (id) VALUES (1) ON CONFLICT DO NOTHING;
+    CREATE TABLE IF NOT EXISTS loyalty_levels (
+      id          BIGSERIAL PRIMARY KEY,
+      name        TEXT NOT NULL,
+      benefit_qty INT NOT NULL DEFAULT 0 CHECK (benefit_qty >= 0),   -- benefícios por mês
+      position    INT NOT NULL DEFAULT 0,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS loyalty_levels_name ON loyalty_levels (lower(name));
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS birth_day SMALLINT CHECK (birth_day BETWEEN 1 AND 31);
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS birth_month SMALLINT CHECK (birth_month BETWEEN 1 AND 12);
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS birth_year SMALLINT CHECK (birth_year BETWEEN 1900 AND 2100);
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS last_name TEXT;          -- sobrenome (name = nome)
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS city TEXT;
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS state TEXT;              -- UF, ex.: MG
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS gender TEXT CHECK (gender IN ('female','male','other'));
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;  -- última edição da ficha (não conta presença nem pedido)
+    UPDATE customers SET updated_at = created_at WHERE updated_at IS NULL;
+    ALTER TABLE customers ALTER COLUMN updated_at SET DEFAULT now();
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS club_status TEXT CHECK (club_status IN ('member','former','supporter'));
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS club_level_id BIGINT REFERENCES loyalty_levels(id);
+    CREATE INDEX IF NOT EXISTS idx_customers_club ON customers (club_status);`;
 export const TENANT_STEPS = [
   // 2: manual e avisos do atendente (empresas criadas antes dele; as novas já nascem com isso na base)
   { version: 2, sql: atendenteSql },
@@ -38,6 +66,8 @@ export const TENANT_STEPS = [
   { version: 5, sql: frasesSql },
   // 6: data do último play da campanha
   { version: 6, sql: 'ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS last_play_at TIMESTAMPTZ' },
+  // 7: ficha do cliente (aniversário, cidade) e programa de benefícios ("Clube") com níveis
+  { version: 7, sql: clubeSql },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 
@@ -48,6 +78,7 @@ export async function createCompanySchema(cx, companyId) {
   await cx.query(`CREATE SCHEMA ${s}`);
   await cx.query(`SET LOCAL search_path TO ${s}, public`);
   await cx.query(baseline.replaceAll('__COMPANY_ID__', String(Number(companyId))));
+  await cx.query(clubeSql);
   await cx.query('SET LOCAL search_path TO public');
   await cx.query('INSERT INTO tenant_versions (company_id, version) VALUES ($1, 1)', [companyId]);
 }

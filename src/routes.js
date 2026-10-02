@@ -399,30 +399,102 @@ export function buildRouter() {
   }));
 
   // ---------- CLIENTES / LEADS ----------
+  // Cliente com o nível do Clube já resolvido (nome e benefícios por mês)
+  const CUST = `SELECT c.*, l.name AS club_level_name, l.benefit_qty AS club_benefit_qty,
+                  CASE WHEN c.birth_year IS NOT NULL AND c.birth_month IS NOT NULL THEN
+                    EXTRACT(year FROM now())::int - c.birth_year
+                    - CASE WHEN (c.birth_month, c.birth_day) > (EXTRACT(month FROM now())::int, EXTRACT(day FROM now())::int) THEN 1 ELSE 0 END
+                  END AS age
+                FROM customers c LEFT JOIN loyalty_levels l ON l.id=c.club_level_id`;
+  // filtros da listagem: tipo, busca, situação no Clube ('member','former','supporter','none') e nível
+  const FILTRO = `($1::text IS NULL OR c.status=$1)
+       AND ($2::text IS NULL OR c.name ILIKE '%'||$2||'%' OR c.phone LIKE '%'||$2||'%')
+       AND ($3::text IS NULL OR ($3='none' AND c.club_status IS NULL) OR c.club_status=$3)
+       AND ($4::bigint IS NULL OR c.club_level_id=$4)`;
+  const filtroArgs = (qs) => [qs.status || null, qs.search || null, qs.club || null,
+    /^\d+$/.test(String(qs.level || '')) ? qs.level : null];
+
+  // Aniversário: aceita "dd/mm", "dd/mm/aaaa" ou "aaaa-mm-dd" (o ano é ignorado). Vazio apaga.
+  function parseBirthday(v) {
+    if (v === null || v === '') return { birth_day: null, birth_month: null, birth_year: null };
+    const t = String(v).trim();
+    let m = t.match(/^(\d{1,2})[\/.\-](\d{1,2})(?:[\/.\-](\d{2,4}))?$/), d, mo, y = null;
+    if (m) { d = +m[1]; mo = +m[2]; if (m[3]) y = m[3].length === 2 ? null : +m[3]; }
+    else if ((m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) { y = +m[1]; mo = +m[2]; d = +m[3]; }
+    else return null;
+    const max = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][mo - 1];
+    if (!(mo >= 1 && mo <= 12) || !(d >= 1 && d <= max)) return null;
+    if (y !== null && (y < 1900 || y > new Date().getFullYear())) return null;
+    const out = { birth_day: d, birth_month: mo };
+    if (y !== null) out.birth_year = y; // sem ano na digitação: mantém o ano que já estava
+    return out;
+  }
+  // Campos da ficha (aniversário, cidade, Clube). Devolve { erro } ou { campos } só com o que veio no corpo.
+  async function lerFicha(body, atual = null) {
+    const campos = {};
+    if (body.birthday !== undefined) {
+      const b = parseBirthday(body.birthday);
+      if (!b) return { erro: 'Aniversário inválido (use dia/mês, ex.: 25/09)' };
+      Object.assign(campos, b);
+    }
+    for (const [k, rot, max] of [['last_name', 'Sobrenome', 80], ['state', 'Estado', 2]]) {
+      if (body[k] === undefined) continue;
+      let t = String(body[k] ?? '').trim();
+      if (k === 'state') { t = t.toUpperCase(); if (t && !/^[A-Z]{2}$/.test(t)) return { erro: 'Estado inválido (use a sigla, ex.: MG)' }; }
+      if (t.length > max || /[\u0000-\u001f<>]/.test(t)) return { erro: rot + ' inválido' };
+      campos[k] = t || null;
+    }
+    if (body.gender !== undefined) {
+      const g = body.gender || null;
+      if (g !== null && !['female', 'male', 'other'].includes(g)) return { erro: 'Gênero inválido' };
+      campos.gender = g;
+    }
+    if (body.city !== undefined) {
+      const c = String(body.city ?? '').trim();
+      if (c.length > 80) return { erro: 'Cidade muito longa' };
+      campos.city = c || null;
+    }
+    if (body.club_status !== undefined) {
+      const st = body.club_status || null;
+      if (st !== null && !['member', 'former', 'supporter'].includes(st)) return { erro: 'Situação no programa inválida' };
+      campos.club_status = st;
+    }
+    const final = campos.club_status !== undefined ? campos.club_status : (atual?.club_status ?? null);
+    if (body.club_level_id !== undefined && body.club_level_id !== null && body.club_level_id !== '') {
+      if (final !== 'member') return { erro: 'O nível só vale para quem é membro' };
+      const l = await q('SELECT id FROM loyalty_levels WHERE id=$1', [body.club_level_id]);
+      if (!l.rows[0]) return { erro: 'Nível não encontrado' };
+      campos.club_level_id = l.rows[0].id;
+    } else if (body.club_level_id !== undefined || (final !== 'member' && campos.club_status !== undefined)) {
+      campos.club_level_id = null; // limpou o nível, ou deixou de ser membro
+    }
+    return { campos };
+  }
+  async function gravarFicha(id, campos) {
+    const cols = Object.keys(campos);
+    if (!cols.length) return;
+    await q(`UPDATE customers SET ${cols.map((c, i) => `${c}=$${i + 2}`).join(', ')}, updated_at=now() WHERE id=$1`, [id, ...cols.map((c) => campos[c])]);
+  }
+
   r.get('/customers', wrap(async (req, res) => {
-    const { status, search } = req.query;
-    const { rows } = await q(
-      `SELECT * FROM customers WHERE ($1::text IS NULL OR status=$1)
-       AND ($2::text IS NULL OR name ILIKE '%'||$2||'%' OR phone LIKE '%'||$2||'%')
-       ORDER BY created_at DESC LIMIT 500`,
-      [status || null, search || null]);
+    const { rows } = await q(`${CUST} WHERE ${FILTRO} ORDER BY c.created_at DESC LIMIT 500`, filtroArgs(req.query));
     res.json(rows);
   }));
   // Todos os clientes e leads (sem o limite da listagem), para baixar ou copiar para uma planilha. Mesmos filtros da listagem.
   r.get('/customers/export', wrap(async (req, res) => {
-    const { status, search } = req.query;
     const { rows } = await q(
-      `SELECT name, phone, status, source, notes, last_visit_at, created_at FROM customers
-       WHERE ($1::text IS NULL OR status=$1)
-       AND ($2::text IS NULL OR name ILIKE '%'||$2||'%' OR phone LIKE '%'||$2||'%')
-       ORDER BY created_at DESC`,
-      [status || null, search || null]);
+      `SELECT c.name, c.phone, c.status, c.source, c.notes, c.last_visit_at, c.created_at,
+              c.last_name, c.city, c.state, c.gender, c.birth_day, c.birth_month, c.birth_year, c.updated_at, c.club_status, l.name AS club_level_name
+       FROM customers c LEFT JOIN loyalty_levels l ON l.id=c.club_level_id
+       WHERE ${FILTRO} ORDER BY c.created_at DESC`, filtroArgs(req.query));
     res.json(rows);
   }));
   // Upsert por telefone: o agente de IA chama isso quando um lead novo conversa
   r.post('/customers', wrap(async (req, res) => {
     const { name, phone, chat_id, source = 'manual', notes, status } = req.body;
     if (status !== undefined && !['lead', 'client'].includes(status)) return res.status(400).json({ error: 'Tipo inválido' });
+    const f = await lerFicha(req.body);
+    if (f.erro) return res.status(400).json({ error: f.erro });
     const { rows } = await q(
       `INSERT INTO customers (name,phone,chat_id,source,notes,status)
        VALUES ($1,$2,$3,$4,$5,COALESCE($6,'lead'))
@@ -430,17 +502,17 @@ export function buildRouter() {
          name=COALESCE(EXCLUDED.name,customers.name),
          chat_id=COALESCE(EXCLUDED.chat_id,customers.chat_id),
          notes=COALESCE(EXCLUDED.notes,customers.notes)
-       RETURNING *`,
+       RETURNING id`,
       [name, custPhone(phone), chat_id, source, notes, status ?? null]);
-    res.status(201).json(rows[0]);
+    await gravarFicha(rows[0].id, f.campos);
+    res.status(201).json((await q(`${CUST} WHERE c.id=$1`, [rows[0].id])).rows[0]);
   }));
   r.get('/customers/by-phone/:phone', wrap(async (req, res) => {
-    const { rows } = await q('SELECT * FROM customers WHERE phone=$1',
-      [digits(req.params.phone)]);
+    const { rows } = await q(`${CUST} WHERE c.phone=$1`, [digits(req.params.phone)]);
     rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Não encontrado' });
   }));
   r.get('/customers/:id', wrap(async (req, res) => {
-    const c = await q('SELECT * FROM customers WHERE id=$1', [req.params.id]);
+    const c = await q(`${CUST} WHERE c.id=$1`, [req.params.id]);
     if (!c.rows[0]) return res.status(404).json({ error: 'Não encontrado' });
     const h = await q(
       'SELECT * FROM v_customer_history WHERE customer_id=$1 ORDER BY starts_at DESC',
@@ -451,12 +523,66 @@ export function buildRouter() {
     const { name, phone, notes, status } = req.body;
     if (status !== undefined && !['lead', 'client'].includes(status)) return res.status(400).json({ error: 'Tipo inválido' });
     if (phone !== undefined && digits(phone).length < 10) return res.status(400).json({ error: 'Telefone inválido (use DDD + número)' });
+    const atual = (await q('SELECT club_status FROM customers WHERE id=$1', [req.params.id])).rows[0];
+    if (!atual) return res.status(404).json({ error: 'Não encontrado' });
+    const f = await lerFicha(req.body, atual);
+    if (f.erro) return res.status(400).json({ error: f.erro });
     const { rows } = await q(
       `UPDATE customers SET name=COALESCE($2,name), phone=COALESCE($3,phone), notes=COALESCE($4,notes),
-       status=COALESCE($5,status)
-       WHERE id=$1 RETURNING *`,
+       status=COALESCE($5,status), updated_at=now()
+       WHERE id=$1 RETURNING id`,
       [req.params.id, name, phone ? custPhone(phone) : null, notes, status ?? null]);
+    await gravarFicha(rows[0].id, f.campos);
+    res.json((await q(`${CUST} WHERE c.id=$1`, [rows[0].id])).rows[0]);
+  }));
+
+  // ---------- CLUBE (programa de benefícios com níveis) ----------
+  const nomeOk = (v, max) => { const t = String(v ?? '').trim(); return t && t.length <= max && !/[\u0000-\u001f<>]/.test(t) ? t : null; };
+  r.get('/club', wrap(async (req, res) => {
+    const s = (await q('SELECT program_name FROM loyalty_settings WHERE id=1')).rows[0];
+    const levels = (await q(
+      `SELECT l.id, l.name, l.benefit_qty, l.position,
+              (SELECT count(*) FROM customers c WHERE c.club_level_id=l.id AND c.club_status='member')::int AS members
+       FROM loyalty_levels l ORDER BY l.position, l.id`)).rows;
+    const cont = (await q(`SELECT club_status, count(*)::int AS n FROM customers WHERE club_status IS NOT NULL GROUP BY 1`)).rows;
+    const counts = { member: 0, former: 0, supporter: 0 };
+    cont.forEach((c) => { counts[c.club_status] = c.n; });
+    res.json({ program_name: s?.program_name || 'Clube', levels, counts });
+  }));
+  r.put('/club', wrap(async (req, res) => {
+    const nome = nomeOk(req.body.program_name, 30);
+    if (!nome) return res.status(400).json({ error: 'Nome do programa inválido (até 30 letras)' });
+    await q('UPDATE loyalty_settings SET program_name=$1 WHERE id=1', [nome]);
+    res.json({ program_name: nome });
+  }));
+  const qtdOk = (v) => (Number.isInteger(Number(v)) && Number(v) >= 0 && Number(v) <= 999 && v !== '' && v !== null ? Number(v) : null);
+  r.post('/club/levels', wrap(async (req, res) => {
+    const nome = nomeOk(req.body.name, 40);
+    const qtd = req.body.benefit_qty === undefined ? 0 : qtdOk(req.body.benefit_qty);
+    if (!nome) return res.status(400).json({ error: 'Nome do nível inválido (até 40 letras)' });
+    if (qtd === null) return res.status(400).json({ error: 'Quantidade de benefícios por mês inválida' });
+    const { rows } = await q(
+      `INSERT INTO loyalty_levels (name, benefit_qty, position)
+       VALUES ($1,$2,COALESCE((SELECT max(position)+1 FROM loyalty_levels),1)) RETURNING *`, [nome, qtd]);
+    res.status(201).json(rows[0]);
+  }));
+  r.put('/club/levels/:id', wrap(async (req, res) => {
+    const nome = req.body.name === undefined ? null : nomeOk(req.body.name, 40);
+    const qtd = req.body.benefit_qty === undefined ? null : qtdOk(req.body.benefit_qty);
+    if (req.body.name !== undefined && !nome) return res.status(400).json({ error: 'Nome do nível inválido (até 40 letras)' });
+    if (req.body.benefit_qty !== undefined && qtd === null) return res.status(400).json({ error: 'Quantidade de benefícios por mês inválida' });
+    const { rows } = await q(
+      'UPDATE loyalty_levels SET name=COALESCE($2,name), benefit_qty=COALESCE($3,benefit_qty) WHERE id=$1 RETURNING *',
+      [req.params.id, nome, qtd]);
     rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Não encontrado' });
+  }));
+  r.delete('/club/levels/:id', wrap(async (req, res) => {
+    const l = await q('SELECT id FROM loyalty_levels WHERE id=$1', [req.params.id]);
+    if (!l.rows[0]) return res.status(404).json({ error: 'Não encontrado' });
+    const n = (await q('SELECT count(*)::int AS n FROM customers WHERE club_level_id=$1', [req.params.id])).rows[0].n;
+    if (n) return res.status(409).json({ error: `Este nível tem ${n} cliente(s). Mude o nível deles antes de excluir.` });
+    await q('DELETE FROM loyalty_levels WHERE id=$1', [req.params.id]);
+    res.json({ ok: true });
   }));
   // Exclui o cliente/lead junto com seus agendamentos e entradas na fila de espera.
   // Eventos espelhados no Google Agenda são apagados via N8N.

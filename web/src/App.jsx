@@ -15,6 +15,7 @@ import Atendente from './pages/Atendente.jsx';
 import Comandos from './pages/Comandos.jsx';
 import Bloqueios from './pages/Bloqueios.jsx';
 import Campanhas from './pages/Campanhas.jsx';
+import Clube from './pages/Clube.jsx';
 import { moduleOn } from './modules.js';
 import { MenuCustomContext, nomeDoMenu, iconeDoMenu } from './menu.jsx';
 
@@ -39,6 +40,7 @@ const BASE_MENU = [
   { id: 'servicos', module: 'servicos', label: 'Serviços', icon: '🏢', comp: Servicos },
   { id: 'inativos', module: 'inativos', label: 'Retorno de inativos', icon: '🔁', comp: Inativos },
   { id: 'campanhas', module: 'campanhas', label: 'Campanhas', icon: '📣', comp: Campanhas },
+  { id: 'clube', module: 'clube', label: 'Clube', icon: '⭐', comp: Clube },
   { id: 'fila', module: 'fila', label: 'Fila de espera', icon: '⏳', comp: Fila },
   { id: 'comandos', module: 'comandos', label: 'Comandos', icon: '🎛️', comp: Comandos },
   { id: 'bloqueios', module: 'bloqueios', label: 'Atendimentos bloqueados', icon: '🚫', comp: Bloqueios },
@@ -144,7 +146,7 @@ export default function App() {
             {THEMES.map((t) => <option key={t.id} value={t.id}>🎨 {t.label}</option>)}
           </select>
         </div>
-        <Current />
+        <Current company={company} />
       </main>
     </div>
     </MenuCustomContext.Provider>
