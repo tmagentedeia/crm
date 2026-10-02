@@ -2,6 +2,7 @@ import CampoSenha from '../senha.jsx';
 import React, { useEffect, useState } from 'react';
 import { api, fmtDate, getToken, setToken, ADMIN_KEY } from '../api.js';
 import { MODULES, moduleOn } from '../modules.js';
+import { ROTULOS } from '../rotulos.js';
 
 const FORM_VAZIO = () => ({
   name: '', owner_name: '', email: '', password: '', template_id: '',
@@ -43,6 +44,7 @@ export default function Admin() {
       const { [s.id]: _, ...resto } = cx; setCx(resto); setMsg('Bloqueios de ' + s.name + ' atualizados.'); load();
     } catch (e) { setErr(e.message); }
   };
+  const [nomes, setNomes] = useState(null); // { id, empresa, modulo, valores } — nomes do módulo em edição
   const [em, setEm] = useState({}); // id -> e-mail do responsável em edição
   const [trocaEmail, setTrocaEmail] = useState(null); // { id, empresa, de, para, senha }
   const [wh, setWh] = useState({}); // endereço do fluxo de campanhas em edição, por empresa
@@ -90,6 +92,15 @@ export default function Admin() {
     } catch (e) { setErr(e.message); }
   }
 
+  async function salvarNomes() {
+    setErr(''); setMsg('');
+    try {
+      const atual = list.find((x) => x.id === nomes.id)?.module_labels || {};
+      await api(`/admin/companies/${nomes.id}/labels`, { method: 'PUT', body: { labels: { ...atual, [nomes.modulo]: nomes.valores } } });
+      setMsg(`Nomes de "${nomes.empresa}" atualizados.`);
+      setNomes(null); load();
+    } catch (e) { setErr(e.message); }
+  }
   async function confirmarEmail() {
     setErr(''); setMsg('');
     try {
@@ -230,6 +241,26 @@ export default function Admin() {
         </div>
       )}
 
+      {nomes && (
+        <div className="modal-bg" onClick={() => setNomes(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>Nomes do módulo — {nomes.empresa}</h2>
+            <p className="muted">Troca só o texto das telas desta empresa; o funcionamento é o mesmo. Em branco vale o nome padrão.</p>
+            {Object.entries(ROTULOS[nomes.modulo]).map(([k, v]) => (
+              <div className="field" key={k}><label>{v.label}</label>
+                <input maxLength={30} placeholder={v.padrao} value={nomes.valores[k] || ''}
+                  onChange={(e) => setNomes({ ...nomes, valores: { ...nomes.valores, [k]: e.target.value } })} /></div>
+            ))}
+            {err && <div className="error">{err}</div>}
+            <div className="row">
+              <button className="btn primary" onClick={salvarNomes}>Salvar</button>
+              <button className="btn" onClick={() => setNomes({ ...nomes, valores: {} })}>Voltar ao padrão</button>
+              <button className="btn" onClick={() => setNomes(null)}>Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {trocaEmail && (
         <div className="modal-bg" onClick={() => setTrocaEmail(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -315,6 +346,10 @@ export default function Admin() {
                   <label key={m.key} title={m.desc} style={{ display: 'flex', gap: 6, alignItems: 'center', fontWeight: 'normal', whiteSpace: 'nowrap' }}>
                     <input type="checkbox" style={{ width: 'auto' }} checked={moduleOn(s.modules, m.key)} onChange={() => alternarModulo(s, m.key)} />
                     {m.label}
+                    {ROTULOS[m.key] && moduleOn(s.modules, m.key) && (
+                      <button type="button" className="btn sm" style={{ padding: '0 6px' }} title="Personalizar os nomes deste módulo"
+                        onClick={(e) => { e.preventDefault(); setNomes({ id: s.id, empresa: s.name, modulo: m.key, valores: { ...(s.module_labels?.[m.key] || {}) } }); }}>✏️</button>
+                    )}
                   </label>
                 ))}
               </div>

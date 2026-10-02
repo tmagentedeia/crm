@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { api, fmtPhone } from '../api.js';
+import { useSelecao, CelulaTodos, CelulaLinha, ApagarSelecionados, resumoApagado } from '../selecao.jsx';
 import { Nome } from "../menu.jsx";
 
 const FIM_OK = /(t[áa]|ok|tudo bem)\s*\?\s*$/i;
@@ -28,6 +29,7 @@ export default function Campanhas() {
   useEffect(() => { carregar(); }, []);
 
   if (tela.nome === 'form') return <Form frases={() => setTela({ nome: 'frases', de: tela })} id={tela.id} voltar={() => { setTela({ nome: 'lista' }); carregar(); }} abrir={(id) => { setTela({ nome: 'detalhe', id }); carregar(); }} />;
+  if (tela.nome === 'excecoes') return <Excecoes voltar={() => setTela({ nome: 'lista' })} />;
   if (tela.nome === 'frases') return <Frases voltar={() => setTela(tela.de?.nome === 'form' ? tela.de : { nome: 'lista' })} />;
   if (tela.nome === 'detalhe') return <Detalhe key={tela.id} id={tela.id} voltar={() => { setTela({ nome: 'lista' }); carregar(); }} editar={() => setTela({ nome: 'form', id: tela.id })} irPara={(id) => setTela({ nome: 'detalhe', id })} />;
 
@@ -36,6 +38,7 @@ export default function Campanhas() {
       <div className="topbar">
         <h1><Nome id="campanhas">Campanhas</Nome></h1>
         <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn" onClick={() => setTela({ nome: 'excecoes' })}>Não enviar para</button>
           <button className="btn" onClick={() => setTela({ nome: 'frases', de: { nome: 'lista' } })}>Saudações e cumprimentos</button>
           <button className="btn primary" onClick={() => setTela({ nome: 'form' })}>Nova campanha</button>
         </div>
@@ -107,11 +110,14 @@ function Form({ id, voltar, abrir, frases }) {
 
   const set = (k, v) => { mexeu.current = true; setF((x) => ({ ...x, [k]: v })); };
   const setMsg = (i, v) => { mexeu.current = true; setF((x) => ({ ...x, messages: x.messages.map((m, j) => (j === i ? v : m)) })); };
-  const total = useMemo(() => {
-    if (f.mode === 'selected') return f.ids.length;
-    if (f.mode === 'clients') return clientes.filter((c) => c.tipo === 'Cliente').length;
-    if (f.mode === 'leads') return clientes.filter((c) => c.tipo === 'Lead').length;
-    return clientes.length;
+  // quem está na lista de exceções não recebe: fica fora da contagem
+  const { total, ignorados } = useMemo(() => {
+    const no = (c) => c.campaign_excluded;
+    const base = f.mode === 'selected' ? clientes.filter((c) => f.ids.includes(c.id))
+      : f.mode === 'clients' ? clientes.filter((c) => c.tipo === 'Cliente')
+      : f.mode === 'leads' ? clientes.filter((c) => c.tipo === 'Lead') : clientes;
+    const fora = base.filter(no).length;
+    return { total: f.mode === 'selected' && !clientes.length ? f.ids.length : base.length - fora, ignorados: fora };
   }, [f.mode, f.ids, clientes]);
 
   const body = () => ({
@@ -240,14 +246,14 @@ function Form({ id, voltar, abrir, frases }) {
                 {clientes.map((c) => (
                   <tr key={c.id} onClick={() => alternar(c.id)} style={{ cursor: 'pointer' }}>
                     <td><input type="checkbox" style={{ width: 'auto' }} readOnly checked={f.ids.includes(c.id)} /></td>
-                    <td>{c.name || 'Sem nome'}</td><td className="muted">{fmtPhone(c.phone)}</td><td className="muted">{c.tipo}</td>
+                    <td>{c.name || 'Sem nome'}</td><td className="muted">{fmtPhone(c.phone)}</td><td className="muted">{c.tipo}{c.campaign_excluded ? ' · não recebe campanhas' : ''}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         )}
-        <p className="muted">{total} contato{total === 1 ? '' : 's'} selecionado{total === 1 ? '' : 's'}.</p>
+        <p className="muted">{total} contato{total === 1 ? '' : 's'} selecionado{total === 1 ? '' : 's'}.{ignorados > 0 && <> {ignorados} ficam de fora por estarem na lista “Não enviar para”.</>}</p>
       </div>
 
       <button className="btn primary" disabled={salvando} onClick={salvar}>{salvando ? 'Salvando…' : 'Salvar campanha'}</button>
@@ -273,6 +279,9 @@ function Detalhe({ id, voltar, editar, irPara }) {
   };
   const duplicar = async () => {
     try { const r = await api(`/campaigns/${id}/duplicate`, { method: 'POST' }); irPara(r.id); } catch (e) { setErro(e.message); }
+  };
+  const continuar = async () => {
+    try { const r = await api(`/campaigns/${id}/duplicate`, { method: 'POST', body: { restantes: true } }); irPara(r.id); } catch (e) { setErro(e.message); }
   };
   const apagar = async () => {
     if (!window.confirm('Apagar esta campanha?')) return;
@@ -311,6 +320,9 @@ function Detalhe({ id, voltar, editar, irPara }) {
           {c.status === 'running' && <button className="btn" onClick={() => acao('pause')}>⏸ Pausar</button>}
           {c.status === 'paused' && <button className="btn primary" onClick={() => acao('resume')}>▶ Retomar</button>}
           {['running', 'paused'].includes(c.status) && <button className="btn bad" onClick={() => acao('stop', {}, 'Parar de vez? Os contatos que ainda estão na fila não vão receber a mensagem.')}>⏹ Parar</button>}
+          {['stopped', 'done'].includes(c.status) && (c.recipients || []).some((x) => x.status === 'cancelled') && (
+            <button className="btn primary" onClick={continuar} title="Cria uma campanha nova só com quem ainda não recebeu">Continuar de onde parou</button>
+          )}
           <button className="btn" onClick={duplicar}>Duplicar</button>
           {['draft', 'stopped', 'done'].includes(c.status) && <button className="btn bad" onClick={apagar}>Apagar</button>}
         </div>
@@ -425,6 +437,66 @@ function Frases({ voltar }) {
       <div style={{ display: 'flex', gap: 8 }}>
         <button className="btn primary" onClick={salvar}>Salvar</button>
         <button className="btn" onClick={restaurar}>Voltar ao padrão</button>
+      </div>
+    </div>
+  );
+}
+
+// Números que nunca recebem campanhas (o contato continua cadastrado normalmente)
+function Excecoes({ voltar }) {
+  const [lista, setLista] = useState(null);
+  const [texto, setTexto] = useState('');
+  const [nota, setNota] = useState('');
+  const [erro, setErro] = useState('');
+  const [msg, setMsg] = useState('');
+  const sel = useSelecao(lista || []);
+  const carregar = () => api('/campaigns/exclusions').then(setLista).catch((e) => { setLista([]); setErro(e.message); });
+  useEffect(() => { carregar(); }, []);
+  const adicionar = async () => {
+    setErro(''); setMsg('');
+    try {
+      const r = await api('/campaigns/exclusions', { method: 'POST', body: { phones: texto, note: nota } });
+      setMsg(`${r.added} número(s) adicionado(s)` + (r.already ? `, ${r.already} já estava(m) na lista` : '') + (r.invalid.length ? `. Ignorado(s) por não parecerem telefone: ${r.invalid.join(', ')}` : '') + '.');
+      setTexto(''); setNota(''); carregar();
+    } catch (e) { setErro(e.message); }
+  };
+  return (
+    <div>
+      <div className="topbar">
+        <h1>Não enviar para</h1>
+        <button className="btn" onClick={voltar}>Voltar</button>
+      </div>
+      <p className="muted">Os números desta lista nunca recebem campanhas, mesmo que estejam ou venham a ser cadastrados como cliente ou lead. Eles continuam normalmente em Clientes, Pedidos e Agenda.</p>
+      {erro && <div className="error">{erro}</div>}
+      {msg && <div style={{ color: 'var(--ok)', marginBottom: 8 }}>{msg}</div>}
+      <div className="card" style={{ marginBottom: 14 }}>
+        <div className="field">
+          <label>Números (um por linha, ou separados por vírgula)</label>
+          <textarea rows={4} value={texto} onChange={(e) => setTexto(e.target.value)} placeholder={'(32) 99999-0000\n32 98888-7777'} />
+        </div>
+        <div className="row">
+          <input value={nota} maxLength={120} onChange={(e) => setNota(e.target.value)} placeholder="Anotação (opcional), ex.: meu número" style={{ maxWidth: 320 }} />
+          <button className="btn primary" disabled={!texto.trim()} onClick={adicionar}>Adicionar à lista</button>
+        </div>
+      </div>
+      <ApagarSelecionados s={sel} total={(lista || []).length} rotulo="número(s)" rota="/campaigns/exclusions/bulk-delete"
+        descreve={() => <p className="muted">Esses números voltam a poder receber campanhas.</p>}
+        onDone={(r) => { setMsg(resumoApagado(r, 'número(s) tirado(s) da lista')); carregar(); }} />
+      <div className="card">
+        <table>
+          <thead><tr><CelulaTodos s={sel} /><th>Número</th><th>Contato</th><th>Anotação</th></tr></thead>
+          <tbody>
+            {(lista || []).map((x) => (
+              <tr key={x.id}>
+                <CelulaLinha s={sel} id={x.id} />
+                <td>{fmtPhone(x.phone)}</td>
+                <td>{[x.name, x.last_name].filter(Boolean).join(' ') || <span className="muted">não cadastrado</span>}</td>
+                <td>{x.note || <span className="muted">—</span>}</td>
+              </tr>
+            ))}
+            {lista && !lista.length && <tr><td colSpan="4" className="muted">Nenhum número na lista.</td></tr>}
+          </tbody>
+        </table>
       </div>
     </div>
   );

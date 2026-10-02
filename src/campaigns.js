@@ -1,6 +1,7 @@
 // Campanhas: envio em lote com ritmo controlado. Todas as regras de segurança valem aqui no servidor,
 // independentemente do que a tela mostrar.
 import { q, qg, tx, currentCompany } from './db.js';
+import { normPhone } from './phone.js';
 
 export const LIMITS = {
   INTERVAL_MIN: 5,        // menor intervalo permitido entre mensagens (minutos)
@@ -161,9 +162,13 @@ export async function claimNext(companyId) {
            AND (sent_at AT TIME ZONE $1)::date = (now() AT TIME ZONE $1)::date`, [tz])).rows[0].n;
       // o limite diário vale para todas as campanhas da empresa juntas
       if (sentToday >= Math.min(c.daily_limit, LIMITS.DAILY_MAX)) continue;
+      // quem entrou na lista de exceções depois de a campanha ser montada não recebe
+      await t(`UPDATE campaign_recipients SET status='cancelled', error='Na lista de exceções'
+               WHERE campaign_id=$1 AND status='pending' AND phone IN (SELECT phone FROM campaign_exclusions)`, [c.id]);
+      // a ordem de envio é sorteada (não segue a ordem do cadastro)
       const rec = (await t(
         `SELECT * FROM campaign_recipients WHERE campaign_id=$1 AND status='pending'
-         ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED`, [c.id])).rows[0];
+         ORDER BY random() LIMIT 1 FOR UPDATE SKIP LOCKED`, [c.id])).rows[0];
       if (!rec) {
         const open = (await t("SELECT 1 FROM campaign_recipients WHERE campaign_id=$1 AND status='sending'", [c.id])).rowCount;
         if (!open) await t("UPDATE campaigns SET status='done', finished_at=now() WHERE id=$1", [c.id]);
@@ -253,16 +258,21 @@ export function startCampaignScheduler() {
 
 export function registerCampaignRoutes(r, wrap) {
 
+  const SEM_EXCECAO = 'phone NOT IN (SELECT phone FROM campaign_exclusions)';
+  // devolve os contatos escolhidos, sem os da lista de exceções (a quantidade deixada de fora vai em .ignorados)
   async function pickRecipients(sel) {
     const mode = sel?.mode;
+    let todos = [];
     if (mode === 'selected') {
       const ids = (sel.ids || []).map(Number).filter(Number.isInteger);
-      if (!ids.length) return [];
-      return (await q('SELECT id,name,phone,chat_id FROM customers WHERE id = ANY($1)', [ids])).rows;
+      if (ids.length) todos = (await q('SELECT id,name,phone,chat_id FROM customers WHERE id = ANY($1)', [ids])).rows;
+    } else {
+      const where = mode === 'clients' ? "WHERE status='client'" : mode === 'leads' ? "WHERE status='lead'" : mode === 'all' ? '' : null;
+      if (where !== null) todos = (await q(`SELECT id,name,phone,chat_id FROM customers ${where}`)).rows;
     }
-    const where = mode === 'clients' ? "WHERE status='client'" : mode === 'leads' ? "WHERE status='lead'" : mode === 'all' ? '' : null;
-    if (where === null) return [];
-    return (await q(`SELECT id,name,phone,chat_id FROM customers ${where}`)).rows;
+    if (!todos.length) return Object.assign([], { ignorados: 0 });
+    const fora = new Set((await q('SELECT phone FROM campaign_exclusions WHERE phone = ANY($1)', [todos.map((x) => x.phone)])).rows.map((x) => x.phone));
+    return Object.assign(todos.filter((x) => !fora.has(x.phone)), { ignorados: fora.size ? todos.filter((x) => fora.has(x.phone)).length : 0 });
   }
 
   const cheio = async (t) => {
@@ -304,11 +314,54 @@ export function registerCampaignRoutes(r, wrap) {
     res.json(await lerFrases());
   }));
 
+  // ---- lista de exceções: números que não recebem campanhas ----
+  const numeros = (txt) => {
+    const ok = [], ruins = [];
+    for (const parte of String(txt ?? '').split(/[\n,;]+/).map((x) => x.trim()).filter(Boolean)) {
+      const n = normPhone(parte);
+      n && n.length >= 10 ? ok.push(n) : ruins.push(parte);
+    }
+    return { ok: [...new Set(ok)], ruins };
+  };
+  r.get('/campaigns/exclusions', wrap(async (req, res) => {
+    res.json((await q(
+      `SELECT e.id, e.phone, e.note, e.created_at, c.id AS customer_id, c.name, c.last_name
+       FROM campaign_exclusions e LEFT JOIN customers c ON c.phone=e.phone ORDER BY e.id DESC LIMIT 2000`)).rows);
+  }));
+  r.post('/campaigns/exclusions', wrap(async (req, res) => {
+    const lista = Array.isArray(req.body?.phones) ? req.body.phones.join('\n') : req.body?.phones;
+    const { ok, ruins } = numeros(lista);
+    const note = String(req.body?.note ?? '').trim().slice(0, 120) || null;
+    if (!ok.length) return res.status(400).json({ error: ruins.length ? `Número inválido: ${ruins[0]}` : 'Informe ao menos um número' });
+    let novos = 0;
+    for (const ph of ok) novos += (await q('INSERT INTO campaign_exclusions (phone, note) VALUES ($1,$2) ON CONFLICT (phone) DO NOTHING', [ph, note])).rowCount;
+    res.status(201).json({ added: novos, already: ok.length - novos, invalid: ruins });
+  }));
+  r.put('/campaigns/exclusions/:id', wrap(async (req, res) => {
+    const note = String(req.body?.note ?? '').trim().slice(0, 120) || null;
+    const { rowCount } = await q('UPDATE campaign_exclusions SET note=$2 WHERE id=$1', [req.params.id, note]);
+    rowCount ? res.json({ ok: true }) : res.status(404).json({ error: 'Não encontrado' });
+  }));
+  r.post('/campaigns/exclusions/bulk-delete', wrap(async (req, res) => {
+    const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(Number).filter((n) => Number.isInteger(n) && n > 0))].slice(0, 2000);
+    if (!ids.length) return res.status(400).json({ error: 'Nenhum item selecionado' });
+    if (req.body.dry_run === true) return res.json({ found: (await q('SELECT count(*)::int AS n FROM campaign_exclusions WHERE id = ANY($1::bigint[])', [ids])).rows[0].n });
+    res.json({ deleted: (await q('DELETE FROM campaign_exclusions WHERE id = ANY($1::bigint[])', [ids])).rowCount });
+  }));
+  // tira da lista pelo número (usado pela ficha do cliente)
+  r.post('/campaigns/exclusions/remove', wrap(async (req, res) => {
+    const n = normPhone(req.body?.phone);
+    if (!n) return res.status(400).json({ error: 'Número inválido' });
+    await q('DELETE FROM campaign_exclusions WHERE phone=$1', [n]);
+    res.json({ ok: true });
+  }));
+
   // Previsão sem salvar nada.
   r.post('/campaigns/simulate', wrap(async (req, res) => {
     const c = cleanBody(req.body);
-    const total = req.body.total ?? (await pickRecipients(req.body.recipients)).length;
-    res.json({ total, ...simulate(c, total), has_link: hasLink(c.messages), limits: LIMITS });
+    const rc = req.body.total === undefined ? await pickRecipients(req.body.recipients) : null;
+    const total = req.body.total ?? rc.length;
+    res.json({ total, ignorados: rc?.ignorados ?? 0, ...simulate(c, total), has_link: hasLink(c.messages), limits: LIMITS });
   }));
 
   r.get('/campaigns', wrap(async (req, res) => {
@@ -370,7 +423,7 @@ export function registerCampaignRoutes(r, wrap) {
       return { id: cid };
     });
     if (out.error) return res.status(out.code).json({ error: out.error });
-    res.status(id ? 200 : 201).json({ id: out.id, total: recips.length, has_link: hasLink(c.messages), ...simulate(c, recips.length) });
+    res.status(id ? 200 : 201).json({ id: out.id, total: recips.length, ignorados: recips.ignorados, has_link: hasLink(c.messages), ...simulate(c, recips.length) });
   }
   r.post('/campaigns', wrap((req, res) => saveDraft(req, res, null)));
   r.put('/campaigns/:id', wrap((req, res) => saveDraft(req, res, Number(req.params.id))));
@@ -388,12 +441,20 @@ export function registerCampaignRoutes(r, wrap) {
       if (!c) return null;
       const lotado = await cheio(t);
       if (lotado) return { error: lotado };
+      // restantes: continuação de uma campanha parada — só quem não recebeu (e não está na lista de exceções)
+      const restantes = req.body?.restantes === true;
+      if (restantes && c.status === 'running') return { error: 'Pare a campanha antes de continuar de onde ela parou' };
       const nid = (await t(`INSERT INTO campaigns (name,messages,greeting_random,interval_min,interval_max,batch_size,batch_pause_min,daily_limit)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
-        [`${c.name} (cópia)`.slice(0, 120), JSON.stringify(c.messages), c.greeting_random, c.interval_min, c.interval_max, c.batch_size, c.batch_pause_min, c.daily_limit])).rows[0].id;
+        [`${c.name} (${restantes ? 'continuação' : 'cópia'})`.slice(0, 120), JSON.stringify(c.messages), c.greeting_random, c.interval_min, c.interval_max, c.batch_size, c.batch_pause_min, c.daily_limit])).rows[0].id;
       await t(`INSERT INTO campaign_recipients (campaign_id,customer_id,name,phone,chat_id)
                SELECT $2, x.id, x.name, x.phone, x.chat_id FROM campaign_recipients r JOIN customers x ON x.id=r.customer_id
-               WHERE r.campaign_id=$1`, [c.id, nid]);
+               WHERE r.campaign_id=$1
+                 ${restantes ? "AND r.status IN ('cancelled','pending') AND r.phone NOT IN (SELECT phone FROM campaign_exclusions)" : ''}`, [c.id, nid]);
+      if (restantes && !(await t('SELECT 1 FROM campaign_recipients WHERE campaign_id=$1', [nid])).rowCount) {
+        await t('DELETE FROM campaigns WHERE id=$1', [nid]);
+        return { error: 'Todos os contatos desta campanha já foram atendidos. Não sobrou ninguém para continuar.' };
+      }
       return { id: nid };
     });
     if (!out) return res.status(404).json({ error: 'Não encontrada' });

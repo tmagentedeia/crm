@@ -434,6 +434,7 @@ export function buildRouter() {
   // ---------- CLIENTES / LEADS ----------
   // Cliente com o nível do Clube já resolvido (nome e benefícios por mês)
   const CUST = `SELECT c.*, l.name AS club_level_name, l.benefit_qty AS club_benefit_qty,
+                  EXISTS (SELECT 1 FROM campaign_exclusions x WHERE x.phone=c.phone) AS campaign_excluded,
                   CASE WHEN c.birth_year IS NOT NULL AND c.birth_month IS NOT NULL THEN
                     EXTRACT(year FROM now())::int - c.birth_year
                     - CASE WHEN (c.birth_month, c.birth_day) > (EXTRACT(month FROM now())::int, EXTRACT(day FROM now())::int) THEN 1 ELSE 0 END

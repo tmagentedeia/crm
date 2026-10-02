@@ -42,6 +42,14 @@ const clubeSql = `
     ALTER TABLE customers ADD COLUMN IF NOT EXISTS club_status TEXT CHECK (club_status IN ('member','former','supporter'));
     ALTER TABLE customers ADD COLUMN IF NOT EXISTS club_level_id BIGINT REFERENCES loyalty_levels(id);
     CREATE INDEX IF NOT EXISTS idx_customers_club ON customers (club_status);`;
+// Números que não recebem campanhas (independe de o número estar cadastrado como cliente)
+const exclusoesSql = `
+    CREATE TABLE IF NOT EXISTS campaign_exclusions (
+      id         BIGSERIAL PRIMARY KEY,
+      phone      TEXT NOT NULL UNIQUE,
+      note       TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );`;
 export const TENANT_STEPS = [
   // 2: manual e avisos do atendente (empresas criadas antes dele; as novas já nascem com isso na base)
   { version: 2, sql: atendenteSql },
@@ -74,6 +82,8 @@ export const TENANT_STEPS = [
   { version: 8, sql: PEDIDOS_SQL },
   // 9: eventos (compromissos avulsos, sem profissional nem serviço)
   { version: 9, sql: EVENTOS_SQL },
+  // 10: lista de números que não recebem campanhas
+  { version: 10, sql: exclusoesSql },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 
@@ -87,6 +97,7 @@ export async function createCompanySchema(cx, companyId) {
   await cx.query(clubeSql);
   await cx.query(PEDIDOS_SQL);
   await cx.query(EVENTOS_SQL);
+  await cx.query(exclusoesSql);
   await cx.query('SET LOCAL search_path TO public');
   await cx.query('INSERT INTO tenant_versions (company_id, version) VALUES ($1, 1)', [companyId]);
 }

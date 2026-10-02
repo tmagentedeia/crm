@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api, fmtPhone, money } from '../api.js';
+import { rotulosDe, minusc } from '../rotulos.js';
 import { useSelecao, CelulaTodos, CelulaLinha, ApagarSelecionados, resumoApagado } from '../selecao.jsx';
 
 const quando = (d) => (d ? new Date(d).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—');
@@ -9,7 +10,9 @@ const COBRANCA = { franchise: 'Franquia', paid: 'Pago' };
 const mesLabel = (m) => { const [y, mo] = m.split('-'); return new Date(+y, +mo - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }); };
 const mesAtual = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); };
 
-export default function Pedidos() {
+export default function Pedidos({ company }) {
+  const L = rotulosDe(company, 'pedidos');
+  const g = minusc(L.group), i = minusc(L.item);
   const [tab, setTab] = useState('pedidos');
   const [lives, setLives] = useState([]);
   const [liveId, setLiveId] = useState('');
@@ -41,18 +44,18 @@ export default function Pedidos() {
 
   const live = lives.find((l) => String(l.id) === String(liveId));
   const apagar = async (o) => {
-    if (!confirm(`Apagar o pedido "${o.song}"?`)) return;
+    if (!confirm(`Apagar "${o.song}"?`)) return;
     try { await api('/orders/' + o.id, { method: 'DELETE' }); recarrega(); } catch (e) { setAviso(e.message); }
   };
 
   return (
     <>
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: 12 }}>
-        <div><h1>Pedidos</h1><p className="muted">Pedidos de música por live, franquia do programa de benefícios e resumo do mês.</p></div>
-        <button className="btn primary" onClick={() => setNovo(true)}>+ Anotar pedido</button>
+        <div><h1>{L.items}</h1><p className="muted">{L.items} por {g}, franquia do programa de benefícios e resumo do mês.</p></div>
+        <button className="btn primary" onClick={() => setNovo(true)}>+ Anotar {i}</button>
       </div>
       <div className="row" style={{ marginBottom: 12 }}>
-        {[['pedidos', 'Pedidos da live'], ['fila', `Fila${fila.length ? ` (${fila.length})` : ''}`], ['resumo', 'Resumo do mês'], ['lives', 'Lives']].map(([v, l]) => (
+        {[['pedidos', L.items], ['fila', `${L.queue}${fila.length ? ` (${fila.length})` : ''}`], ['resumo', 'Resumo do mês'], ['lives', L.groups]].map(([v, l]) => (
           <button key={v} className={'btn' + (tab === v ? ' primary' : '')} onClick={() => setTab(v)}>{l}</button>
         ))}
       </div>
@@ -62,21 +65,21 @@ export default function Pedidos() {
         <>
           <div className="row" style={{ marginBottom: 8 }}>
             <select value={liveId} onChange={(e) => setLiveId(e.target.value)} style={{ maxWidth: 360 }}>
-              {!lives.length && <option value="">Nenhuma live cadastrada</option>}
+              {!lives.length && <option value="">Nada cadastrado ainda</option>}
               {lives.map((l) => <option key={l.id} value={l.id}>{quando(l.starts_at)}{l.title ? ' · ' + l.title : ''}{l.open ? '' : ' (encerrada)'}</option>)}
             </select>
-            {live && <span className="muted">{live.orders} pedido(s)</span>}
+            {live && <span className="muted">{live.orders} registro(s) · {live.franchise_count} pela franquia · {live.paid_count} pago(s) · recebido {money(live.received)}{live.awaiting_count > 0 && <strong style={{ color: 'var(--bad)' }}> · {live.awaiting_count} aguardando pagamento</strong>}</span>}
           </div>
-          <ApagarSelecionados s={selOrders} total={orders.length} rotulo="pedido(s)" rota="/orders/bulk-delete" onDone={(r) => { setAviso(resumoApagado(r, 'pedido(s)')); recarrega(); }} />
-          <TabelaPedidos rows={orders} sel={selOrders} vazio="Nenhum pedido nesta live." onEdit={setEdit} onDel={apagar} />
+          <ApagarSelecionados s={selOrders} total={orders.length} rotulo="registro(s)" rota="/orders/bulk-delete" onDone={(r) => { setAviso(resumoApagado(r, 'registro(s)')); recarrega(); }} />
+          <TabelaPedidos L={L} rows={orders} sel={selOrders} vazio="Nada registrado aqui." onEdit={setEdit} onDel={apagar} />
         </>
       )}
 
       {tab === 'fila' && (
         <>
-          <p className="muted" style={{ marginBottom: 8 }}>Pedidos anotados sem uma live marcada. Quando você marcar a próxima live, eles entram nela automaticamente, na ordem de chegada, e a franquia é definida nessa hora.</p>
-          <ApagarSelecionados s={selFila} total={fila.length} rotulo="pedido(s) da fila" rota="/orders/bulk-delete" onDone={(r) => { setAviso(resumoApagado(r, 'pedido(s)')); recarrega(); }} />
-          <TabelaPedidos rows={fila} sel={selFila} fila vazio="Ninguém aguardando." onEdit={setEdit} onDel={apagar} />
+          <p className="muted" style={{ marginBottom: 8 }}>Registros anotados sem {g} marcada. Quando você marcar a próxima, eles entram nela automaticamente, na ordem de chegada, e a franquia é definida nessa hora.</p>
+          <ApagarSelecionados s={selFila} total={fila.length} rotulo="registro(s) da fila" rota="/orders/bulk-delete" onDone={(r) => { setAviso(resumoApagado(r, 'registro(s)')); recarrega(); }} />
+          <TabelaPedidos L={L} rows={fila} sel={selFila} fila vazio="Ninguém aguardando." onEdit={setEdit} onDel={apagar} />
         </>
       )}
 
@@ -97,69 +100,72 @@ export default function Pedidos() {
                     <td>{r.franchise}</td><td>{r.used}</td><td>{r.remaining}</td><td>{r.paid_count}</td><td>{money(r.paid_total)}</td>
                   </tr>
                 ))}
-                {resumo && !resumo.rows.length && <tr><td colSpan="7" className="muted">Nenhum pedido neste mês.</td></tr>}
+                {resumo && !resumo.rows.length && <tr><td colSpan="7" className="muted">Nada registrado neste mês.</td></tr>}
               </tbody>
               {resumo?.rows.length > 0 && (
                 <tfoot><tr><th colSpan="3">Total do mês</th><th>{resumo.totals.franchise}</th><th></th><th>{resumo.totals.paid}</th><th>{money(resumo.totals.paid_total)}</th></tr></tfoot>
               )}
             </table>
           </div>
-          {resumo?.rows.length > 0 && <p className="muted" style={{ marginTop: 6 }}>{resumo.totals.orders} pedido(s) no mês: {resumo.totals.franchise} pela franquia e {resumo.totals.paid} pago(s).</p>}
+          {resumo?.rows.length > 0 && <p className="muted" style={{ marginTop: 6 }}>{resumo.totals.orders} registro(s) no mês: {resumo.totals.franchise} pela franquia e {resumo.totals.paid} pago(s).</p>}
         </>
       )}
 
       {tab === 'lives' && (
         <>
           <div className="row" style={{ marginBottom: 8 }}>
-            <button className="btn primary" onClick={() => setLiveEdit({ title: '', starts_at: '', ends_at: '' })}>+ Marcar live</button>
+            <button className="btn primary" onClick={() => setLiveEdit({ title: '', starts_at: '', ends_at: '' })}>+ Marcar {g}</button>
           </div>
-          <ApagarSelecionados s={selLives} total={lives.length} rotulo="live(s)" rota="/lives/bulk-delete" onDone={(r) => { setAviso(resumoApagado(r, 'live(s)')); recarrega(); }}
-            descreve={() => <p className="muted">Lives que já têm pedidos não são apagadas; apague os pedidos antes.</p>} />
+          <ApagarSelecionados s={selLives} total={lives.length} rotulo={`${g}(s)`} rota="/lives/bulk-delete" onDone={(r) => { setAviso(resumoApagado(r, `${g}(s)`)); recarrega(); }}
+            descreve={() => <p className="muted">O que já tem registros não é apagado; apague os registros antes.</p>} />
           <div className="card table-wrap">
             <table>
-              <thead><tr><CelulaTodos s={selLives} /><th>Quando</th><th>Título</th><th>Situação</th><th>Pedidos</th><th></th></tr></thead>
+              <thead><tr><CelulaTodos s={selLives} /><th>Quando</th><th>Título</th><th>Situação</th><th>{L.items}</th><th>Franquia</th><th>Pagos</th><th>Recebido</th><th></th></tr></thead>
               <tbody>
                 {lives.map((l) => (
                   <tr key={l.id}>
                     <CelulaLinha s={selLives} id={l.id} />
                     <td>{quando(l.starts_at)}</td><td>{l.title || <span className="muted">—</span>}</td>
                     <td><span className="badge">{l.open ? 'Aberta' : 'Encerrada'}</span></td><td>{l.orders}</td>
+                    <td>{l.franchise_count}</td>
+                    <td>{l.paid_count}{l.awaiting_count > 0 && <span className="muted"> ({l.awaiting_count} aguardando)</span>}</td>
+                    <td>{money(l.received)}</td>
                     <td className="row">
                       <button className="btn" onClick={() => setLiveEdit({ id: l.id, title: l.title || '', starts_at: paraInput(l.starts_at), ends_at: paraInput(l.ends_at) })}>Editar</button>
                       {l.open
                         ? <button className="btn" onClick={() => api(`/lives/${l.id}/close`, { method: 'POST' }).then(recarrega)}>Encerrar</button>
                         : <button className="btn" onClick={() => api(`/lives/${l.id}/reopen`, { method: 'POST' }).then(recarrega)}>Reabrir</button>}
-                      <button className="btn bad" onClick={async () => { if (!confirm('Apagar esta live?')) return; try { await api('/lives/' + l.id, { method: 'DELETE' }); recarrega(); } catch (e) { setAviso(e.message); } }}>Apagar</button>
+                      <button className="btn bad" onClick={async () => { if (!confirm('Apagar?')) return; try { await api('/lives/' + l.id, { method: 'DELETE' }); recarrega(); } catch (e) { setAviso(e.message); } }}>Apagar</button>
                     </td>
                   </tr>
                 ))}
-                {!lives.length && <tr><td colSpan="6" className="muted">Nenhuma live ainda. Sem live marcada, os pedidos ficam na fila.</td></tr>}
+                {!lives.length && <tr><td colSpan="9" className="muted">Nada cadastrado ainda. Sem isso marcado, os registros ficam na fila.</td></tr>}
               </tbody>
             </table>
           </div>
-          <p className="muted" style={{ marginTop: 6 }}>Uma live fica aberta até o fim do dia dela (ou até o horário de fim, se você informar). Os pedidos novos entram na próxima live aberta.</p>
+          <p className="muted" style={{ marginTop: 6 }}>Fica aberto até o fim do dia (ou até o horário de fim, se você informar). Os registros novos entram na próxima que estiver aberta.</p>
         </>
       )}
 
-      {novo && <NovoPedido onClose={() => setNovo(false)} onSaved={() => { recarrega(); }} />}
-      {edit && <EditarPedido o={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); recarrega(); }} />}
-      {liveEdit && <FormLive l={liveEdit} onClose={() => setLiveEdit(null)} onSaved={(r) => { setLiveEdit(null); setAviso(''); recarrega(); if (r?.attached?.length) alert(`${r.attached.length} pedido(s) da fila entraram nesta live.`); }} />}
+      {novo && <NovoPedido L={L} onClose={() => setNovo(false)} onSaved={() => { recarrega(); }} />}
+      {edit && <EditarPedido L={L} o={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); recarrega(); }} />}
+      {liveEdit && <FormLive L={L} l={liveEdit} onClose={() => setLiveEdit(null)} onSaved={(r) => { setLiveEdit(null); setAviso(''); recarrega(); if (r?.attached?.length) alert(`${r.attached.length} registro(s) da fila entraram.`); }} />}
     </>
   );
 }
 
-function TabelaPedidos({ rows, sel, fila, vazio, onEdit, onDel }) {
+function TabelaPedidos({ L, rows, sel, fila, vazio, onEdit, onDel }) {
   return (
     <div className="card table-wrap">
       <table>
-        <thead><tr><CelulaTodos s={sel} /><th>Cliente</th><th>Música</th><th>Dedicatória</th><th>Nível</th>{!fila && <th>Cobrança</th>}<th>Anotado em</th><th></th></tr></thead>
+        <thead><tr><CelulaTodos s={sel} /><th>Cliente</th><th>{L.song}</th><th>{L.dedication}</th><th>Nível</th>{!fila && <th>Cobrança</th>}<th>Anotado em</th><th></th></tr></thead>
         <tbody>
           {rows.map((o) => (
             <tr key={o.id}>
               <CelulaLinha s={sel} id={o.id} />
               <td>{nomeDe(o)}</td><td>{o.song}</td><td>{o.dedication || <span className="muted">—</span>}</td>
               <td>{o.level_name || <span className="muted">—</span>}</td>
-              {!fila && <td><span className="badge">{COBRANCA[o.kind] || '—'}{o.kind === 'paid' && o.amount_paid != null ? ' · ' + money(o.amount_paid) : ''}</span></td>}
+              {!fila && <td><span className="badge">{o.kind === 'paid' && o.amount_paid == null ? 'Aguardando pagamento' : (COBRANCA[o.kind] || '—') + (o.kind === 'paid' ? ' · ' + money(o.amount_paid) : '')}</span></td>}
               <td>{quando(o.created_at)}</td>
               <td className="row"><button className="btn" onClick={() => onEdit(o)}>Editar</button><button className="btn bad" onClick={() => onDel(o)}>Apagar</button></td>
             </tr>
@@ -171,7 +177,7 @@ function TabelaPedidos({ rows, sel, fila, vazio, onEdit, onDel }) {
   );
 }
 
-function NovoPedido({ onClose, onSaved }) {
+function NovoPedido({ L, onClose, onSaved }) {
   const [f, setF] = useState({ phone: '', name: '', song: '', dedication: '', amount_paid: '' });
   const [err, setErr] = useState('');
   const [ok, setOk] = useState(null);
@@ -186,19 +192,19 @@ function NovoPedido({ onClose, onSaved }) {
   return (
     <div className="modal-bg" onClick={onClose}>
       <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={save}>
-        <h2>Anotar pedido</h2>
+        <h2>Anotar {minusc(L.item)}</h2>
         {err && <div className="error">{err}</div>}
         {ok && (
           <p className="muted" style={{ marginBottom: 8 }}>
-            {ok.status === 'queued' ? 'Anotado na fila: ainda não há live marcada.'
-              : `Anotado para a live de ${quando(ok.live.starts_at)} · ${ok.kind === 'franchise' ? 'pela franquia' : 'pago'}.`}
+            {ok.status === 'queued' ? 'Anotado na fila: nada marcado ainda.'
+              : `Anotado para ${quando(ok.live.starts_at)} · ${ok.kind === 'franchise' ? 'pela franquia' : 'pago'}.`}
             {ok.balance.franchise > 0 ? ` Franquia do mês: ${ok.balance.used} de ${ok.balance.franchise}.` : ''}
           </p>
         )}
         <div className="field"><label>Telefone (com DDD) *</label><input value={f.phone} onChange={set('phone')} required /></div>
         <div className="field"><label>Nome (se for cliente novo)</label><input value={f.name} onChange={set('name')} /></div>
-        <div className="field"><label>Música *</label><input value={f.song} onChange={set('song')} required /></div>
-        <div className="field"><label>Dedicatória</label><input value={f.dedication} onChange={set('dedication')} /></div>
+        <div className="field"><label>{L.song} *</label><input value={f.song} onChange={set('song')} required /></div>
+        <div className="field"><label>{L.dedication}</label><input value={f.dedication} onChange={set('dedication')} /></div>
         <div className="field"><label>Valor pago (R$)</label><input inputMode="decimal" value={f.amount_paid} onChange={set('amount_paid')} placeholder="só se for cobrado" /></div>
         <div className="row"><button className="btn primary">Anotar</button><button type="button" className="btn" onClick={onClose}>Fechar</button></div>
       </form>
@@ -206,7 +212,7 @@ function NovoPedido({ onClose, onSaved }) {
   );
 }
 
-function EditarPedido({ o, onClose, onSaved }) {
+function EditarPedido({ L, o, onClose, onSaved }) {
   const [f, setF] = useState({ song: o.song, dedication: o.dedication || '', amount_paid: o.amount_paid ?? '', kind: o.kind || '' });
   const [err, setErr] = useState('');
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
@@ -221,11 +227,11 @@ function EditarPedido({ o, onClose, onSaved }) {
   return (
     <div className="modal-bg" onClick={onClose}>
       <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={save}>
-        <h2>Editar pedido</h2>
+        <h2>Editar {minusc(L.item)}</h2>
         <p className="muted">{nomeDe(o)}</p>
         {err && <div className="error">{err}</div>}
-        <div className="field"><label>Música</label><input value={f.song} onChange={set('song')} required /></div>
-        <div className="field"><label>Dedicatória</label><input value={f.dedication} onChange={set('dedication')} /></div>
+        <div className="field"><label>{L.song}</label><input value={f.song} onChange={set('song')} required /></div>
+        <div className="field"><label>{L.dedication}</label><input value={f.dedication} onChange={set('dedication')} /></div>
         {o.live_id && (
           <div className="row">
             <div className="field"><label>Cobrança</label>
@@ -239,7 +245,7 @@ function EditarPedido({ o, onClose, onSaved }) {
   );
 }
 
-function FormLive({ l, onClose, onSaved }) {
+function FormLive({ L, l, onClose, onSaved }) {
   const [f, setF] = useState(l);
   const [err, setErr] = useState('');
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
@@ -254,7 +260,7 @@ function FormLive({ l, onClose, onSaved }) {
   return (
     <div className="modal-bg" onClick={onClose}>
       <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={save}>
-        <h2>{f.id ? 'Editar live' : 'Marcar live'}</h2>
+        <h2>{f.id ? 'Editar' : 'Marcar'} {minusc(L.group)}</h2>
         {err && <div className="error">{err}</div>}
         <div className="field"><label>Título (opcional)</label><input value={f.title} onChange={set('title')} /></div>
         <div className="field"><label>Começa em *</label><input type="datetime-local" value={f.starts_at} onChange={set('starts_at')} required /></div>

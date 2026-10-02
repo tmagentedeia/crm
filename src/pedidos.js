@@ -100,7 +100,11 @@ export function registerOrderRoutes(r, wrap) {
     const so = req.query.open === '1';
     const { rows } = await q(
       `SELECT l.*, ${ABERTA('$1')} AS open,
-              (SELECT count(*)::int FROM song_orders o WHERE o.live_id=l.id) AS orders
+              (SELECT count(*)::int FROM song_orders o WHERE o.live_id=l.id) AS orders,
+              (SELECT count(*)::int FROM song_orders o WHERE o.live_id=l.id AND o.kind='franchise') AS franchise_count,
+              (SELECT count(*)::int FROM song_orders o WHERE o.live_id=l.id AND o.kind='paid') AS paid_count,
+              (SELECT count(*)::int FROM song_orders o WHERE o.live_id=l.id AND o.kind='paid' AND o.amount_paid IS NULL) AS awaiting_count,
+              (SELECT COALESCE(sum(o.amount_paid),0)::float FROM song_orders o WHERE o.live_id=l.id AND o.kind='paid') AS received
        FROM lives l WHERE ($2::boolean IS NOT TRUE OR ${ABERTA('$1')}) ORDER BY l.starts_at DESC, l.id DESC LIMIT 200`, [tz, so]);
     res.json(rows);
   }));

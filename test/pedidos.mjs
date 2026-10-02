@@ -117,5 +117,11 @@ check('empresa 2 não vê lives', (await T('GET', '/api/lives', undefined, B)).b
 check('empresa 2 não mexe em live da 1', (await T('POST', `/api/lives/${l4.id}/close`, undefined, B)).status === 404);
 check('empresa 2 não vê pedidos da 1', (await T('GET', '/api/orders/summary?month=' + mesDe(d1), undefined, B)).body.rows.length === 0);
 
+// resumo de pagamento por live
+const lv1 = (await T('GET', '/api/lives')).body.find((x) => x.id === l1.live.id);
+const lista1 = (await T('GET', '/api/orders?live_id=' + l1.live.id)).body;
+check('live traz franquia, pagos, aguardando e recebido', lv1.orders === lista1.length && lv1.franchise_count === lista1.filter((x) => x.kind === 'franchise').length
+  && lv1.paid_count === lista1.filter((x) => x.kind === 'paid').length && lv1.awaiting_count === lista1.filter((x) => x.kind === 'paid' && x.amount_paid == null).length
+  && Math.abs(lv1.received - lista1.filter((x) => x.kind === 'paid').reduce((s2, x) => s2 + Number(x.amount_paid || 0), 0)) < 0.001, JSON.stringify(lv1));
 console.log(`pedidos: ${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);

@@ -42,3 +42,26 @@ export function cleanMenuCustom(input) {
   }
   return out;
 }
+
+// Nomes que a empresa dá às coisas de um módulo (companies.module_labels: { pedidos: { group: 'Loja', items: 'Compras' } }).
+// Mesma lista de campos existe no painel (web/src/rotulos.js).
+export const LABEL_FIELDS = { pedidos: ['group', 'groups', 'item', 'items', 'song', 'dedication', 'queue'] };
+export function cleanModuleLabels(input) {
+  if (input === null || input === undefined) return {};
+  if (typeof input !== 'object' || Array.isArray(input)) return null;
+  const out = {};
+  for (const [mod, v] of Object.entries(input)) {
+    if (!LABEL_FIELDS[mod] || !v || typeof v !== 'object' || Array.isArray(v)) return null;
+    const item = {};
+    for (const [k, val] of Object.entries(v)) {
+      if (!LABEL_FIELDS[mod].includes(k)) return null;
+      if (val === null || val === undefined) continue;
+      if (typeof val !== 'string') return null;
+      const t = val.trim();
+      if (/[\u0000-\u001f<>]/.test(t) || t.length > 30) return null;
+      if (t) item[k] = t;
+    }
+    if (Object.keys(item).length) out[mod] = item;
+  }
+  return out;
+}

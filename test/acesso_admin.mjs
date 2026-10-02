@@ -46,4 +46,19 @@ check('login antigo não entra mais', (await call('POST', '/api/auth/login', { b
 check('login novo entra', !!(await login('troca.teste@x.com', 'senhanova1')).token);
 await ow({ email: 'dois@x.com', password: 'senhasenha' });
 check('volta ao e-mail original', !!(await login('dois@x.com', 'senhasenha')).token);
+
+// ---- nomes personalizados do módulo Pedidos ----
+const lb = (labels, token = A.token, id = idB) => call('PUT', `/api/admin/companies/${id}/labels`, { token, body: { labels } });
+check('nomes: só administrador', (await lb({ pedidos: { group: 'Loja' } }, B.token)).status === 403);
+check('nomes: módulo desconhecido = 400', (await lb({ xyz: { group: 'Loja' } })).status === 400);
+check('nomes: campo desconhecido = 400', (await lb({ pedidos: { zzz: 'Loja' } })).status === 400);
+check('nomes: muito longo = 400', (await lb({ pedidos: { group: 'x'.repeat(31) } })).status === 400);
+check('nomes: sem < ou > ', (await lb({ pedidos: { group: '<b>' } })).status === 400);
+check('nomes: empresa inexistente = 404', (await lb({ pedidos: { group: 'Loja' } }, A.token, 99999)).status === 404);
+check('nomes: salva', (await lb({ pedidos: { group: ' Loja ', items: 'Compras', song: '' } })).body?.module_labels?.pedidos?.group === 'Loja');
+const meB = (await call('GET', '/api/company', { token: B.token })).body;
+check('empresa recebe seus nomes', meB.module_labels?.pedidos?.items === 'Compras' && !('song' in meB.module_labels.pedidos), JSON.stringify(meB.module_labels));
+check('lista da administração traz os nomes', (await call('GET', '/api/admin/companies', { token: A.token })).body.find((x) => x.id === idB).module_labels.pedidos.group === 'Loja');
+check('outra empresa não recebe', !((await call('GET', '/api/company', { token: A.token })).body.module_labels?.pedidos?.group));
+check('nomes: voltar ao padrão', Object.keys((await lb({})).body.module_labels).length === 0);
 console.log(`acesso_admin: ${ok} ok, ${fail} falhas`); process.exit(fail ? 1 : 0);

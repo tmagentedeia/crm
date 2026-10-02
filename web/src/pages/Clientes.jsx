@@ -1,3 +1,4 @@
+import { rotulosDe } from '../rotulos.js';
 import React, { useEffect, useState } from 'react';
 import { Nome } from '../menu.jsx';
 import { api, fmtDate, fmtPhone, fmtTime, money } from '../api.js';
@@ -114,7 +115,7 @@ export default function Clientes({ company }) {
           </tbody>
         </table>
       </div>
-      {detail && <Detail c={detail} clube={clube} club={club} onClose={() => setDetail(null)} onSaved={() => { load(); open(detail.id); }} onDeleted={() => { setDetail(null); load(); }} />}
+      {detail && <Detail c={detail} nomePedidos={rotulosDe(company, 'pedidos').items} clube={clube} club={club} onClose={() => setDetail(null)} onSaved={() => { load(); open(detail.id); }} onDeleted={() => { setDetail(null); load(); }} />}
       {adding && <AddCustomer clube={clube} club={club} onClose={() => setAdding(false)} onSaved={() => { setAdding(false); load(); }} />}
     </>
   );
@@ -160,7 +161,7 @@ const fichaCorpo = (f, clube) => ({
   ...(clube ? { club_status: f.club_status || null, club_level_id: f.club_status === 'member' && f.club_level_id ? Number(f.club_level_id) : null } : {}),
 });
 
-function Detail({ c, clube, club, onClose, onSaved, onDeleted }) {
+function Detail({ c, nomePedidos, clube, club, onClose, onSaved, onDeleted }) {
   const [f, setF] = useState({ name: c.name || '', last_name: c.last_name || '', phone: c.phone || '', status: c.status, notes: c.notes || '', ...fichaInicial(c) });
   const [err, setErr] = useState('');
   const attended = c.history.filter((h) => h.status === 'attended');
@@ -168,6 +169,15 @@ function Detail({ c, clube, club, onClose, onSaved, onDeleted }) {
   const save = async () => {
     setErr('');
     try { await api('/customers/' + c.id, { method: 'PUT', body: { name: f.name, last_name: f.last_name, phone: f.phone, status: f.status, notes: f.notes, ...fichaCorpo(f, clube) } }); onSaved(); } catch (e) { setErr(e.message); }
+  };
+  const [semCamp, setSemCamp] = useState(!!c.campaign_excluded);
+  const alternarCampanhas = async () => {
+    setErr('');
+    try {
+      if (semCamp) await api('/campaigns/exclusions/remove', { method: 'POST', body: { phone: c.phone } });
+      else await api('/campaigns/exclusions', { method: 'POST', body: { phones: c.phone } });
+      setSemCamp(!semCamp);
+    } catch (e) { setErr(e.message); }
   };
   const remove = async () => {
     const extra = c.history.length ? ` Isso também apaga ${c.history.length} agendamento(s) do histórico${future ? ` (${future} ainda por vir)` : ''}.` : '';
@@ -180,6 +190,7 @@ function Detail({ c, clube, club, onClose, onSaved, onDeleted }) {
         <div className="row" style={{ justifyContent: 'space-between' }}>
           <h2>{nomeCompleto(c) || 'Sem nome'}</h2><span className={'badge ' + c.status}>{c.status === 'client' ? 'Cliente' : 'Lead'}</span>
         </div>
+        {semCamp && <p className="muted" style={{ color: 'var(--bad)' }}>Este contato não recebe campanhas.</p>}
         <p className="muted">{fmtPhone(c.phone)} · primeiro contato em {fmtDate(c.first_contact_at)} · {attended.length} visita(s) · gasto total {money(attended.reduce((s, h) => s + Number(h.price), 0))}{c.age != null ? ` · ${c.age} anos` : ''} · ficha atualizada em {fmtDate(c.updated_at)}</p>
         {err && <div className="error">{err}</div>}
         <div className="row">
@@ -198,11 +209,12 @@ function Detail({ c, clube, club, onClose, onSaved, onDeleted }) {
         <div className="row" style={{ marginBottom: 14 }}>
           <button className="btn primary" onClick={save}>Salvar</button>
           <a className="btn" href={'https://wa.me/' + c.phone} target="_blank" rel="noreferrer">WhatsApp</a>
+          <button className="btn" onClick={alternarCampanhas} title="Esse número nunca recebe campanhas">{semCamp ? 'Voltar a receber campanhas' : 'Não enviar campanhas'}</button>
           <button className="btn bad" style={{ marginLeft: 'auto' }} onClick={remove}>Excluir</button>
         </div>
         {(c.orders?.length > 0 || c.balance?.franchise > 0) && (
           <>
-            <h2>Pedidos de música</h2>
+            <h2>{nomePedidos}</h2>
             {c.balance?.franchise > 0 && <p className="muted">Franquia do mês: usou {c.balance.used} de {c.balance.franchise} · restam {c.balance.remaining}</p>}
             {c.orders?.length > 0 ? (
               <table><tbody>{c.orders.map((o) => (
