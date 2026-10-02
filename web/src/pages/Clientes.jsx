@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Nome } from '../menu.jsx';
 import { api, fmtDate, fmtPhone, fmtTime, money } from '../api.js';
 import { moduleOn } from '../modules.js';
+import { useSelecao, CelulaTodos, CelulaLinha, ApagarSelecionados, resumoApagado } from '../selecao.jsx';
 
 // Planilha: células que começam com = + - @ viram texto (evita fórmula embutida em nome ou observação)
 const cel = (v) => {
@@ -30,6 +31,7 @@ export default function Clientes({ company }) {
   const [list, setList] = useState([]);
   const [detail, setDetail] = useState(null);
   const [adding, setAdding] = useState(false);
+  const sel = useSelecao(list);
 
   const qs = `status=${tab}&search=${encodeURIComponent(search)}&club=${sit}&level=${nivel}`;
   const load = () => api(`/customers?${qs}`).then(setList);
@@ -91,12 +93,15 @@ export default function Clientes({ company }) {
         <button className="btn" onClick={baixar} title="Baixa um arquivo que abre no Excel e no Google Planilhas">Baixar planilha</button>
       </div>
       {aviso && <p className="muted" style={{ marginBottom: 8 }}>{aviso}</p>}
+      <ApagarSelecionados s={sel} total={list.length} rotulo="cliente(s)/lead(s)" rota="/customers/bulk-delete" onDone={(r) => { setAviso(resumoApagado(r, 'contato(s)')); load(); }}
+        descreve={(i) => <p>Também serão apagados {i.appointments} agendamento(s) e {i.orders} pedido(s) de música desses contatos, além do lugar deles na fila de espera.</p>} />
       <div className="card table-wrap">
         <table>
-          <thead><tr><th>Nome</th><th>Telefone</th><th>Tipo</th>{clube && <th>{club?.program_name || 'Programa de benefícios'}</th>}<th>Cidade</th><th>Última visita</th></tr></thead>
+          <thead><tr><CelulaTodos s={sel} /><th>Nome</th><th>Telefone</th><th>Tipo</th>{clube && <th>{club?.program_name || 'Programa de benefícios'}</th>}<th>Cidade</th><th>Última visita</th></tr></thead>
           <tbody>
             {list.map((c) => (
               <tr key={c.id} className="click" onClick={() => open(c.id)}>
+                <CelulaLinha s={sel} id={c.id} />
                 <td>{nomeCompleto(c) || <span className="muted">Sem nome</span>}</td>
                 <td>{fmtPhone(c.phone)}</td>
                 <td><span className={'badge ' + c.status}>{c.status === 'client' ? 'Cliente' : 'Lead'}</span></td>
@@ -105,7 +110,7 @@ export default function Clientes({ company }) {
                 <td>{fmtDate(c.last_visit_at)}</td>
               </tr>
             ))}
-            {!list.length && <tr><td colSpan="6" className="muted">Nada encontrado.</td></tr>}
+            {!list.length && <tr><td colSpan="7" className="muted">Nada encontrado.</td></tr>}
           </tbody>
         </table>
       </div>

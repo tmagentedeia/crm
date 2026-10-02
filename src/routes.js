@@ -8,6 +8,8 @@ import { registerOrderRoutes, historicoDoCliente } from './pedidos.js';
 
 const digits = (s) => String(s || '').replace(/\D/g, '');
 const custPhone = normPhone;
+// ids vindos do corpo de uma exclusão em massa: inteiros positivos, sem repetir, no máximo 2000
+const idsDe = (body) => [...new Set((Array.isArray(body?.ids) ? body.ids : []).map(Number).filter((n) => Number.isInteger(n) && n > 0))].slice(0, 2000);
 const wrap = (fn) => (req, res) => fn(req, res).catch((e) => {
   if (e.code === '23P01') return res.status(409).json({ error: 'Horário indisponível (conflito de agenda)' });
   if (e.code === '23505') return res.status(409).json({ error: 'Registro duplicado' });
@@ -332,6 +334,31 @@ export function buildRouter() {
     }
   });
   r.delete('/services/:id/permanent', excluirDeVez('services', 'service_id'));
+  // Exclusão em massa. dry_run:true só conta o que seria afetado. Serviço com agendamentos no histórico só é apagado com com_historico:true.
+  r.post('/services/bulk-delete', wrap(async (req, res) => {
+    const ids = idsDe(req.body);
+    if (!ids.length) return res.status(400).json({ error: 'Nenhum item selecionado' });
+    const out = await tx(currentCompany(), async (t) => {
+      const rows = (await t(`SELECT s.id, s.name, (SELECT count(*)::int FROM appointments a WHERE a.service_id=s.id) AS ag FROM services s WHERE s.id = ANY($1::bigint[])`, [ids])).rows;
+      const comAg = rows.filter((x) => x.ag > 0);
+      if (req.body.dry_run === true) return { found: rows.length, com_historico: comAg.length, agendamentos: comAg.reduce((n, x) => n + x.ag, 0) };
+      let deleted = 0, agendamentos = 0; const skipped = [];
+      for (const x of rows) {
+        if (x.ag > 0 && req.body.com_historico !== true) { skipped.push({ id: x.id, name: x.name, motivo: 'tem agendamentos no histórico' }); continue; }
+        await t('SAVEPOINT bd');
+        try {
+          if (x.ag > 0) agendamentos += (await t('DELETE FROM appointments WHERE service_id=$1', [x.id])).rowCount;
+          await t('DELETE FROM services WHERE id=$1', [x.id]);
+          await t('RELEASE SAVEPOINT bd'); deleted++;
+        } catch (e) {
+          await t('ROLLBACK TO SAVEPOINT bd'); if (e.code !== '23503') throw e;
+          skipped.push({ id: x.id, name: x.name, motivo: 'está em uso' });
+        }
+      }
+      return { deleted, agendamentos_apagados: agendamentos, skipped };
+    });
+    res.json(out);
+  }));
 
   // ---------- BARBEIROS ----------
   r.get('/professionals', wrap(async (req, res) => {
@@ -521,6 +548,28 @@ export function buildRouter() {
       [req.params.id, name, phone ? custPhone(phone) : null, notes, status ?? null]);
     await gravarFicha(rows[0].id, f.campos);
     res.json((await q(`${CUST} WHERE c.id=$1`, [rows[0].id])).rows[0]);
+  }));
+
+  // Exclusão em massa de clientes/leads, com agendamentos, fila de espera e pedidos deles. dry_run:true só conta.
+  r.post('/customers/bulk-delete', wrap(async (req, res) => {
+    const ids = idsDe(req.body);
+    if (!ids.length) return res.status(400).json({ error: 'Nenhum item selecionado' });
+    const ags = (await q('SELECT id FROM appointments WHERE customer_id = ANY($1::bigint[])', [ids])).rows;
+    if (req.body.dry_run === true) {
+      const orders = (await q('SELECT count(*)::int AS n FROM song_orders WHERE customer_id = ANY($1::bigint[])', [ids])).rows[0].n;
+      const found = (await q('SELECT count(*)::int AS n FROM customers WHERE id = ANY($1::bigint[])', [ids])).rows[0].n;
+      return res.json({ found, appointments: ags.length, orders });
+    }
+    const snaps = [];
+    for (const a of ags) snaps.push(await apptSnapshot(a.id));
+    const deleted = await tx(currentCompany(), async (t) => {
+      await t('DELETE FROM waitlist WHERE customer_id = ANY($1::bigint[])', [ids]);
+      await t('DELETE FROM song_orders WHERE customer_id = ANY($1::bigint[])', [ids]);
+      await t('DELETE FROM appointments WHERE customer_id = ANY($1::bigint[])', [ids]);
+      return (await t('DELETE FROM customers WHERE id = ANY($1::bigint[])', [ids])).rowCount;
+    });
+    res.json({ deleted, appointments_deleted: snaps.length });
+    snaps.forEach((sn) => notifyN8n('deleted', sn));
   }));
 
   // ---------- CLUBE (programa de benefícios com níveis) ----------
@@ -738,6 +787,20 @@ export function buildRouter() {
     if (snap && ['pending', 'scheduled', 'attended'].includes(snap.status)) checkWaitlist(snap).catch(() => {});
   }));
 
+  r.post('/appointments/bulk-delete', wrap(async (req, res) => {
+    const ids = idsDe(req.body);
+    if (!ids.length) return res.status(400).json({ error: 'Nenhum item selecionado' });
+    const snaps = [];
+    for (const id of ids) { const sn = await apptSnapshot(id); if (sn) snaps.push(sn); }
+    if (req.body.dry_run === true) return res.json({ found: snaps.length });
+    const deleted = (await q('DELETE FROM appointments WHERE id = ANY($1::bigint[])', [snaps.map((s) => s.id)])).rowCount;
+    res.json({ deleted });
+    snaps.forEach((sn) => {
+      notifyN8n('deleted', sn);
+      if (['pending', 'scheduled', 'attended'].includes(sn.status)) checkWaitlist(sn).catch(() => {});
+    });
+  }));
+
   // ---------- FILA DE ESPERA ----------
   r.get('/waitlist', wrap(async (req, res) => {
     const { status, phone } = req.query;
@@ -784,6 +847,13 @@ export function buildRouter() {
     const { rowCount } = await q('DELETE FROM waitlist WHERE id=$1', [req.params.id]);
     if (!rowCount) return res.status(404).json({ error: 'Não encontrado' });
     res.json({ ok: true });
+  }));
+
+  r.post('/waitlist/bulk-delete', wrap(async (req, res) => {
+    const ids = idsDe(req.body);
+    if (!ids.length) return res.status(400).json({ error: 'Nenhum item selecionado' });
+    if (req.body.dry_run === true) return res.json({ found: (await q('SELECT count(*)::int AS n FROM waitlist WHERE id = ANY($1::bigint[])', [ids])).rows[0].n });
+    res.json({ deleted: (await q('DELETE FROM waitlist WHERE id = ANY($1::bigint[])', [ids])).rowCount });
   }));
 
   // ---------- IMPORTAR PLANILHA ----------

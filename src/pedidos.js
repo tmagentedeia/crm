@@ -258,6 +258,21 @@ export function registerOrderRoutes(r, wrap) {
        WHERE id=$1 RETURNING *`, [req.params.id, song, b.dedication !== undefined, ded, b.kind ?? null, b.amount_paid !== undefined, valor]);
     res.json(rows[0]);
   }));
+  r.post('/orders/bulk-delete', wrap(async (req, res) => {
+    const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(Number).filter((n) => Number.isInteger(n) && n > 0))].slice(0, 2000);
+    if (!ids.length) return res.status(400).json({ error: 'Nenhum item selecionado' });
+    if (req.body.dry_run === true) return res.json({ found: (await q('SELECT count(*)::int AS n FROM song_orders WHERE id = ANY($1::bigint[])', [ids])).rows[0].n });
+    res.json({ deleted: (await q('DELETE FROM song_orders WHERE id = ANY($1::bigint[])', [ids])).rowCount });
+  }));
+  r.post('/lives/bulk-delete', wrap(async (req, res) => {
+    const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(Number).filter((n) => Number.isInteger(n) && n > 0))].slice(0, 2000);
+    if (!ids.length) return res.status(400).json({ error: 'Nenhum item selecionado' });
+    const rows = (await q(`SELECT l.id, l.title, (SELECT count(*)::int FROM song_orders o WHERE o.live_id=l.id) AS orders FROM lives l WHERE l.id = ANY($1::bigint[])`, [ids])).rows;
+    const livres = rows.filter((x) => x.orders === 0);
+    if (req.body.dry_run === true) return res.json({ found: rows.length, com_pedidos: rows.length - livres.length });
+    const deleted = livres.length ? (await q('DELETE FROM lives WHERE id = ANY($1::bigint[])', [livres.map((x) => x.id)])).rowCount : 0;
+    res.json({ deleted, skipped: rows.filter((x) => x.orders > 0).map((x) => ({ id: x.id, name: x.title, motivo: 'tem pedidos' })) });
+  }));
   r.delete('/orders/:id', wrap(async (req, res) => {
     const { rowCount } = await q('DELETE FROM song_orders WHERE id=$1', [req.params.id]);
     rowCount ? res.json({ ok: true }) : res.status(404).json({ error: 'Não encontrado' });

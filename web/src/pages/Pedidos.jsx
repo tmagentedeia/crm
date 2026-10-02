@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api, fmtPhone, money } from '../api.js';
+import { useSelecao, CelulaTodos, CelulaLinha, ApagarSelecionados, resumoApagado } from '../selecao.jsx';
 
 const quando = (d) => (d ? new Date(d).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—');
 const paraInput = (d) => { if (!d) return ''; const x = new Date(d); x.setMinutes(x.getMinutes() - x.getTimezoneOffset()); return x.toISOString().slice(0, 16); };
@@ -20,6 +21,9 @@ export default function Pedidos() {
   const [edit, setEdit] = useState(null);
   const [liveEdit, setLiveEdit] = useState(null);
   const [aviso, setAviso] = useState('');
+  const selOrders = useSelecao(orders);
+  const selFila = useSelecao(fila);
+  const selLives = useSelecao(lives);
 
   const loadLives = () => api('/lives').then((l) => {
     setLives(l);
@@ -63,14 +67,16 @@ export default function Pedidos() {
             </select>
             {live && <span className="muted">{live.orders} pedido(s)</span>}
           </div>
-          <TabelaPedidos rows={orders} vazio="Nenhum pedido nesta live." onEdit={setEdit} onDel={apagar} />
+          <ApagarSelecionados s={selOrders} total={orders.length} rotulo="pedido(s)" rota="/orders/bulk-delete" onDone={(r) => { setAviso(resumoApagado(r, 'pedido(s)')); recarrega(); }} />
+          <TabelaPedidos rows={orders} sel={selOrders} vazio="Nenhum pedido nesta live." onEdit={setEdit} onDel={apagar} />
         </>
       )}
 
       {tab === 'fila' && (
         <>
           <p className="muted" style={{ marginBottom: 8 }}>Pedidos anotados sem uma live marcada. Quando você marcar a próxima live, eles entram nela automaticamente, na ordem de chegada, e a franquia é definida nessa hora.</p>
-          <TabelaPedidos rows={fila} fila vazio="Ninguém aguardando." onEdit={setEdit} onDel={apagar} />
+          <ApagarSelecionados s={selFila} total={fila.length} rotulo="pedido(s) da fila" rota="/orders/bulk-delete" onDone={(r) => { setAviso(resumoApagado(r, 'pedido(s)')); recarrega(); }} />
+          <TabelaPedidos rows={fila} sel={selFila} fila vazio="Ninguém aguardando." onEdit={setEdit} onDel={apagar} />
         </>
       )}
 
@@ -107,12 +113,15 @@ export default function Pedidos() {
           <div className="row" style={{ marginBottom: 8 }}>
             <button className="btn primary" onClick={() => setLiveEdit({ title: '', starts_at: '', ends_at: '' })}>+ Marcar live</button>
           </div>
+          <ApagarSelecionados s={selLives} total={lives.length} rotulo="live(s)" rota="/lives/bulk-delete" onDone={(r) => { setAviso(resumoApagado(r, 'live(s)')); recarrega(); }}
+            descreve={() => <p className="muted">Lives que já têm pedidos não são apagadas; apague os pedidos antes.</p>} />
           <div className="card table-wrap">
             <table>
-              <thead><tr><th>Quando</th><th>Título</th><th>Situação</th><th>Pedidos</th><th></th></tr></thead>
+              <thead><tr><CelulaTodos s={selLives} /><th>Quando</th><th>Título</th><th>Situação</th><th>Pedidos</th><th></th></tr></thead>
               <tbody>
                 {lives.map((l) => (
                   <tr key={l.id}>
+                    <CelulaLinha s={selLives} id={l.id} />
                     <td>{quando(l.starts_at)}</td><td>{l.title || <span className="muted">—</span>}</td>
                     <td><span className="badge">{l.open ? 'Aberta' : 'Encerrada'}</span></td><td>{l.orders}</td>
                     <td className="row">
@@ -124,7 +133,7 @@ export default function Pedidos() {
                     </td>
                   </tr>
                 ))}
-                {!lives.length && <tr><td colSpan="5" className="muted">Nenhuma live ainda. Sem live marcada, os pedidos ficam na fila.</td></tr>}
+                {!lives.length && <tr><td colSpan="6" className="muted">Nenhuma live ainda. Sem live marcada, os pedidos ficam na fila.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -139,14 +148,15 @@ export default function Pedidos() {
   );
 }
 
-function TabelaPedidos({ rows, fila, vazio, onEdit, onDel }) {
+function TabelaPedidos({ rows, sel, fila, vazio, onEdit, onDel }) {
   return (
     <div className="card table-wrap">
       <table>
-        <thead><tr><th>Cliente</th><th>Música</th><th>Dedicatória</th><th>Nível</th>{!fila && <th>Cobrança</th>}<th>Anotado em</th><th></th></tr></thead>
+        <thead><tr><CelulaTodos s={sel} /><th>Cliente</th><th>Música</th><th>Dedicatória</th><th>Nível</th>{!fila && <th>Cobrança</th>}<th>Anotado em</th><th></th></tr></thead>
         <tbody>
           {rows.map((o) => (
             <tr key={o.id}>
+              <CelulaLinha s={sel} id={o.id} />
               <td>{nomeDe(o)}</td><td>{o.song}</td><td>{o.dedication || <span className="muted">—</span>}</td>
               <td>{o.level_name || <span className="muted">—</span>}</td>
               {!fila && <td><span className="badge">{COBRANCA[o.kind] || '—'}{o.kind === 'paid' && o.amount_paid != null ? ' · ' + money(o.amount_paid) : ''}</span></td>}
@@ -154,7 +164,7 @@ function TabelaPedidos({ rows, fila, vazio, onEdit, onDel }) {
               <td className="row"><button className="btn" onClick={() => onEdit(o)}>Editar</button><button className="btn bad" onClick={() => onDel(o)}>Apagar</button></td>
             </tr>
           ))}
-          {!rows.length && <tr><td colSpan="7" className="muted">{vazio}</td></tr>}
+          {!rows.length && <tr><td colSpan="8" className="muted">{vazio}</td></tr>}
         </tbody>
       </table>
     </div>

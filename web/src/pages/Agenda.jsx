@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Nome } from '../menu.jsx';
 import { api, fmtTime, money } from '../api.js';
+import { useSelecao, ApagarSelecionados, resumoApagado } from '../selecao.jsx';
 
 const STATUS = { pending: 'Aguardando confirmação', scheduled: 'Agendado', attended: 'Compareceu', no_show: 'Faltou', cancelled: 'Cancelado' };
 const todayStr = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
@@ -11,6 +12,8 @@ export default function Agenda() {
   const [professionals, setProfessionals] = useState([]);
   const [appts, setAppts] = useState([]);
   const [modal, setModal] = useState(null);
+  const sel = useSelecao(appts);
+  const [aviso, setAviso] = useState('');
 
   const load = useCallback(async () => {
     const from = new Date(date + 'T00:00:00').toISOString();
@@ -40,6 +43,15 @@ export default function Agenda() {
           <button className="btn primary" onClick={() => setModal({ professional_id: professionals[0]?.id })}>+ Agendar</button>
         </div>
       </div>
+      {aviso && <p className="muted" style={{ marginBottom: 8 }}>{aviso}</p>}
+      {appts.length > 0 && (
+        <label className="row" style={{ gap: 8, marginBottom: 8 }}>
+          <input type="checkbox" style={{ width: 'auto', margin: 0 }} checked={sel.todos} onChange={sel.alternarTodos} />
+          <span className="muted">Selecionar todos os agendamentos deste dia</span>
+        </label>
+      )}
+      <ApagarSelecionados s={sel} total={appts.length} rotulo="agendamento(s)" rota="/appointments/bulk-delete" onDone={(r) => { setAviso(resumoApagado(r, 'agendamento(s)')); load(); }}
+        descreve={() => <p>Os horários ficam livres e, se houver fila de espera, o primeiro da fila é avisado.</p>} />
       {!professionals.length && <div className="card muted">Cadastre um profissional para começar a usar a agenda.</div>}
       <div className="agenda">
         {professionals.map((b) => {
@@ -52,6 +64,7 @@ export default function Agenda() {
               {mine.map((a) => (
                 <div key={a.id} className={'appt' + (a.status !== 'scheduled' && a.status !== 'pending' ? ' done' : '')} style={{ borderLeftColor: b.color }}>
                   <div className="row" style={{ justifyContent: 'space-between' }}>
+                    <input type="checkbox" style={{ width: 'auto', margin: 0 }} checked={sel.has(a.id)} onChange={() => sel.toggle(a.id)} aria-label="Selecionar" />
                     <span className="t">{fmtTime(a.starts_at)}–{fmtTime(a.ends_at)}</span>
                     <span className={'badge ' + a.status}>{STATUS[a.status]}</span>
                     {a.reminder_sent_at && <span title="Lembrete enviado ao cliente">🔔</span>}

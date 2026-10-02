@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Nome } from '../menu.jsx';
 import { api, money } from '../api.js';
+import { useSelecao, CelulaTodos, CelulaLinha, ApagarSelecionados, resumoApagado } from '../selecao.jsx';
 
 export default function Servicos() {
   const [list, setList] = useState([]);
@@ -8,6 +9,8 @@ export default function Servicos() {
   const [err, setErr] = useState('');
   const [cats, setCats] = useState([]);
   const [catEdit, setCatEdit] = useState(null);
+  const sel = useSelecao(list);
+  const [aviso, setAviso] = useState('');
   const load = () => Promise.all([api('/services'), api('/categories')]).then(([sv, c]) => { setList(sv); setCats(c); });
   useEffect(() => { load(); }, []);
 
@@ -64,12 +67,17 @@ export default function Servicos() {
           {!cats.length && <span className="muted">Nenhuma categoria. Crie uma (ex.: Cabelo, Manicure) para organizar os serviços.</span>}
         </div>
       </div>
+      {aviso && <p className="muted" style={{ marginBottom: 8 }}>{aviso}</p>}
+      <ApagarSelecionados s={sel} total={list.length} rotulo="serviço(s)" rota="/services/bulk-delete" onDone={(r) => { setAviso(resumoApagado(r, 'serviço(s)')); load(); }}
+        descreve={(i) => i.com_historico > 0 ? <p>{i.com_historico} deles têm {i.agendamentos} agendamento(s) no histórico. Sem marcar a opção abaixo, esses serviços são mantidos.</p> : <p>Nenhum deles tem agendamentos no histórico.</p>}
+        opcao={{ chave: 'com_historico', texto: 'Apagar também os agendamentos desses serviços (definitivo)', mostrarSe: (i) => i.com_historico > 0 }} />
       <div className="card table-wrap">
         <table>
-          <thead><tr><th>Nome</th><th>Categoria</th><th>Preço</th><th>Duração</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><CelulaTodos s={sel} /><th>Nome</th><th>Categoria</th><th>Preço</th><th>Duração</th><th>Status</th><th></th></tr></thead>
           <tbody>
             {list.map((s) => (
               <tr key={s.id} style={{ opacity: s.active ? 1 : 0.5 }}>
+                <CelulaLinha s={sel} id={s.id} />
                 <td>{s.name}</td><td>{s.category || <span className="muted">—</span>}</td><td>{money(s.price)}</td><td>{s.duration_min} min</td>
                 <td>{s.active ? 'Ativo' : 'Inativo'}</td>
                 <td style={{ textAlign: 'right' }}>
@@ -79,7 +87,7 @@ export default function Servicos() {
                 </td>
               </tr>
             ))}
-            {!list.length && <tr><td colSpan="6" className="muted">Nenhum serviço cadastrado.</td></tr>}
+            {!list.length && <tr><td colSpan="7" className="muted">Nenhum serviço cadastrado.</td></tr>}
           </tbody>
         </table>
       </div>
