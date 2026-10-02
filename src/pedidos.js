@@ -105,12 +105,12 @@ async function decidirTipo(t, tz, customerId, live) {
 async function entrarNaLive(t, tz) {
   const live = await proximaLive(t, tz);
   if (!live) return [];
-  const fila = (await t('SELECT id, customer_id, amount_paid FROM song_orders WHERE live_id IS NULL ORDER BY created_at, id')).rows;
+  const fila = (await t('SELECT id, customer_id, amount_paid, kind FROM song_orders WHERE live_id IS NULL ORDER BY created_at, id')).rows;
   const out = [];
   for (const o of fila) {
-    const kind = await decidirTipo(t, tz, o.customer_id, live);
+    const kind = o.kind || await decidirTipo(t, tz, o.customer_id, live);   // modo escolhido na mão vale; senão, automático
     const lv = (await t(`SELECT lv.name FROM customers c LEFT JOIN loyalty_levels lv ON lv.id=c.club_level_id WHERE c.id=$1`, [o.customer_id])).rows[0]?.name || null;
-    await t('UPDATE song_orders SET live_id=$2, kind=$3, amount_paid=CASE WHEN $3=\'franchise\' THEN 0 ELSE amount_paid END, level_name=$4 WHERE id=$1', [o.id, live.id, kind, lv]);
+    await t('UPDATE song_orders SET live_id=$2, kind=$3, amount_paid=CASE WHEN $3 IN (\'franchise\',\'courtesy\') THEN 0 ELSE amount_paid END, level_name=$4 WHERE id=$1', [o.id, live.id, kind, lv]);
     out.push({ id: o.id, kind });
   }
   return out;
@@ -216,6 +216,9 @@ export function registerOrderRoutes(r, wrap) {
     const dedication = txt(req.body.dedication ?? '', 500);
     const valor = dinheiro(req.body.amount_paid);
     const nome = txt(req.body.name ?? '', 120);
+    // modo de pagamento escolhido na anotação manual (vazio = automático: franquia se tiver, senão pago)
+    const escolha = String(req.body.kind ?? '');
+    if (escolha && !['franchise', 'paid', 'courtesy'].includes(escolha)) return res.status(400).json({ error: 'Modo de pagamento inválido' });
     // telefone é opcional na anotação manual (exceções), mas sem telefone o nome é obrigatório
     if (phoneInformado && phone.length < 12) return res.status(400).json({ error: 'Telefone inválido (use DDD + número)' });
     if (!phoneInformado && !nome) return res.status(400).json({ error: 'Informe o telefone ou, pelo menos, o nome do cliente' });
@@ -223,24 +226,44 @@ export function registerOrderRoutes(r, wrap) {
     if (dedication === null || nome === null) return res.status(400).json({ error: 'Texto inválido' });
     if (Number.isNaN(valor)) return res.status(400).json({ error: 'Valor inválido' });
     const out = await run(async (t, tz) => {
-      // sem telefone: reaproveita o cliente sem telefone que tenha o mesmo nome (não duplica) ou cria um só com o nome
-      const cli = phone
-        ? (await t(
+      // sem telefone: acha o cliente pelo nome (nome ou nome completo, sem diferenciar maiúscula nem espaços sobrando).
+      // 1º procura entre os assinantes do clube (é neles que o pedido conta na franquia): um só = usa ele; mais de um = pede o telefone.
+      // Sem assinante com esse nome: se o modo for franquia, avisa; senão usa o único cliente com o nome, cria um só com o nome
+      // (nenhum) ou pede o telefone (mais de um, sem como saber qual).
+      let cli;
+      if (phone) {
+        cli = (await t(
           `INSERT INTO customers (name,phone,status,source) VALUES (NULLIF($1,''),$2,'lead','ia')
-           ON CONFLICT (phone) DO UPDATE SET name=COALESCE(customers.name, NULLIF(EXCLUDED.name,'')) RETURNING id`, [nome || '', phone])).rows[0]
-        : ((await t(`SELECT id FROM customers WHERE phone IS NULL AND lower(btrim(name))=lower($1) ORDER BY id LIMIT 1`, [nome])).rows[0]
-          || (await t(`INSERT INTO customers (name,phone,status,source) VALUES ($1,NULL,'lead','manual') RETURNING id`, [nome])).rows[0]);
+           ON CONFLICT (phone) DO UPDATE SET name=COALESCE(customers.name, NULLIF(EXCLUDED.name,'')) RETURNING id`, [nome || '', phone])).rows[0];
+      } else {
+        const chave = nome.toLowerCase().replace(/\s+/g, ' ');
+        const porNome = (soMembros) => t(
+          `SELECT id FROM customers
+           WHERE (lower(btrim(regexp_replace(COALESCE(name,''), '\\s+', ' ', 'g'))) = $1
+              OR lower(btrim(regexp_replace(concat_ws(' ', name, last_name), '\\s+', ' ', 'g'))) = $1)
+             ${soMembros ? "AND club_status='member'" : ''}
+           ORDER BY id LIMIT 2`, [chave]).then((x) => x.rows);
+        const membros = await porNome(true);
+        if (membros.length > 1) return { ambiguo: true };
+        if (membros.length === 1) cli = membros[0];
+        else {
+          if (escolha === 'franchise') return { semMembro: true };
+          const todos = await porNome(false);
+          if (todos.length > 1) return { ambiguo: true };
+          cli = todos[0] || (await t(`INSERT INTO customers (name,phone,status,source) VALUES ($1,NULL,'lead','manual') RETURNING id`, [nome])).rows[0];
+        }
+      }
       await t('SELECT id FROM customers WHERE id=$1 FOR UPDATE', [cli.id]); // dois pedidos juntos do mesmo cliente não furam a franquia
       const live = await proximaLive(t, tz);
       let kind = null, level = null;
       if (live) {
-        kind = await decidirTipo(t, tz, cli.id, live);
+        kind = escolha || await decidirTipo(t, tz, cli.id, live);
         level = (await t(`SELECT lv.name FROM customers c LEFT JOIN loyalty_levels lv ON lv.id=c.club_level_id WHERE c.id=$1`, [cli.id])).rows[0]?.name || null;
       }
       const o = (await t(
         `INSERT INTO song_orders (customer_id, live_id, song, dedication, amount_paid, kind, level_name)
          VALUES ($1,$2,$3,NULLIF($4,''),$5,$6,$7) RETURNING *`,
-        [cli.id, live?.id || null, song, dedication, kind === 'franchise' ? 0 : valor, kind, level])).rows[0];
+        [cli.id, live?.id || null, song, dedication, kind === 'franchise' || escolha === 'franchise' || escolha === 'courtesy' ? 0 : valor, kind || escolha || null, level])).rows[0];
       // pedido criado já com valor pago: liga ao último recebimento aceito desse cliente com o mesmo valor (se ainda sem pedido)
       if (valor && valor > 0) {
         await t(`UPDATE payments SET order_id=$1 WHERE id = (
@@ -249,11 +272,13 @@ export function registerOrderRoutes(r, wrap) {
       }
       const bal = await saldo(t, tz, cli.id, live?.starts_at || null);
       // 1º pedido sem pagamento de cliente novo: a cortesia sai se o comprovante não chegar no prazo
-      const elegivel = o.kind !== 'franchise' && !(valor > 0)
+      const elegivel = !escolha && o.kind !== 'franchise' && !(valor > 0)
         && (await t('SELECT 1 FROM customers WHERE id=$1 AND courtesy_used_at IS NULL AND club_status IS NULL AND source=\'ia\'', [cli.id])).rowCount === 1
         && (await t('SELECT count(*)::int AS n FROM song_orders WHERE customer_id=$1', [cli.id])).rows[0].n === 1;
       return { order: o, live, balance: bal, elegivel };
     });
+    if (out.semMembro) return res.status(409).json({ error: 'Não achei assinante do clube com esse nome para usar a franquia. Informe o telefone ou escolha cortesia ou pago.' });
+    if (out.ambiguo) return res.status(409).json({ error: 'Há mais de um cliente com esse nome. Informe o telefone para eu saber qual é.' });
     res.status(201).json({
       id: out.order.id,
       status: out.live ? 'confirmed' : 'queued',   // queued = anotado para a próxima live, data a confirmar

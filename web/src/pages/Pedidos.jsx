@@ -198,14 +198,14 @@ function TabelaPedidos({ L, rows, sel, fila, vazio, onEdit, onDel }) {
 }
 
 function NovoPedido({ L, onClose, onSaved }) {
-  const [f, setF] = useState({ phone: '', name: '', song: '', dedication: '', amount_paid: '' });
+  const [f, setF] = useState({ phone: '', name: '', song: '', dedication: '', amount_paid: '', kind: '' });
   const [err, setErr] = useState('');
   const [ok, setOk] = useState(null);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   async function save(e) {
     e.preventDefault(); setErr(''); setOk(null);
     try {
-      const r = await api('/orders', { method: 'POST', body: { ...f, amount_paid: f.amount_paid === '' ? null : f.amount_paid } });
+      const r = await api('/orders', { method: 'POST', body: { ...f, amount_paid: f.amount_paid === '' || f.kind === 'franchise' || f.kind === 'courtesy' ? null : f.amount_paid } });
       setOk(r); onSaved(); setF({ ...f, song: '', dedication: '', amount_paid: '' });
     } catch (e2) { setErr(e2.message); }
   }
@@ -221,11 +221,20 @@ function NovoPedido({ L, onClose, onSaved }) {
             {ok.balance.franchise > 0 ? ` Franquia do mês: ${ok.balance.used} de ${ok.balance.franchise}.` : ''}
           </p>
         )}
-        <div className="field"><label>Telefone (com DDD)</label><input value={f.phone} onChange={set('phone')} placeholder="pode deixar em branco" /></div>
+        <div className="field"><label>Telefone (com DDD)</label><input value={f.phone} onChange={set('phone')} /></div>
         <div className="field"><label>{f.phone.trim() ? 'Nome (se for cliente novo)' : 'Nome *'}</label><input value={f.name} onChange={set('name')} required={!f.phone.trim()} /></div>
         <div className="field"><label>{L.song} *</label><input value={f.song} onChange={set('song')} required /></div>
         <div className="field"><label>{L.dedication}</label><input value={f.dedication} onChange={set('dedication')} /></div>
-        <div className="field"><label>Valor pago (R$)</label><input inputMode="decimal" value={f.amount_paid} onChange={set('amount_paid')} placeholder="só se for cobrado" /></div>
+        <div className="field"><label>Modo de pagamento</label>
+          <select value={f.kind} onChange={set('kind')}>
+            <option value="">Automático (franquia, se tiver; senão pago)</option>
+            <option value="franchise">Pela franquia</option>
+            <option value="paid">Pago</option>
+            <option value="courtesy">Cortesia</option>
+          </select></div>
+        {f.kind !== 'franchise' && f.kind !== 'courtesy' && (
+          <div className="field"><label>Valor pago (R$)</label><input inputMode="decimal" value={f.amount_paid} onChange={set('amount_paid')} placeholder="só se for cobrado" /></div>
+        )}
         <div className="row"><button className="btn primary">Anotar</button><button type="button" className="btn" onClick={onClose}>Fechar</button></div>
       </form>
     </div>

@@ -152,16 +152,48 @@ check('assinatura estável sem mudança', (await T('GET', '/api/orders/changes')
 await T('POST', '/api/orders', { phone: '553288880055', song: 'Mudou a assinatura', amount_paid: 30 });
 check('assinatura muda com pedido novo', (await T('GET', '/api/orders/changes')).body.sig !== sg1);
 check('outra empresa tem assinatura própria', (await T('GET', '/api/orders/changes', null, B)).body.sig !== (await T('GET', '/api/orders/changes')).body.sig);
-// pedido sem telefone (exceção): só com o nome
+// pedido sem telefone (exceção): acha o cliente pelo nome
+await mk('Nome Único Teste', '32980020001');
+const sp0 = await T('POST', '/api/orders', { name: 'nome único  teste', song: 'Achou pelo nome' });
+check('sem telefone, acha o cliente existente pelo nome', sp0.status === 201 && (await T('GET', '/api/customers?search=Nome Único Teste')).body.length === 1, JSON.stringify(sp0.body));
+await mk('Repetido Teste', '32980020002'); await mk('Repetido Teste', '32980020003');
+const spd = await T('POST', '/api/orders', { name: 'Repetido Teste', song: 'Ambígua' });
+check('nome repetido = 409 pedindo o telefone', spd.status === 409 && /telefone/i.test(spd.body.error), JSON.stringify(spd.body));
+check('nome repetido não anota nada', ![...(await T('GET', '/api/orders?queue=1')).body].some((o) => o.song === 'Ambígua'));
+// assinante do clube + homônimo fora do clube: o pedido vai para o assinante
+await mk('Dupla Clube', '32980020004', { club_status: 'member', club_level_id: n2 }); await mk('Dupla Clube', '32980020005');
+const sdm = await T('POST', '/api/orders', { name: 'Dupla Clube', song: 'Vai pro assinante', kind: 'franchise' });
+check('homônimo fora do clube não atrapalha: vai para o assinante', sdm.status === 201 && sdm.body.kind === 'franchise' && sdm.body.balance.club_status === 'member', JSON.stringify(sdm.body));
+await mk('Dois Membros', '32980020006', { club_status: 'member', club_level_id: n2 }); await mk('Dois Membros', '32980020007', { club_status: 'member', club_level_id: n2 });
+check('dois assinantes com o mesmo nome = 409 pedindo o telefone', (await T('POST', '/api/orders', { name: 'Dois Membros', song: 'Qual?' })).status === 409);
+const sfn = await T('POST', '/api/orders', { name: 'Ninguem Do Clube', song: 'Sem clube', kind: 'franchise' });
+check('franquia sem assinante com o nome = 409', sfn.status === 409 && /assinante/.test(sfn.body.error), JSON.stringify(sfn.body));
+const scn = await T('POST', '/api/orders', { name: 'Ninguem Do Clube', song: 'Cortesia sem clube', kind: 'courtesy' });
+check('cortesia não precisa de cadastro no clube', scn.status === 201 && scn.body.kind === 'courtesy', JSON.stringify(scn.body));
+const sgn = await T('POST', '/api/orders', { name: 'Pagante Avulso', song: 'Pago sem clube', kind: 'paid', amount_paid: 30 });
+check('pago sem clube com valor', sgn.status === 201 && sgn.body.kind === 'paid', JSON.stringify(sgn.body));
 const sp1 = await T('POST', '/api/orders', { name: 'Fulano Sem Fone', song: 'Música sem telefone' });
-check('pedido só com o nome é aceito', sp1.status === 201, JSON.stringify(sp1.body));
+check('nome novo sem telefone cria o cliente só com o nome', sp1.status === 201, JSON.stringify(sp1.body));
 const sp2 = await T('POST', '/api/orders', { name: ' fulano sem fone ', song: 'Segunda sem telefone' });
-check('mesmo nome sem telefone reaproveita o cliente', sp2.status === 201 && (await T('GET', '/api/customers?search=Fulano Sem Fone')).body.length === 1);
+check('mesmo nome de novo reaproveita o cliente', sp2.status === 201 && (await T('GET', '/api/customers?search=Fulano Sem Fone')).body.length === 1);
 check('sem telefone e sem nome = 400', (await T('POST', '/api/orders', { song: 'Nada' })).status === 400);
 check('telefone curto continua inválido', (await T('POST', '/api/orders', { phone: '123', song: 'Nada' })).status === 400);
 const todosPed = [...(await T('GET', '/api/orders?queue=1')).body, ...(await T('GET', '/api/orders?live_id=' + (sp1.body.live?.id ?? 0))).body];
 check('pedido sem telefone aparece na lista com o nome', todosPed.some((o) => o.song === 'Música sem telefone' && o.customer_name === 'Fulano Sem Fone' && o.customer_phone === null));
 const sim = await T('POST', '/api/campaigns/simulate', { messages: ['Oi'], recipients: { mode: 'all' } });
 check('contato sem telefone fica fora das campanhas', sim.status === 200 && sim.body.total === (await T('GET', '/api/customers/export')).body.filter((c) => c.phone).length, JSON.stringify(sim.body).slice(0, 200));
+// modo de pagamento escolhido na anotação manual
+const mf = await T('POST', '/api/orders', { phone: '553288880071', name: 'Modo Franquia', song: 'Pela franquia', kind: 'franchise', amount_paid: 50 });
+check('modo franquia é respeitado e não cobra', mf.status === 201 && mf.body.kind === 'franchise', JSON.stringify(mf.body));
+const mc = await T('POST', '/api/orders', { phone: '553288880072', name: 'Modo Cortesia', song: 'Cortesia manual', kind: 'courtesy' });
+check('modo cortesia é respeitado', mc.status === 201 && mc.body.kind === 'courtesy' && mc.body.courtesy_in_minutes === null, JSON.stringify(mc.body));
+const mp = await T('POST', '/api/orders', { phone: '553288880073', name: 'Modo Pago', song: 'Pago manual', kind: 'paid', amount_paid: 25 });
+check('modo pago guarda o valor', mp.status === 201 && mp.body.kind === 'paid', JSON.stringify(mp.body));
+check('modo inválido = 400', (await T('POST', '/api/orders', { phone: '553288880074', song: 'x', kind: 'doacao' })).status === 400);
+const filaMm = (await T('GET', '/api/orders?queue=1')).body;
+const lista = [...filaMm, ...(await T('GET', '/api/orders?live_id=' + (mf.body.live?.id ?? 0))).body, ...(await T('GET', '/api/orders?live_id=' + (mp.body.live?.id ?? 0))).body];
+const gf = lista.find((o) => o.song === 'Pela franquia'), gp = lista.find((o) => o.song === 'Pago manual');
+check('franquia manual grava valor 0', gf && Number(gf.amount_paid) === 0 && gf.kind === 'franchise', JSON.stringify(gf));
+check('pago manual grava o valor informado', gp && Number(gp.amount_paid) === 25 && gp.kind === 'paid', JSON.stringify(gp));
 console.log(`pedidos: ${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);
