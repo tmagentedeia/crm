@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Nome, ICONES, MENU_PADRAO } from '../menu.jsx';
 import { api } from '../api.js';
+import { moduleOn } from '../modules.js';
 
 // Redimensiona a imagem no navegador (máx. 256px) e devolve um data URL leve
 function resizeImage(file, max = 256) {
@@ -58,7 +59,7 @@ function MenuPersonalizar({ company, onSaved }) {
       <table>
         <thead><tr><th style={{ width: 90 }}>Ícone</th><th>Nome</th><th></th></tr></thead>
         <tbody>
-          {MENU_PADRAO.map((m) => {
+          {MENU_PADRAO.filter((m) => m.id === 'config' || moduleOn(company.modules, m.id)).map((m) => {
             const v = valores[m.id] || {};
             return (
               <React.Fragment key={m.id}>

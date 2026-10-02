@@ -42,7 +42,7 @@ export default function ComandosAgente() {
       <div className="row" style={{ alignItems: 'flex-end', marginBottom: 14, flexWrap: 'wrap' }}>
         <div className="field" style={{ flex: 1, margin: 0, minWidth: 160 }}>
           <label>Nome do agente</label>
-          <input value={agent} onChange={(e) => setAgent(e.target.value)} placeholder="ex.: Vitória" />
+          <input value={agent} onChange={(e) => setAgent(e.target.value)} placeholder="ex.: Iara" />
         </div>
         <div className="field" style={{ flex: 1, margin: 0, minWidth: 160 }}>
           <label>Proprietário / ADM</label>

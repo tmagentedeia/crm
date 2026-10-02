@@ -80,5 +80,12 @@ for (let i = 0; i < 12; i++) last = await mk({ text: 'item ' + i });
 check('limite de 10 em vigor', last.status === 400);
 check('apagar', (await call('DELETE', `/api/agent-updates/${n1.id}`, { token: A.token })).status === 200);
 
+// nome do agente vira a primeira linha do texto enviado ao N8N (e some quando o nome é apagado)
+await call('PUT', '/api/agent-config', { token: A.token, body: { agent_name: 'Iara' } });
+let pn = (await call('GET', '/n8n/agent/prompt', { n8n: 1 })).body;
+check('nome do agente na primeira linha', pn.prompt.startsWith('Seu nome é Iara.\n\n') && pn.agent_name === 'Iara' && pn.manual === pn.manual.trim() + (pn.manual.endsWith('\n') ? '\n' : ''), pn.prompt.slice(0, 60));
+check('empresa B não recebe o nome da A', !(await call('GET', '/n8n/agent/prompt', { n8n: 2 })).body.prompt.includes('Iara'));
+await call('PUT', '/api/agent-config', { token: A.token, body: { agent_name: '' } });
+check('sem nome, sem a primeira linha', !(await call('GET', '/n8n/agent/prompt', { n8n: 1 })).body.prompt.startsWith('Seu nome'));
 console.log(`\natendente: ${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);

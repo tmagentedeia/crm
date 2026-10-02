@@ -17,6 +17,7 @@ import Bloqueios from './pages/Bloqueios.jsx';
 import Campanhas from './pages/Campanhas.jsx';
 import Clube from './pages/Clube.jsx';
 import Pedidos from './pages/Pedidos.jsx';
+import Eventos from './pages/Eventos.jsx';
 import { moduleOn } from './modules.js';
 import { MenuCustomContext, nomeDoMenu, iconeDoMenu } from './menu.jsx';
 
@@ -43,6 +44,7 @@ const BASE_MENU = [
   { id: 'campanhas', module: 'campanhas', label: 'Campanhas', icon: '📣', comp: Campanhas },
   { id: 'clube', module: 'clube', label: 'Programa de benefícios', icon: '⭐', comp: Clube },
   { id: 'pedidos', module: 'pedidos', label: 'Pedidos', icon: '🎵', comp: Pedidos },
+  { id: 'eventos', module: 'eventos', label: 'Eventos', icon: '🗓️', comp: Eventos },
   { id: 'fila', module: 'fila', label: 'Fila de espera', icon: '⏳', comp: Fila },
   { id: 'comandos', module: 'comandos', label: 'Comandos', icon: '🎛️', comp: Comandos },
   { id: 'bloqueios', module: 'bloqueios', label: 'Atendimentos bloqueados', icon: '🚫', comp: Bloqueios },

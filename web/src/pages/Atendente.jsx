@@ -240,11 +240,40 @@ function Atualizacoes() {
   );
 }
 
+// Nome do agente (usado nas frases de liberar o atendimento nos Comandos)
+function NomeAgente() {
+  const [nome, setNome] = useState('');
+  const [salvo, setSalvo] = useState('');
+  const [msg, setMsg] = useState('');
+  const [err, setErr] = useState('');
+  useEffect(() => { api('/agent-config').then((c) => { setNome(c.agent_name || ''); setSalvo(c.agent_name || ''); }).catch(() => {}); }, []);
+  const gravar = async () => {
+    setErr(''); setMsg('');
+    try { await api('/agent-config', { method: 'PUT', body: { agent_name: nome } }); setSalvo(nome.trim()); setNome(nome.trim()); setMsg('Nome salvo'); } catch (e) { setErr(e.message); }
+  };
+  return (
+    <div className="card" style={{ marginBottom: 12 }}>
+      <div className="row" style={{ alignItems: 'flex-end', flexWrap: 'wrap' }}>
+        <div className="field" style={{ margin: 0, minWidth: 220, flex: '0 1 320px' }}>
+          <label>Nome do agente</label>
+          <input value={nome} maxLength={40} placeholder="ex.: Iara" onChange={(e) => { setNome(e.target.value); setMsg(''); }}
+            onKeyDown={(e) => e.key === 'Enter' && nome.trim() !== salvo && gravar()} />
+        </div>
+        {nome.trim() !== salvo && <button className="btn primary" onClick={gravar}>Salvar</button>}
+        {msg && <span className="muted">{msg}</span>}
+        {err && <span className="error" style={{ margin: 0 }}>{err}</span>}
+      </div>
+      <p className="muted" style={{ margin: '6px 0 0' }}>Gera a frase de liberar o atendimento nos Comandos (“tá contigo <em>nome</em>”).</p>
+    </div>
+  );
+}
+
 export default function Atendente() {
   const [aba, setAba] = useState('manual');
   return (
     <>
       <h1><Nome id="atendente">Atendente</Nome></h1>
+      <NomeAgente />
       <div style={{ display: 'flex', gap: 8, margin: '12px 0 16px' }}>
         <button className={'btn' + (aba === 'manual' ? ' primary' : '')} onClick={() => setAba('manual')}>Manual</button>
         <button className={'btn' + (aba === 'atualizacoes' ? ' primary' : '')} onClick={() => setAba('atualizacoes')}>Atualizações provisórias</button>

@@ -28,6 +28,7 @@ export const MENU_PADRAO = [
   { id: 'campanhas', label: 'Campanhas', icon: '📣' },
   { id: 'clube', label: 'Programa de benefícios', icon: '⭐' },
   { id: 'pedidos', label: 'Pedidos', icon: '🎵' },
+  { id: 'eventos', label: 'Eventos', icon: '🗓️' },
   { id: 'fila', label: 'Fila de espera', icon: '⏳' },
   { id: 'comandos', label: 'Comandos', icon: '🎛️' },
   { id: 'bloqueios', label: 'Atendimentos bloqueados', icon: '🚫' },

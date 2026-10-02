@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { pool, schemaOf } from './db.js';
 import { PEDIDOS_SQL } from './pedidos.js';
+import { EVENTOS_SQL } from './eventos.js';
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const baseline = fs.readFileSync(path.join(dir, '..', 'db', 'tenant.sql'), 'utf8');
@@ -71,6 +72,8 @@ export const TENANT_STEPS = [
   { version: 7, sql: clubeSql },
   // 8: lives e pedidos de música (franquia do programa de benefícios)
   { version: 8, sql: PEDIDOS_SQL },
+  // 9: eventos (compromissos avulsos, sem profissional nem serviço)
+  { version: 9, sql: EVENTOS_SQL },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 
@@ -83,6 +86,7 @@ export async function createCompanySchema(cx, companyId) {
   await cx.query(baseline.replaceAll('__COMPANY_ID__', String(Number(companyId))));
   await cx.query(clubeSql);
   await cx.query(PEDIDOS_SQL);
+  await cx.query(EVENTOS_SQL);
   await cx.query('SET LOCAL search_path TO public');
   await cx.query('INSERT INTO tenant_versions (company_id, version) VALUES ($1, 1)', [companyId]);
 }
