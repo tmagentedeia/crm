@@ -145,5 +145,11 @@ check('assinante com pedido pago não é elegível', (await T('POST', '/api/orde
 // contato já cadastrado (não criado pela agente) não ganha cortesia
 const velho = (await T('POST', '/api/customers', { name: 'Já cadastrado', phone: '32988880097', status: 'lead' })).body;
 check('cliente já cadastrado não é elegível à cortesia', (await T('POST', '/api/orders', { phone: '553288880097', song: 'Velho' })).body.courtesy_in_minutes === null);
+// assinatura de mudanças (a tela só recarrega quando muda)
+const sg1 = (await T('GET', '/api/orders/changes')).body.sig;
+check('assinatura estável sem mudança', (await T('GET', '/api/orders/changes')).body.sig === sg1 && typeof sg1 === 'string' && sg1.length > 10);
+await T('POST', '/api/orders', { phone: '553288880055', song: 'Mudou a assinatura', amount_paid: 30 });
+check('assinatura muda com pedido novo', (await T('GET', '/api/orders/changes')).body.sig !== sg1);
+check('outra empresa tem assinatura própria', (await T('GET', '/api/orders/changes', null, B)).body.sig !== (await T('GET', '/api/orders/changes')).body.sig);
 console.log(`pedidos: ${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);

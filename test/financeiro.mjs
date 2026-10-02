@@ -91,6 +91,10 @@ const pnovo = (await T('POST', '/api/orders', { phone: '553288880077', name: 'No
 const ligado = (await T('GET', '/api/payments')).body.find((x) => x.id === pg.payment_id);
 check('pagamento do cliente novo ligado ao pedido', ligado && String(ligado.order_id) === String(pnovo.id) && ligado.customer_name === 'Novo Cliente', JSON.stringify(ligado));
 
+const ps1 = (await T('GET', '/api/payments/changes')).body.sig;
+check('assinatura dos recebimentos estável', (await T('GET', '/api/payments/changes')).body.sig === ps1);
+await pago();
+check('assinatura dos recebimentos muda com pagamento novo', (await T('GET', '/api/payments/changes')).body.sig !== ps1);
 // ---- apagar ----
 check('apagar em massa', (await T('POST', '/api/payments/bulk-delete', { ids: lst.slice(0, 2).map((x) => x.id) })).body.deleted === 2);
 check('apagar chave não perde os recebimentos', (await T('DELETE', '/api/finance/keys/' + k2.id)).status === 200 && (await T('GET', '/api/payments')).body.length >= 6);

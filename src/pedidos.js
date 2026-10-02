@@ -257,6 +257,14 @@ export function registerOrderRoutes(r, wrap) {
     });
   }));
   // Saldo de franquia e situação do cliente (a agente usa para responder "quantos pedidos eu ainda tenho?")
+  // Assinatura do que a tela de Pedidos mostra: muda quando entra, sai ou é editado um pedido/live.
+  // A tela pergunta isso de tempos em tempos e só recarrega as listas quando a assinatura muda.
+  r.get('/orders/changes', wrap(async (req, res) => {
+    await tx(currentCompany(), converterCortesias);
+    const o = (await q(`SELECT count(*)::int AS n, COALESCE(md5(string_agg(concat_ws('|', id, live_id, song, dedication, kind, amount_paid), ';' ORDER BY id)), '') AS h FROM song_orders`)).rows[0];
+    const l = (await q(`SELECT count(*)::int AS n, COALESCE(md5(string_agg(concat_ws('|', id, title, starts_at, ends_at, closed_at), ';' ORDER BY id)), '') AS h FROM lives`)).rows[0];
+    res.json({ sig: `${o.n}:${o.h}:${l.n}:${l.h}` });
+  }));
   r.get('/orders/balance', wrap(async (req, res) => {
     await tx(currentCompany(), converterCortesias);
     const phone = normPhone(req.query.phone);

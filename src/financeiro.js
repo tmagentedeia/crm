@@ -207,6 +207,11 @@ export function registerFinanceRoutes(r, wrap) {
        ORDER BY p.created_at DESC, p.id DESC LIMIT 500`, [tz, status, mes])).rows;
     res.json(rows);
   }));
+  // Assinatura dos recebimentos (a tela só recarrega a lista quando ela muda)
+  r.get('/payments/changes', wrap(async (req, res) => {
+    const x = (await q(`SELECT count(*)::int AS n, COALESCE(md5(string_agg(concat_ws('|', id, status, amount, order_id, customer_id, reason), ';' ORDER BY id)), '') AS h FROM payments`)).rows[0];
+    res.json({ sig: `${x.n}:${x.h}` });
+  }));
   r.get('/payments/summary', wrap(async (req, res) => {
     const tz = await fuso();
     const mes = /^\d{4}-(0[1-9]|1[0-2])$/.test(String(req.query.month || '')) ? req.query.month : (await q("SELECT to_char(now() AT TIME ZONE $1,'YYYY-MM') AS m", [tz])).rows[0].m;

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { api, money } from '../api.js';
 import { useSelecao, CelulaTodos, CelulaLinha, ApagarSelecionados, resumoApagado } from '../selecao.jsx';
 
@@ -39,6 +39,27 @@ function Recebimentos() {
     api('/payments/summary?month=' + mes).then(setResumo).catch(() => {});
   };
   useEffect(() => { load(); }, [mes, status]);
+  // Atualiza sozinho (recebimentos novos aparecem sem recarregar a página); pausa com a aba escondida
+  const quieto = () => {
+    api(`/payments?month=${mes}${status ? '&status=' + status : ''}`).then(setRows).catch(() => {});
+    api('/payments/summary?month=' + mes).then(setResumo).catch(() => {});
+  };
+  const qRef = useRef(quieto); qRef.current = quieto;
+  useEffect(() => {
+    let ultima = null;
+    const tick = async () => {
+      if (document.hidden) return;
+      try {
+        const { sig } = await api('/payments/changes');
+        if (ultima !== null && sig === ultima) return;
+        ultima = sig;
+        qRef.current();
+      } catch { /* tenta de novo no próximo */ }
+    };
+    const id = setInterval(tick, 5000);
+    document.addEventListener('visibilitychange', tick);
+    return () => { clearInterval(id); document.removeEventListener('visibilitychange', tick); };
+  }, []);
   const acao = async (p, nome, texto) => {
     if (texto && !confirm(texto)) return;
     setAviso('');

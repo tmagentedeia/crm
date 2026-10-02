@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { api, fmtPhone, money } from '../api.js';
 import { rotulosDe, minusc } from '../rotulos.js';
 import { useSelecao, CelulaTodos, CelulaLinha, ApagarSelecionados, resumoApagado } from '../selecao.jsx';
@@ -41,6 +41,26 @@ export default function Pedidos({ company }) {
   useEffect(() => { loadOrders(); }, [liveId]);
   useEffect(() => { if (tab === 'resumo') loadResumo(); }, [tab, mes]);
   const recarrega = () => { tudo(); loadOrders(); if (tab === 'resumo') loadResumo(); };
+  // Pergunta a cada poucos segundos se algo mudou e só então recarrega (pedidos novos aparecem sem recarregar a página).
+  // Pausa com a aba escondida e enquanto uma janela de edição está aberta.
+  const recRef = useRef(recarrega); recRef.current = recarrega;
+  const ocupado = !!(novo || edit || liveEdit);
+  useEffect(() => {
+    if (ocupado) return undefined;
+    let ultima = null;
+    const tick = async () => {
+      if (document.hidden) return;
+      try {
+        const { sig } = await api('/orders/changes');
+        if (ultima !== null && sig === ultima) return;   // nada mudou
+        ultima = sig;
+        recRef.current();
+      } catch { /* tenta de novo no próximo */ }
+    };
+    const id = setInterval(tick, 5000);
+    document.addEventListener('visibilitychange', tick);
+    return () => { clearInterval(id); document.removeEventListener('visibilitychange', tick); };
+  }, [ocupado]);
 
   const live = lives.find((l) => String(l.id) === String(liveId));
   const apagar = async (o) => {
