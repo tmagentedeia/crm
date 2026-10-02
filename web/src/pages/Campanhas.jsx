@@ -229,8 +229,8 @@ function Form({ id, voltar, abrir, frases }) {
       <div className="card" style={{ marginBottom: 14 }}>
         <h3>Quem vai receber</h3>
         <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 10 }}>
-          {[['clients', 'Todos os clientes'], ['leads', 'Todos os leads'], ['all', 'Clientes e leads'], ['selected', 'Escolher contatos']].map(([v, r]) => (
-            <label key={v}><input type="radio" checked={f.mode === v} onChange={() => set('mode', v)} /> {r}</label>
+          {[['all', 'Todos'], ['clients', 'Só clientes'], ['leads', 'Só leads'], ['selected', 'Escolher contatos']].map(([v, r]) => (
+            <label key={v}><input type="radio" style={{ width: 'auto' }} checked={f.mode === v} onChange={() => set('mode', v)} /> {r}</label>
           ))}
         </div>
         {f.mode === 'selected' && (
@@ -239,7 +239,7 @@ function Form({ id, voltar, abrir, frases }) {
               <tbody>
                 {clientes.map((c) => (
                   <tr key={c.id} onClick={() => alternar(c.id)} style={{ cursor: 'pointer' }}>
-                    <td><input type="checkbox" readOnly checked={f.ids.includes(c.id)} /></td>
+                    <td><input type="checkbox" style={{ width: 'auto' }} readOnly checked={f.ids.includes(c.id)} /></td>
                     <td>{c.name || 'Sem nome'}</td><td className="muted">{fmtPhone(c.phone)}</td><td className="muted">{c.tipo}</td>
                   </tr>
                 ))}
@@ -260,6 +260,7 @@ function Detalhe({ id, voltar, editar, irPara }) {
   const [erro, setErro] = useState('');
   const [aviso, setAviso] = useState(false);
   const [ciente, setCiente] = useState(false);
+  const [faltouAceite, setFaltouAceite] = useState(false); // tentou iniciar sem marcar o aviso
 
   const carregar = () => api('/campaigns/' + id).then((x) => { setC(x); }).catch((e) => setErro(e.message));
   useEffect(() => { carregar(); const t = setInterval(carregar, 15000); return () => clearInterval(t); }, [id]);
@@ -296,7 +297,14 @@ function Detalhe({ id, voltar, editar, irPara }) {
       <div className="card" style={{ marginBottom: 14 }}>
         <p><strong>Situação:</strong> {STATUS[c.status]}</p>
         <p>{n('sent')} enviadas · {tem('pending', 'sending')} na fila · {n('failed')} não enviadas · {rec.length} no total</p>
-        {c.status === 'running' && c.next_send_at && <p className="muted">Próximo envio previsto para {new Date(c.next_send_at).toLocaleString('pt-BR')} (os envios só acontecem entre 7h e 22h).</p>}
+        {c.last_play_at && ['running', 'paused'].includes(c.status) && <p className="muted">Iniciada em {new Date(c.last_play_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}.</p>}
+        {c.status === 'running' && c.proximo_envio?.at && (
+          <p className="muted">
+            Próximo envio previsto para {new Date(c.proximo_envio.at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
+            {c.proximo_envio.motivo === 'fora_do_horario' && ' (os envios acontecem só entre 7h e 22h)'}
+            {c.proximo_envio.motivo === 'limite_do_dia' && ' (o limite de envios do dia foi atingido)'}.
+          </p>
+        )}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {c.status === 'draft' && <button className="btn primary" onClick={() => setAviso(true)}>▶ Iniciar</button>}
           {c.status === 'draft' && <button className="btn" onClick={editar}>Editar</button>}
@@ -313,23 +321,28 @@ function Detalhe({ id, voltar, editar, irPara }) {
           <h3>Antes de começar</h3>
           <p>{AVISO}</p>
           {link && <p><strong>Suas mensagens têm link. Links aumentam o risco de bloqueio.</strong></p>}
-          <label style={{ display: 'flex', gap: 8, alignItems: 'center', margin: '10px 0' }}>
-            <input type="checkbox" checked={ciente} onChange={(e) => setCiente(e.target.checked)} />
+          <label style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'flex-start', margin: '10px 0', width: 'fit-content',
+                          color: faltouAceite && !ciente ? 'var(--bad)' : undefined, borderRadius: 8,
+                          outline: faltouAceite && !ciente ? '2px solid var(--bad)' : 'none', outlineOffset: 4 }}>
+            <strong>Marque aqui</strong>
+            <input type="checkbox" style={{ width: 'auto', flex: '0 0 auto' }} checked={ciente}
+              onChange={(e) => { setCiente(e.target.checked); if (e.target.checked) setFaltouAceite(false); }} />
             Li o aviso e quero iniciar a campanha
           </label>
-          <button className="btn primary" disabled={!ciente} onClick={() => acao('start', { accept: true })}>Iniciar campanha</button>{' '}
-          <button className="btn" onClick={() => { setAviso(false); setCiente(false); }}>Cancelar</button>
+          {faltouAceite && !ciente && <p style={{ color: 'var(--bad)', margin: '0 0 10px', fontSize: 14 }}>Marque a caixinha acima para poder iniciar.</p>}
+          <button className="btn primary" onClick={() => (ciente ? acao('start', { accept: true }) : setFaltouAceite(true))}>Iniciar campanha</button>{' '}
+          <button className="btn" onClick={() => { setAviso(false); setCiente(false); setFaltouAceite(false); }}>Cancelar</button>
         </div>
       )}
 
-      <div className="card" style={{ marginBottom: 14 }}>
-        <h3>Ritmo</h3>
-        <p className="muted">Intervalo de {c.interval_min} a {c.interval_max} min entre mensagens · {c.batch_size} envios seguidos e pausa de {c.batch_pause_min} min · até {c.daily_limit} por dia · das 7h às 22h</p>
-        {c.status !== 'done' && c.status !== 'stopped' && <p>Previsão: cerca de {c.per_day} por dia{c.days ? `; ainda leva uns ${c.days} dia${c.days === 1 ? '' : 's'}` : ''}.</p>}
-      </div>
+      <p style={{ margin: '0 0 14px' }}>
+        <strong>Ritmo:</strong> intervalo de {c.interval_min} a {c.interval_max} min entre mensagens · {c.batch_size} envios seguidos e pausa de {c.batch_pause_min} min · até {c.daily_limit} por dia · das 7h às 22h.
+        {c.status !== 'done' && c.status !== 'stopped' && <> <strong>Previsão:</strong> cerca de {c.per_day} por dia{c.days ? `; ainda leva uns ${c.days} dia${c.days === 1 ? '' : 's'}` : ''}.</>}
+      </p>
 
-      <div className="card">
-        <h3>Contatos</h3>
+      <details className="card">
+        <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Contatos ({rec.length}) — clique para ver a lista</summary>
+        <div style={{ marginTop: 10, maxHeight: 360, overflow: 'auto' }}>
         <table>
           <thead><tr><th>Contato</th><th>Situação</th><th>Quando</th></tr></thead>
           <tbody>
@@ -342,7 +355,8 @@ function Detalhe({ id, voltar, editar, irPara }) {
             ))}
           </tbody>
         </table>
-      </div>
+        </div>
+      </details>
     </div>
   );
 }

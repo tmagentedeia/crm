@@ -71,7 +71,11 @@ check('claim com rascunho não envia', (await call('POST', '/n8n/campaigns/claim
 check('start com aceite', (await call('POST', `/api/campaigns/${cid}/start`, { token: A.token, body: { accept: true } })).status === 200);
 check('aceite registrado', psql(`select accepted_at is not null from company_1.campaigns where id=${cid}`) === 't');
 
+const det0 = (await call('GET', `/api/campaigns/${cid}`, { token: A.token })).body;
+check('logo após o play: sem horário a mostrar', det0.proximo_envio.motivo === null && det0.last_play_at, JSON.stringify(det0.proximo_envio));
 const c1 = (await call('POST', '/n8n/campaigns/claim', { headers: N8N })).body;
+const det1 = (await call('GET', `/api/campaigns/${cid}`, { token: A.token })).body;
+check('depois do sorteio: mostra o horário', det1.proximo_envio.motivo === 'sorteado' && new Date(det1.proximo_envio.at) > new Date(), JSON.stringify(det1.proximo_envio));
 check('claim devolve mensagem', c1 && c1.phone && /(tá|ok|tudo bem)\s*\?$/i.test(c1.text), JSON.stringify(c1));
 check('começa com saudação, nome e cumprimento', c1 && /^(Oi|Ei|Olá|Opa) Camp! /.test(c1.text) && meus.some((m) => c1.text.includes(' ' + m + ' ')), c1 && c1.text);
 check('claim seguido espera o intervalo', (await call('POST', '/n8n/campaigns/claim', { headers: N8N })).body === null);
@@ -91,6 +95,17 @@ check('pausa por falhas', psql(`select status from company_1.campaigns where id=
 check('falha não é reenviada', psql(`select count(*) from company_1.campaign_recipients where campaign_id=${cid} and status='failed'`) === '3');
 psql(`update company_1.campaigns set next_send_at=now() where id=${cid}`);
 check('pausada não envia', (await call('POST', '/n8n/campaigns/claim', { headers: N8N })).body === null);
+
+// fora do horário (22h às 7h): o próximo envio é às 7h
+const noite = (off + 11) % 24; // fuso onde agora é ~23h
+psql(`update public.companies set timezone='${noite <= 12 ? `Etc/GMT-${noite}` : `Etc/GMT+${24 - noite}`}' where id=1`);
+psql(`update company_1.campaigns set status='running', next_send_at=now() where id=${cid}`);
+const detN = (await call('GET', `/api/campaigns/${cid}`, { token: A.token })).body;
+const tzN = psql('select timezone from public.companies where id=1');
+const horaN = Number(new Intl.DateTimeFormat('en-GB', { hour: '2-digit', hour12: false, timeZone: tzN }).format(new Date(detN.proximo_envio.at))) % 24;
+const horaAgora = Number(new Intl.DateTimeFormat('en-GB', { hour: '2-digit', hour12: false, timeZone: tzN }).format(new Date())) % 24;
+check('de noite: previsto para as 7h', horaAgora >= 22 || horaAgora < 7 ? (detN.proximo_envio.motivo === 'fora_do_horario' && horaN === 7) : true, JSON.stringify([horaAgora, horaN, detN.proximo_envio]));
+psql(`update public.companies set timezone='${zone}' where id=1`);
 
 // só uma ativa por vez + duplicar
 const dup = await call('POST', `/api/campaigns/${cid}/duplicate`, { token: A.token });

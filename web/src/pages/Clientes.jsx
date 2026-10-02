@@ -52,7 +52,7 @@ export default function Clientes() {
   return (
     <>
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: 16 }}>
-        <div><h1><Nome id="clientes">Clientes e Leads</Nome></h1><p className="muted">Lead = só conversou · Cliente = já compareceu</p></div>
+        <div><h1><Nome id="clientes">Clientes e Leads</Nome></h1><p className="muted">Lead = só conversou · Cliente = já comprou / contratou / compareceu</p></div>
         <button className="btn primary" onClick={() => setAdding(true)}>+ Cadastrar cliente ou lead</button>
       </div>
       <div className="row" style={{ marginBottom: 12 }}>

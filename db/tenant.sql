@@ -226,6 +226,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
   pause_reason  TEXT,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   started_at    TIMESTAMPTZ,
+  last_play_at  TIMESTAMPTZ,                          -- último play (início ou retomada)
   finished_at   TIMESTAMPTZ
 );
 CREATE TABLE IF NOT EXISTS campaign_recipients (

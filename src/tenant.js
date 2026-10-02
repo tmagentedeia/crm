@@ -36,6 +36,8 @@ export const TENANT_STEPS = [
   { version: 4, sql: campanhasSql },
   // 5: saudações e cumprimentos das campanhas (listas por empresa)
   { version: 5, sql: frasesSql },
+  // 6: data do último play da campanha
+  { version: 6, sql: 'ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS last_play_at TIMESTAMPTZ' },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 

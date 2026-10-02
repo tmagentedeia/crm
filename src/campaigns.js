@@ -112,11 +112,34 @@ export function buildText(campaign, name, greeting, compliment, variantIndex = 0
   const nome = firstName(name);
   return `${greeting}${nome ? ' ' + nome : ''}! ${compliment} ${body}`;
 }
-const hourOf = (tz, d = new Date()) =>
-  Number(new Intl.DateTimeFormat('en-GB', { hour: '2-digit', hour12: false, timeZone: tz }).format(d)) % 24;
+const fmtCache = new Map();
+const hourOf = (tz, d = new Date()) => {
+  if (!fmtCache.has(tz)) fmtCache.set(tz, new Intl.DateTimeFormat('en-GB', { hour: '2-digit', hour12: false, timeZone: tz }));
+  return Number(fmtCache.get(tz).format(d)) % 24;
+};
+const dayOf = (tz, d) => d.toLocaleDateString('en-CA', { timeZone: tz });
 export const inWindow = (tz, d) => { const h = hourOf(tz, d); return h >= LIMITS.START_HOUR && h < LIMITS.END_HOUR; };
 
 const toCampaign = (c) => ({ ...c, messages: c.messages || [] });
+
+// Quando sai o próximo envio de uma campanha em andamento, já considerando a janela de envio e o limite do dia.
+// motivo: 'sorteado' (horário já definido), 'fora_do_horario', 'limite_do_dia' ou null (é só esperar a próxima rodada).
+export function proximoEnvio({ nextSendAt, sentToday, dailyLimit, tz, now = new Date() }) {
+  let t = nextSendAt && new Date(nextSendAt) > now ? new Date(nextSendAt) : now;
+  const sorteado = t > now;
+  let motivo = sorteado ? 'sorteado' : null;
+  const andar = (cond) => { // avança de 5 em 5 minutos até a condição deixar de valer (no máximo 2 dias)
+    t = new Date(Math.ceil(t.getTime() / 300000) * 300000);
+    for (let i = 0; i < 576 && cond(); i++) t = new Date(t.getTime() + 300000);
+  };
+  if (sentToday >= dailyLimit) {
+    const hoje = dayOf(tz, now);
+    andar(() => dayOf(tz, t) === hoje);
+    motivo = 'limite_do_dia';
+  }
+  if (!inWindow(tz, t)) { andar(() => !inWindow(tz, t)); motivo = motivo === 'limite_do_dia' ? motivo : 'fora_do_horario'; }
+  return { at: motivo ? t.toISOString() : (sorteado ? t.toISOString() : null), motivo };
+}
 
 const companyCfg = async (id) => (await qg('SELECT timezone, whatsapp_instance FROM companies WHERE id=$1', [id])).rows[0] || {};
 
@@ -304,7 +327,16 @@ export function registerCampaignRoutes(r, wrap) {
     const c = (await q('SELECT * FROM campaigns WHERE id=$1', [req.params.id])).rows[0];
     if (!c) return res.status(404).json({ error: 'Não encontrada' });
     const rec = (await q('SELECT id,customer_id,name,phone,status,sent_at,error FROM campaign_recipients WHERE campaign_id=$1 ORDER BY id', [c.id])).rows;
-    res.json({ ...toCampaign(c), recipients: rec, ...simulate(c, rec.filter((x) => ['pending', 'sending'].includes(x.status)).length) });
+    let proximo = { at: null, motivo: null };
+    if (c.status === 'running') {
+      const cfg = await companyCfg(currentCompany());
+      const tz = cfg.timezone || 'America/Sao_Paulo';
+      const sentToday = (await q(
+        `SELECT COUNT(*)::int AS n FROM campaign_recipients WHERE sent_at IS NOT NULL
+           AND (sent_at AT TIME ZONE $1)::date = (now() AT TIME ZONE $1)::date`, [tz])).rows[0].n;
+      proximo = proximoEnvio({ nextSendAt: c.next_send_at, sentToday, dailyLimit: Math.min(c.daily_limit, LIMITS.DAILY_MAX), tz });
+    }
+    res.json({ ...toCampaign(c), recipients: rec, proximo_envio: proximo, ...simulate(c, rec.filter((x) => ['pending', 'sending'].includes(x.status)).length) });
   }));
 
   async function saveDraft(req, res, id) {
@@ -380,7 +412,7 @@ export function registerCampaignRoutes(r, wrap) {
     if (outra) return res.status(409).json({ error: `Já existe uma campanha ativa (“${outra.name}”). Pare ou conclua essa antes de iniciar outra.` });
     const err = validateConfig(toCampaign(c));
     if (err) return res.status(400).json({ error: err });
-    await q(`UPDATE campaigns SET status='running', started_at=now(), accepted_at=now(), accepted_by=$2, next_send_at=now()
+    await q(`UPDATE campaigns SET status='running', started_at=now(), last_play_at=now(), accepted_at=now(), accepted_by=$2, next_send_at=now()
              WHERE id=$1`, [c.id, String(req.user?.email || req.user?.id || '')]);
     res.json({ ok: true });
   }));
@@ -391,7 +423,7 @@ export function registerCampaignRoutes(r, wrap) {
   }));
   r.post('/campaigns/:id/resume', wrap(async (req, res) => {
     const { rowCount } = await q(
-      "UPDATE campaigns SET status='running', pause_reason=NULL, consecutive_failures=0, next_send_at=GREATEST(COALESCE(next_send_at, now()), now()) WHERE id=$1 AND status='paused'",
+      "UPDATE campaigns SET status='running', last_play_at=now(), pause_reason=NULL, consecutive_failures=0, next_send_at=GREATEST(COALESCE(next_send_at, now()), now()) WHERE id=$1 AND status='paused'",
       [req.params.id]);
     if (!rowCount) return res.status(409).json({ error: 'A campanha não está pausada' });
     res.json({ ok: true });
