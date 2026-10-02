@@ -118,8 +118,116 @@ export const inWindow = (tz, d) => { const h = hourOf(tz, d); return h >= LIMITS
 
 const toCampaign = (c) => ({ ...c, messages: c.messages || [] });
 
+const companyCfg = async (id) => (await qg('SELECT timezone, whatsapp_instance FROM companies WHERE id=$1', [id])).rows[0] || {};
+
+// Reserva o próximo envio permitido da empresa (ou devolve null). Quem decide o quê e quando é o painel.
+export async function claimNext(companyId) {
+  const cfg = await companyCfg(companyId);
+  const tz = cfg.timezone || 'America/Sao_Paulo';
+  if (!inWindow(tz)) return null;
+  const out = await tx(companyId, async (t) => {
+    // quem ficou "enviando" sem resposta por mais de 30 min é dado como falho (nunca reenvia)
+    await t(`UPDATE campaign_recipients SET status='failed', error='Sem retorno do envio'
+             WHERE status='sending' AND claimed_at < now() - interval '30 minutes'`);
+    const cs = (await t(
+      `SELECT * FROM campaigns WHERE status='running' AND (next_send_at IS NULL OR next_send_at <= now())
+       ORDER BY id FOR UPDATE SKIP LOCKED`)).rows;
+    for (const c of cs) {
+      const sentToday = (await t(
+        `SELECT COUNT(*)::int AS n FROM campaign_recipients WHERE sent_at IS NOT NULL
+           AND (sent_at AT TIME ZONE $1)::date = (now() AT TIME ZONE $1)::date`, [tz])).rows[0].n;
+      // o limite diário vale para todas as campanhas da empresa juntas
+      if (sentToday >= Math.min(c.daily_limit, LIMITS.DAILY_MAX)) continue;
+      const rec = (await t(
+        `SELECT * FROM campaign_recipients WHERE campaign_id=$1 AND status='pending'
+         ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED`, [c.id])).rows[0];
+      if (!rec) {
+        const open = (await t("SELECT 1 FROM campaign_recipients WHERE campaign_id=$1 AND status='sending'", [c.id])).rowCount;
+        if (!open) await t("UPDATE campaigns SET status='done', finished_at=now() WHERE id=$1", [c.id]);
+        continue;
+      }
+      const st = (await t('SELECT * FROM campaign_settings WHERE id=1 FOR UPDATE')).rows[0] || {};
+      const greetings = st.greetings || DEFAULT_GREETINGS, compliments = st.compliments || DEFAULT_COMPLIMENTS;
+      const g = takeFromBag(st.greetings_bag, greetings), k = takeFromBag(st.compliments_bag, compliments);
+      await t('UPDATE campaign_settings SET greetings_bag=$1, compliments_bag=$2 WHERE id=1', [JSON.stringify(g.bag), JSON.stringify(k.bag)]);
+      const done = (await t("SELECT COUNT(*)::int AS n FROM campaign_recipients WHERE campaign_id=$1 AND status IN ('sent','sending','failed')", [c.id])).rows[0].n;
+      const text = buildText(toCampaign(c), rec.name, g.item, k.item, done);
+      await t("UPDATE campaign_recipients SET status='sending', claimed_at=now(), sent_text=$2 WHERE id=$1", [rec.id, text]);
+      let gap = rand(c.interval_min, c.interval_max);
+      let batch = c.batch_sent + 1;
+      if (batch >= c.batch_size) { gap = Math.max(gap, c.batch_pause_min); batch = 0; }
+      await t("UPDATE campaigns SET next_send_at = now() + make_interval(secs => $2), batch_sent=$3 WHERE id=$1",
+        [c.id, Math.round(gap * 60), batch]);
+      return { campaign_id: c.id, recipient_id: rec.id, phone: rec.phone, chat_id: rec.chat_id, name: rec.name, text, instance: cfg.whatsapp_instance || null };
+    }
+    return null;
+  });
+  return out;
+}
+
+// Registra o resultado de um envio. Falhou = marcado como falho e nunca reenviado; 3 falhas seguidas pausam a campanha.
+export async function reportResult(companyId, recipientId, ok, errorText) {
+  const error = ok ? null : String(errorText || 'Falha no envio').slice(0, 300);
+  return tx(companyId, async (t) => {
+    const rec = (await t(
+      `UPDATE campaign_recipients SET status=$2, sent_at=CASE WHEN $2='sent' THEN now() ELSE sent_at END, error=$3
+       WHERE id=$1 AND status='sending' RETURNING campaign_id`, [recipientId, ok ? 'sent' : 'failed', error])).rows[0];
+    if (!rec) return null;
+    if (ok) {
+      await t('UPDATE campaigns SET consecutive_failures=0 WHERE id=$1', [rec.campaign_id]);
+    } else {
+      await t(`UPDATE campaigns SET consecutive_failures=consecutive_failures+1,
+               status=CASE WHEN consecutive_failures+1 >= $2 AND status='running' THEN 'paused' ELSE status END,
+               pause_reason=CASE WHEN consecutive_failures+1 >= $2 AND status='running'
+                 THEN 'Pausada automaticamente: ' || $2 || ' envios seguidos falharam' ELSE pause_reason END
+               WHERE id=$1`, [rec.campaign_id, LIMITS.FAIL_PAUSE]);
+    }
+    return { ok: true };
+  });
+}
+
+// Modo "empurrar": o painel tem o relógio e aciona o N8N (webhook) na hora de cada envio.
+// Só liga se CAMPAIGN_WEBHOOK_URL estiver definida. O N8N só executa quando há mensagem para mandar.
+let ticking = false;
+export async function dispatchDue() {
+  const url = process.env.CAMPAIGN_WEBHOOK_URL;
+  if (!url || ticking) return;
+  ticking = true;
+  try {
+    const { rows } = await qg('SELECT id FROM companies ORDER BY id');
+    for (const { id } of rows) {
+      let due;
+      try {
+        due = (await tx(id, async (t) => (await t(
+          "SELECT 1 FROM campaigns WHERE status='running' AND (next_send_at IS NULL OR next_send_at <= now()) LIMIT 1")).rowCount));
+      } catch { continue; } // empresa ainda sem as tabelas de campanha
+      if (!due) continue;
+      const job = await claimNext(id);
+      if (!job) continue;
+      const payload = { company_id: Number(id), ...job };
+      try {
+        const r = await fetch(url, {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(payload), signal: AbortSignal.timeout(15000),
+        });
+        if (!r.ok) await reportResult(id, job.recipient_id, false, `O fluxo de envio respondeu ${r.status}`);
+      } catch (e) {
+        // sem resposta no prazo: o envio pode ter acontecido, então fica "enviando" (o resultado chega pelo fluxo)
+        if (e?.name !== 'TimeoutError' && e?.name !== 'AbortError')
+          await reportResult(id, job.recipient_id, false, 'Não foi possível acionar o fluxo de envio');
+      }
+    }
+  } catch (e) { console.error('campanhas:', e.message); }
+  finally { ticking = false; }
+}
+export function startCampaignScheduler() {
+  if (!process.env.CAMPAIGN_WEBHOOK_URL) return;
+  const ms = Math.max(Number(process.env.CAMPAIGN_TICK_MS) || 15000, 500);
+  setInterval(() => { dispatchDue(); }, ms).unref();
+  console.log('Campanhas: painel aciona o fluxo de envio a cada', ms / 1000, 's');
+}
+
 export function registerCampaignRoutes(r, wrap) {
-  const companyCfg = async (id) => (await qg('SELECT timezone, whatsapp_instance FROM companies WHERE id=$1', [id])).rows[0] || {};
 
   async function pickRecipients(sel) {
     const mode = sel?.mode;
@@ -298,74 +406,15 @@ export function registerCampaignRoutes(r, wrap) {
     res.json({ ok: true });
   }));
 
-  // ---- Envio (chamado pelo fluxo de envio, de tempos em tempos) ----
-  // Devolve no máximo UMA mensagem por chamada, só quando todas as regras permitem. Quem decide
-  // o quê e quando é o painel; o fluxo apenas envia o que recebe e reporta o resultado.
-  r.post('/campaigns/claim', wrap(async (req, res) => {
-    const companyId = currentCompany();
-    const cfg = await companyCfg(companyId);
-    const tz = cfg.timezone || 'America/Sao_Paulo';
-    if (!inWindow(tz)) return res.json(null);
-    const out = await tx(companyId, async (t) => {
-      // quem ficou "enviando" sem resposta por mais de 30 min é dado como falho (nunca reenvia)
-      await t(`UPDATE campaign_recipients SET status='failed', error='Sem retorno do envio'
-               WHERE status='sending' AND claimed_at < now() - interval '30 minutes'`);
-      const cs = (await t(
-        `SELECT * FROM campaigns WHERE status='running' AND (next_send_at IS NULL OR next_send_at <= now())
-         ORDER BY id FOR UPDATE SKIP LOCKED`)).rows;
-      for (const c of cs) {
-        const sentToday = (await t(
-          `SELECT COUNT(*)::int AS n FROM campaign_recipients WHERE sent_at IS NOT NULL
-             AND (sent_at AT TIME ZONE $1)::date = (now() AT TIME ZONE $1)::date`, [tz])).rows[0].n;
-        // o limite diário vale para todas as campanhas da empresa juntas
-        if (sentToday >= Math.min(c.daily_limit, LIMITS.DAILY_MAX)) continue;
-        const rec = (await t(
-          `SELECT * FROM campaign_recipients WHERE campaign_id=$1 AND status='pending'
-           ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED`, [c.id])).rows[0];
-        if (!rec) {
-          const open = (await t("SELECT 1 FROM campaign_recipients WHERE campaign_id=$1 AND status='sending'", [c.id])).rowCount;
-          if (!open) await t("UPDATE campaigns SET status='done', finished_at=now() WHERE id=$1", [c.id]);
-          continue;
-        }
-        const st = (await t('SELECT * FROM campaign_settings WHERE id=1 FOR UPDATE')).rows[0] || {};
-        const greetings = st.greetings || DEFAULT_GREETINGS, compliments = st.compliments || DEFAULT_COMPLIMENTS;
-        const g = takeFromBag(st.greetings_bag, greetings), k = takeFromBag(st.compliments_bag, compliments);
-        await t('UPDATE campaign_settings SET greetings_bag=$1, compliments_bag=$2 WHERE id=1', [JSON.stringify(g.bag), JSON.stringify(k.bag)]);
-        const done = (await t("SELECT COUNT(*)::int AS n FROM campaign_recipients WHERE campaign_id=$1 AND status IN ('sent','sending','failed')", [c.id])).rows[0].n;
-        const text = buildText(toCampaign(c), rec.name, g.item, k.item, done);
-        await t("UPDATE campaign_recipients SET status='sending', claimed_at=now(), sent_text=$2 WHERE id=$1", [rec.id, text]);
-        let gap = rand(c.interval_min, c.interval_max);
-        let batch = c.batch_sent + 1;
-        if (batch >= c.batch_size) { gap = Math.max(gap, c.batch_pause_min); batch = 0; }
-        await t("UPDATE campaigns SET next_send_at = now() + make_interval(secs => $2), batch_sent=$3 WHERE id=$1",
-          [c.id, Math.round(gap * 60), batch]);
-        return { campaign_id: c.id, recipient_id: rec.id, phone: rec.phone, chat_id: rec.chat_id, name: rec.name, text, instance: cfg.whatsapp_instance || null };
-      }
-      return null;
-    });
-    res.json(out);
-  }));
+  // ---- Envio ----
+  // Modo "puxar": um fluxo pergunta de tempos em tempos (usado se CAMPAIGN_WEBHOOK_URL não estiver definida).
+  // Devolve no máximo UMA mensagem por chamada, só quando todas as regras permitem.
+  r.post('/campaigns/claim', wrap(async (req, res) => res.json(await claimNext(currentCompany()))));
 
   // Resultado do envio. Falhou = marcado como falho e nunca é reenviado nesta campanha.
   r.post('/campaigns/recipients/:id/report', wrap(async (req, res) => {
     const ok = req.body?.ok === true;
-    const error = ok ? null : String(req.body?.error || 'Falha no envio').slice(0, 300);
-    const out = await tx(currentCompany(), async (t) => {
-      const rec = (await t(
-        `UPDATE campaign_recipients SET status=$2, sent_at=CASE WHEN $2='sent' THEN now() ELSE sent_at END, error=$3
-         WHERE id=$1 AND status='sending' RETURNING campaign_id`, [req.params.id, ok ? 'sent' : 'failed', error])).rows[0];
-      if (!rec) return null;
-      if (ok) {
-        await t('UPDATE campaigns SET consecutive_failures=0 WHERE id=$1', [rec.campaign_id]);
-      } else {
-        await t(`UPDATE campaigns SET consecutive_failures=consecutive_failures+1,
-                 status=CASE WHEN consecutive_failures+1 >= $2 AND status='running' THEN 'paused' ELSE status END,
-                 pause_reason=CASE WHEN consecutive_failures+1 >= $2 AND status='running'
-                   THEN 'Pausada automaticamente: ' || $2 || ' envios seguidos falharam' ELSE pause_reason END
-                 WHERE id=$1`, [rec.campaign_id, LIMITS.FAIL_PAUSE]);
-      }
-      return { ok: true };
-    });
+    const out = await reportResult(currentCompany(), req.params.id, ok, req.body?.error);
     if (!out) return res.status(404).json({ error: 'Envio não encontrado ou já registrado' });
     res.json(out);
   }));

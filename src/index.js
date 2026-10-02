@@ -13,6 +13,7 @@ import { cleanModules, cleanMenuCustom } from './modules.js';
 import { listar as listarBloqueios, bloquear, liberar, numeroDoContato, nomeValido, prefixoValido, redisDisponivel } from './blocks.js';
 import { requireUser, requireN8n, requireAdmin, isAdmin, signToken, signImpersonationToken } from './auth.js';
 import { buildRouter } from './routes.js';
+import { startCampaignScheduler } from './campaigns.js';
 
 const app = express();
 app.use(cors());
@@ -300,3 +301,4 @@ app.get('*', (req, res, next) => {
 });
 
 app.listen(process.env.PORT || 3000, () => console.log('CRM rodando na porta', process.env.PORT || 3000));
+startCampaignScheduler();
