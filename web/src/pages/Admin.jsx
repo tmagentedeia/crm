@@ -42,6 +42,14 @@ export default function Admin() {
       const { [s.id]: _, ...resto } = cx; setCx(resto); setMsg('Bloqueios de ' + s.name + ' atualizados.'); load();
     } catch (e) { setErr(e.message); }
   };
+  const [wh, setWh] = useState({}); // endereço do fluxo de campanhas em edição, por empresa
+  const salvarWh = async (s) => {
+    setErr(''); setMsg('');
+    try {
+      await api(`/admin/companies/${s.id}/campaign-webhook`, { method: 'PUT', body: { url: wh[s.id] } });
+      const { [s.id]: _, ...resto } = wh; setWh(resto); setMsg('Endereço do envio de campanhas de ' + s.name + ' atualizado.'); load();
+    } catch (e) { setErr(e.message); }
+  };
   const load = () => { loadModelos(); return api('/admin/companies').then(setList).catch((e) => setErr(e.message)); };
   useEffect(() => { load(); }, []);
 
@@ -245,6 +253,11 @@ export default function Admin() {
                   <input placeholder="prefixo (opcional)" style={{ width: 150 }} value={cx[s.id]?.p ?? s.redis_prefix ?? ''}
                     onChange={(e) => setCx({ ...cx, [s.id]: { i: cx[s.id]?.i ?? s.whatsapp_instance ?? '', p: e.target.value } })} />
                   {s.id in cx && <button className="btn sm primary" onClick={() => salvarCx(s)}>Salvar</button>}
+                </Campo>
+                <Campo rotulo="Envio de campanhas (endereço do fluxo)">
+                  <input placeholder="https://…/webhook/campanhas-envio" style={{ width: 300 }} value={wh[s.id] ?? s.campaign_webhook_url ?? ''}
+                    onChange={(e) => setWh({ ...wh, [s.id]: e.target.value })} />
+                  {s.id in wh && <button className="btn sm primary" onClick={() => salvarWh(s)}>Salvar</button>}
                 </Campo>
                 <Campo rotulo="Chave de integração">
                   {s.api_key_hint

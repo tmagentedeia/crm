@@ -21,6 +21,7 @@ CREATE TABLE companies (
   booking_mode    TEXT NOT NULL DEFAULT 'auto' CHECK (booking_mode IN ('auto','confirm')),  -- 'confirm' = agendamento sob confirmação do responsável
   whatsapp_instance TEXT,                       -- nome da instância do WhatsApp do atendente (identifica os bloqueios da empresa)
   redis_prefix    TEXT NOT NULL DEFAULT '',     -- prefixo das chaves de bloqueio da empresa (vazio = sem prefixo)
+  campaign_webhook_url TEXT,                    -- endereço do fluxo de envio de campanhas desta empresa (vazio = não aciona)
   api_key_hash    TEXT,                         -- hash (SHA-256) da chave de integração da empresa; a chave em si nunca é guardada
   api_key_hint    TEXT,                         -- últimos 4 caracteres da chave, só para identificá-la na tela de administração
   api_key_created_at TIMESTAMPTZ,               -- quando a chave atual foi gerada

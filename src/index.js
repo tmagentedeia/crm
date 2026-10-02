@@ -127,6 +127,20 @@ app.put('/api/admin/companies/:id/blocks-config', requireUser, requireAdmin, asy
   rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Empresa não encontrada' });
 });
 
+// Administração: endereço do fluxo de envio de campanhas da empresa (o painel aciona este endereço a cada envio)
+app.put('/api/admin/companies/:id/campaign-webhook', requireUser, requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id <= 0) return res.status(404).json({ error: 'Empresa não encontrada' });
+  const url = String(req.body.url ?? '').trim();
+  if (url) {
+    let ok = url.length <= 500;
+    try { const u = new URL(url); ok = ok && (u.protocol === 'https:' || u.protocol === 'http:'); } catch { ok = false; }
+    if (!ok) return res.status(400).json({ error: 'Endereço inválido (use um endereço completo, começando com https://)' });
+  }
+  const { rows } = await qg("UPDATE companies SET campaign_webhook_url=NULLIF($2,'') WHERE id=$1 RETURNING id, campaign_webhook_url", [id, url]);
+  rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Empresa não encontrada' });
+});
+
 // ---------- Administração da plataforma (só e-mails em ADMIN_EMAILS) ----------
 app.get('/api/me', requireUser, async (req, res) => {
   res.json({ admin: await isAdmin(req.user.id), impersonating: !!req.user.imp });
@@ -152,7 +166,7 @@ app.get('/api/admin/access-log', requireUser, requireAdmin, async (req, res) => 
 
 app.get('/api/admin/companies', requireUser, requireAdmin, async (req, res) => {
   const { rows } = await qg(
-    `SELECT c.id, c.name, c.max_professionals, c.created_at, c.modules, c.whatsapp_instance, c.redis_prefix, c.booking_mode, c.api_key_hint, c.api_key_created_at,
+    `SELECT c.id, c.name, c.max_professionals, c.created_at, c.modules, c.whatsapp_instance, c.redis_prefix, c.campaign_webhook_url, c.booking_mode, c.api_key_hint, c.api_key_created_at,
             (SELECT u.email FROM users u WHERE u.company_id = c.id ORDER BY (u.role = 'owner') DESC, u.id LIMIT 1) AS owner_email
      FROM companies c ORDER BY c.id`);
   // profissionais ativos: contados dentro do schema de cada empresa

@@ -36,6 +36,13 @@ for (let i = 0; i < 4; i++) ids.push((await call('POST', '/api/customers', { tok
 const msgs = ['Olá {nome}, novidades! Se não quiser mais receber, é só avisar, tá?', 'Oi {nome}, novidades. Se preferir não receber, me avisa, ok?', '{nome}, novidades por aqui. Qualquer coisa é só pedir para sair, tudo bem?'];
 const cr = await call('POST', '/api/campaigns', { token: A.token, body: { name: 'Push', messages: msgs, interval_min: 5, interval_max: 10, batch_size: 30, batch_pause_min: 60, daily_limit: 100, recipients: { mode: 'selected', ids } } });
 const cid = cr.body.id;
+// o endereço é por empresa, definido pela Administração
+const putWh = (token, url) => call('PUT', '/api/admin/companies/1/campaign-webhook', { token, body: { url } });
+check('endereço inválido recusado', (await putWh(A.token, 'não é endereço')).status === 400);
+const B = (await call('POST', '/api/auth/login', { body: { email: 'dois@x.com', password: 'senhasenha' } })).body;
+check('quem não é administrador não define', (await putWh(B.token, `http://127.0.0.1:${HOOK_PORT}/hook`)).status === 403);
+check('define o endereço da empresa', (await putWh(A.token, `http://127.0.0.1:${HOOK_PORT}/hook`)).status === 200);
+check('aparece na lista da administração', (await call('GET', '/api/admin/companies', { token: A.token })).body.find((c) => Number(c.id) === 1)?.campaign_webhook_url?.endsWith('/hook'));
 await call('POST', `/api/campaigns/${cid}/start`, { token: A.token, body: { accept: true } });
 
 // 1) o painel aciona sozinho, sem ninguém pedir
@@ -64,7 +71,7 @@ await new Promise((r) => setTimeout(r, 2500));
 check('pausada não aciona', recebidos.length === 2);
 
 await call('POST', `/api/campaigns/${cid}/stop`, { token: A.token });
-psql(`update public.companies set timezone='America/Sao_Paulo' where id=1`);
+psql(`update public.companies set timezone='America/Sao_Paulo', campaign_webhook_url=NULL where id=1`);
 srv.close();
 console.log(`campanhas_push: ${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);

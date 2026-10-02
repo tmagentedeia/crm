@@ -187,15 +187,17 @@ export async function reportResult(companyId, recipientId, ok, errorText) {
 }
 
 // Modo "empurrar": o painel tem o relógio e aciona o N8N (webhook) na hora de cada envio.
-// Só liga se CAMPAIGN_WEBHOOK_URL estiver definida. O N8N só executa quando há mensagem para mandar.
+// Cada empresa tem o seu endereço (definido na Administração). O N8N só executa quando há mensagem para mandar.
 let ticking = false;
 export async function dispatchDue() {
-  const url = process.env.CAMPAIGN_WEBHOOK_URL;
-  if (!url || ticking) return;
+  if (ticking) return;
   ticking = true;
   try {
-    const { rows } = await qg('SELECT id FROM companies ORDER BY id');
-    for (const { id } of rows) {
+    const { rows } = await qg('SELECT id, campaign_webhook_url FROM companies ORDER BY id');
+    for (const { id, campaign_webhook_url } of rows) {
+      // endereço da empresa; se não tiver, vale o padrão da variável de ambiente (opcional)
+      const url = campaign_webhook_url || process.env.CAMPAIGN_WEBHOOK_URL;
+      if (!url) continue;
       let due;
       try {
         due = (await tx(id, async (t) => (await t(
@@ -221,7 +223,6 @@ export async function dispatchDue() {
   finally { ticking = false; }
 }
 export function startCampaignScheduler() {
-  if (!process.env.CAMPAIGN_WEBHOOK_URL) return;
   const ms = Math.max(Number(process.env.CAMPAIGN_TICK_MS) || 15000, 500);
   setInterval(() => { dispatchDue(); }, ms).unref();
   console.log('Campanhas: painel aciona o fluxo de envio a cada', ms / 1000, 's');
