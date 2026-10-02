@@ -142,5 +142,8 @@ const cliC = (await T('GET', '/api/customers/by-phone/' + PC)).body;
 check('ficha marcada com a cortesia usada', !!cliC.courtesy_used_at, JSON.stringify(cliC).slice(0, 200));
 check('cortesia não se repete no cliente', (await T('POST', '/api/orders', { phone: PC, song: 'Terceira' })).body.courtesy_in_minutes === null);
 check('assinante com pedido pago não é elegível', (await T('POST', '/api/orders', { phone: '553288880098', song: 'Pago', amount_paid: 30 })).body.courtesy_in_minutes === null);
+// contato já cadastrado (não criado pela agente) não ganha cortesia
+const velho = (await T('POST', '/api/customers', { name: 'Já cadastrado', phone: '32988880097', status: 'lead' })).body;
+check('cliente já cadastrado não é elegível à cortesia', (await T('POST', '/api/orders', { phone: '553288880097', song: 'Velho' })).body.courtesy_in_minutes === null);
 console.log(`pedidos: ${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);

@@ -53,7 +53,7 @@ export async function converterCortesias(t) {
     WITH elegiveis AS (
       SELECT o.id, o.customer_id FROM song_orders o JOIN customers c ON c.id=o.customer_id
       WHERE o.kind='paid' AND o.amount_paid IS NULL AND o.created_at <= now() - make_interval(mins => $1::int)
-        AND c.courtesy_used_at IS NULL AND c.club_status IS DISTINCT FROM 'member'
+        AND c.courtesy_used_at IS NULL AND c.club_status IS NULL AND c.source='ia'   -- só contato novo (criado pela agente), nunca quem já está no cadastro do programa
         AND o.id = (SELECT min(id) FROM song_orders x WHERE x.customer_id=o.customer_id)
         AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.customer_id=o.customer_id AND p.status='accepted' AND p.order_id IS NULL
                           AND p.created_at >= o.created_at - interval '12 hours')
@@ -242,8 +242,8 @@ export function registerOrderRoutes(r, wrap) {
       }
       const bal = await saldo(t, tz, cli.id, live?.starts_at || null);
       // 1º pedido sem pagamento de cliente novo: a cortesia sai se o comprovante não chegar no prazo
-      const elegivel = o.kind !== 'franchise' && !(valor > 0) && bal.club_status !== 'member'
-        && !(await t('SELECT courtesy_used_at FROM customers WHERE id=$1', [cli.id])).rows[0].courtesy_used_at
+      const elegivel = o.kind !== 'franchise' && !(valor > 0)
+        && (await t('SELECT 1 FROM customers WHERE id=$1 AND courtesy_used_at IS NULL AND club_status IS NULL AND source=\'ia\'', [cli.id])).rowCount === 1
         && (await t('SELECT count(*)::int AS n FROM song_orders WHERE customer_id=$1', [cli.id])).rows[0].n === 1;
       return { order: o, live, balance: bal, elegivel };
     });
