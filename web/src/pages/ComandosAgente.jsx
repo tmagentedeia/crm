@@ -18,12 +18,17 @@ export default function ComandosAgente() {
   const [testRes, setTestRes] = useState(null);
 
   const load = () => api('/agent-config').then((c) => { setCfg(c); setAgent(c.agent_name || ''); setAdm(c.adm_name || ''); });
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    window.addEventListener('agent-config-changed', load);
+    window.addEventListener('focus', load);
+    return () => { window.removeEventListener('agent-config-changed', load); window.removeEventListener('focus', load); };
+  }, []);
   if (!cfg) return null;
 
   const run = async (fn, ok) => {
     setErr(''); setMsg('');
-    try { await fn(); await load(); if (ok) setMsg(ok); } catch (e) { setErr(e.message); }
+    try { await fn(); await load(); if (ok) setMsg(ok); window.dispatchEvent(new Event('agent-config-changed')); } catch (e) { setErr(e.message); }
   };
   const runTest = async () => {
     setErr('');

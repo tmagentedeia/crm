@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import { pool, schemaOf } from './db.js';
 import { PEDIDOS_SQL } from './pedidos.js';
 import { EVENTOS_SQL } from './eventos.js';
+import { FINANCEIRO_SQL } from './financeiro.js';
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const baseline = fs.readFileSync(path.join(dir, '..', 'db', 'tenant.sql'), 'utf8');
@@ -84,6 +85,8 @@ export const TENANT_STEPS = [
   { version: 9, sql: EVENTOS_SQL },
   // 10: lista de números que não recebem campanhas
   { version: 10, sql: exclusoesSql },
+  // 11: financeiro (chaves Pix e recebimentos)
+  { version: 11, sql: FINANCEIRO_SQL },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 
@@ -98,6 +101,7 @@ export async function createCompanySchema(cx, companyId) {
   await cx.query(PEDIDOS_SQL);
   await cx.query(EVENTOS_SQL);
   await cx.query(exclusoesSql);
+  await cx.query(FINANCEIRO_SQL);
   await cx.query('SET LOCAL search_path TO public');
   await cx.query('INSERT INTO tenant_versions (company_id, version) VALUES ($1, 1)', [companyId]);
 }

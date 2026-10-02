@@ -172,7 +172,7 @@ check('quem não é admin não troca módulos', (await call('PUT', urlMod, { tok
 check('módulos de empresa inexistente = 404', (await call('PUT', '/api/admin/companies/999/modules', { token: A.token, body: { modules: { agenda: true } } })).status === 404);
 const ligaFino = await call('PUT', urlMod, { token: A.token, body: { modules: { fila: false, inativos: false, importar: false, comandos: true } } });
 check('módulos por item do menu são aceitos', ligaFino.status === 200 && ligaFino.body.modules.fila === false && ligaFino.body.modules.comandos === true && ligaFino.body.modules.clientes === true, JSON.stringify(ligaFino.body));
-check('módulo desconhecido = 400', (await call('PUT', urlMod, { token: A.token, body: { modules: { financeiro: true } } })).status === 400);
+check('módulo desconhecido = 400', (await call('PUT', urlMod, { token: A.token, body: { modules: { voo2: true } } })).status === 400);
 check('a lista de empresas mostra os módulos', (await call('GET', '/api/admin/companies', { token: A.token })).body.find((c) => c.id == criada.body.id)?.modules?.agenda === false);
 check('desligar módulo só esconde o menu: as rotas continuam respondendo', (await call('GET', '/api/services', { token: donaM.token })).status === 200);
 check('empresa antiga (sem módulos configurados) continua inteira', Object.keys(A.company.modules || {}).length === 0);
@@ -212,7 +212,7 @@ const m1 = await call('PUT', '/api/company', { token: A.token, body: { menu_cust
 check('empresa personaliza o menu', m1.status === 200 && m1.body.menu_custom.profissionais.label === 'Equipe' && m1.body.menu_custom.profissionais.icon === '💇' && !m1.body.menu_custom.fila, JSON.stringify(m1.body.menu_custom));
 check('o login devolve o menu personalizado', (await login('demo@demo.com', 'demo1234')).company.menu_custom?.profissionais?.label === 'Equipe');
 check('salvar outra coisa não apaga o menu', (await call('PUT', '/api/company', { token: A.token, body: { phone: '32999990000' } })).body.menu_custom?.profissionais?.label === 'Equipe');
-check('item de menu desconhecido = 400', (await call('PUT', '/api/company', { token: A.token, body: { menu_custom: { financeiro: { label: 'x' } } } })).status === 400);
+check('item de menu desconhecido = 400', (await call('PUT', '/api/company', { token: A.token, body: { menu_custom: { voo2: { label: 'x' } } } })).status === 400);
 check('nome grande demais = 400', (await call('PUT', '/api/company', { token: A.token, body: { menu_custom: { agenda: { label: 'x'.repeat(31) } } } })).status === 400);
 check('campo estranho = 400', (await call('PUT', '/api/company', { token: A.token, body: { menu_custom: { agenda: { cor: 'red' } } } })).status === 400);
 check('símbolos de marcação são recusados', (await call('PUT', '/api/company', { token: A.token, body: { menu_custom: { agenda: { label: '<b>x' } } } })).status === 400);

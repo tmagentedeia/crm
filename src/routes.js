@@ -6,6 +6,7 @@ import { normPhone } from './phone.js';
 import { parseBirthday } from './ficha.js';
 import { registerOrderRoutes, historicoDoCliente } from './pedidos.js';
 import { registerEventRoutes } from './eventos.js';
+import { registerFinanceRoutes } from './financeiro.js';
 
 const digits = (s) => String(s || '').replace(/\D/g, '');
 const custPhone = normPhone;
@@ -239,12 +240,15 @@ export function buildRouter() {
       `SELECT n.text, ${fromTs('n.ends_at')} AS ends_at FROM agent_updates n WHERE ${ACTIVE_NOW} ORDER BY n.created_at, n.id`, [req.user.companyId])).rows;
     let prompt = man ? man.content.trim() : '';
     // primeira linha: o nome do agente (definido na tela Atendente), para não precisar estar escrito no prompt do fluxo
-    const agentName = ((await qg('SELECT agent_name FROM companies WHERE id=$1', [req.user.companyId])).rows[0]?.agent_name || '').trim();
-    if (agentName && prompt) prompt = `Seu nome é ${agentName}.\n\n${prompt}`;
+    const cfgRow = (await qg('SELECT agent_name, adm_name FROM companies WHERE id=$1', [req.user.companyId])).rows[0] || {};
+    const agentName = (cfgRow.agent_name || '').trim();
+    const admName = (cfgRow.adm_name || '').trim();
+    const abertura = [agentName && `Seu nome é ${agentName}.`, admName && `O proprietário (ADM) se chama ${admName}.`].filter(Boolean).join(' ');
+    if (abertura && prompt) prompt = `${abertura}\n\n${prompt}`;
     if (updates.length)
       prompt += `${prompt ? '\n\n' : ''}ATUALIZAÇÕES RECENTES (informações mais novas que o manual: se alguma contrariar o manual, vale a atualização):\n` +
         updates.map((n) => `- ${n.text}`).join('\n');
-    res.json({ prompt, agent_name: agentName || null, manual: man ? man.content : '', updates, published_at: man ? man.published_at : null });
+    res.json({ prompt, agent_name: agentName || null, adm_name: admName || null, manual: man ? man.content : '', updates, published_at: man ? man.published_at : null });
   }));
 
   // ---------- CATEGORIAS ----------
@@ -1085,5 +1089,6 @@ export function buildRouter() {
   registerCampaignRoutes(r, wrap);
   registerOrderRoutes(r, wrap);
   registerEventRoutes(r, wrap);
+  registerFinanceRoutes(r, wrap);
   return r;
 }

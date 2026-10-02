@@ -194,6 +194,12 @@ export function registerOrderRoutes(r, wrap) {
         `INSERT INTO song_orders (customer_id, live_id, song, dedication, amount_paid, kind, level_name)
          VALUES ($1,$2,$3,NULLIF($4,''),$5,$6,$7) RETURNING *`,
         [cli.id, live?.id || null, song, dedication, kind === 'franchise' ? 0 : valor, kind, level])).rows[0];
+      // pedido criado já com valor pago: liga ao último recebimento aceito desse cliente com o mesmo valor (se ainda sem pedido)
+      if (valor && valor > 0) {
+        await t(`UPDATE payments SET order_id=$1 WHERE id = (
+                   SELECT id FROM payments WHERE customer_id=$2 AND status='accepted' AND order_id IS NULL AND amount=$3
+                     AND created_at > now() - interval '12 hours' ORDER BY id DESC LIMIT 1)`, [o.id, cli.id, valor]);
+      }
       const bal = await saldo(t, tz, cli.id, live?.starts_at || null);
       return { order: o, live, balance: bal };
     });

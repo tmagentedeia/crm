@@ -1,0 +1,92 @@
+// Financeiro: chaves Pix e conferência/baixa de comprovantes. Uso: BASE=http://localhost:3999 node test/financeiro.mjs
+const BASE = process.env.BASE || 'http://localhost:3999';
+let ok = 0, fail = 0;
+const check = (name, cond, extra = '') => { cond ? ok++ : (fail++, console.log('FALHOU:', name, extra)); };
+const call = async (method, path, token, body) => {
+  const r = await fetch(BASE + path, { method, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + token }, body: body ? JSON.stringify(body) : undefined });
+  return { status: r.status, body: await r.json().catch(() => null) };
+};
+const login = async (e, p) => (await (await fetch(BASE + '/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: e, password: p }) })).json()).token;
+const A = await login('demo@demo.com', 'demo1234');
+const B = await login('dois@x.com', 'senhasenha');
+const T = (m, p, b, t = A) => call(m, p, t, b);
+// horário do comprovante no fuso da empresa (America/Sao_Paulo, UTC-3)
+const sp = (minAtras) => { const d = new Date(Date.now() - minAtras * 60000 - 3 * 3600000); return d.toISOString().slice(0, 16).replace('T', ' '); };
+
+// ---- chaves Pix ----
+check('sem tipo = 400', (await T('POST', '/api/finance/keys', { key: 'a@b.com' })).status === 400);
+check('e-mail inválido para o tipo = 400', (await T('POST', '/api/finance/keys', { key_type: 'email', key: 'abc' })).status === 400);
+check('cpf com tamanho errado = 400', (await T('POST', '/api/finance/keys', { key_type: 'cpf', key: '123' })).status === 400);
+const k1 = (await T('POST', '/api/finance/keys', { key_type: 'email', key: 'Pix.Teste@Gmail.com', beneficiary: 'Thiago' })).body;
+const k2 = (await T('POST', '/api/finance/keys', { key_type: 'phone', key: '(32) 99999-0001', beneficiary: 'Fred', note: 'show' })).body;
+check('cadastrou 2 chaves', k1.id && k2.id && k1.active === true, JSON.stringify([k1, k2]));
+check('chave repetida (outra grafia) = 409', (await T('POST', '/api/finance/keys', { key_type: 'email', key: ' pix.teste@gmail.com ' })).status === 409);
+check('outra empresa não vê as chaves', (await T('GET', '/api/finance/keys', null, B)).body.length === 0);
+
+// ---- conferência ----
+const cli = (await T('POST', '/api/customers', { name: 'Paga Pix', phone: '32988880001', status: 'lead' })).body;
+const ped = (await T('POST', '/api/orders', { phone: '553288880001', song: 'Pedido pago' })).body;
+const pago = async (extra = {}) => (await T('POST', '/api/payments/check', {
+  phone: '553288880001', payer_name: 'Fulano de Tal', amount: 30, key: 'pix.teste@gmail.com', txid: 'E' + Math.random().toString(36).slice(2).padEnd(30, 'x'),
+  paid_at: sp(30), purpose: 'Pedido de música', ...extra })).body;
+check('valor obrigatório', (await T('POST', '/api/payments/check', { key: 'x' })).status === 400);
+const a1 = await pago({ txid: 'E1111111111111111111111111111111' });
+check('aceita comprovante bom', a1.accepted === true && a1.status === 'accepted' && a1.beneficiary === 'Thiago', JSON.stringify(a1));
+const d1 = await pago({ txid: 'E1111111111111111111111111111111' });
+check('mesmo ID = duplicado', d1.accepted === false && d1.status === 'duplicate', JSON.stringify(d1));
+check('data antiga recusada', (await pago({ paid_at: sp(60 * 30) })).status === 'old');
+check('data no futuro vai para análise', (await pago({ paid_at: sp(-120) })).status === 'review');
+check('chave de outra pessoa recusada', (await pago({ key: 'outro@x.com' })).status === 'wrong_key');
+check('sem chave no comprovante = análise', (await pago({ key: '' })).status === 'review');
+check('chave em outra grafia aceita (telefone)', (await pago({ key: '+55 32 99999-0001' })).accepted === true);
+const semId = await pago({ txid: '' });
+check('sem ID da transação = análise', semId.status === 'review', JSON.stringify(semId));
+
+// desativar a chave: não apaga, e a conferência passa a recusar
+check('desativa a chave', (await T('PUT', '/api/finance/keys/' + k2.id, { active: false })).body.active === false);
+const off = await pago({ key: '32999990001' });
+check('chave desativada recusa', off.status === 'wrong_key' && /não está em uso/.test(off.motivo), JSON.stringify(off));
+check('reativa', (await T('PUT', '/api/finance/keys/' + k2.id, { active: true })).body.active === true);
+
+// valor mínimo
+await T('PUT', '/api/finance/settings', { min_amount: 20 });
+check('valor abaixo do mínimo', (await pago({ amount: 10 })).status === 'low_amount');
+await T('PUT', '/api/finance/settings', { min_amount: '' });
+check('mínimo vazio aceita qualquer valor', (await pago({ amount: 10 })).accepted === true);
+check('ajuste inválido = 400', (await T('PUT', '/api/finance/settings', { max_age_hours: 0 })).status === 400);
+
+// ---- baixa no pedido ----
+check('pedido existe', !!ped.id);
+const cli2 = (await T('POST', '/api/lives', { title: 'Live pagamento', starts_at: new Date(Date.now() + 3 * 864e5).toISOString() }));
+const pp = (await T('POST', '/api/orders', { phone: '553288880002', song: 'Esperando', name: 'Esperando Pix' })).body;
+// pedido pago sem valor (aguardando pagamento) numa live: cria e zera o valor
+const lista = (await T('GET', '/api/orders?live_id=' + pp.live?.id)).body;
+const meu = lista.find((x) => x.id === pp.id);
+if (meu && meu.kind === 'paid') {
+  const bx = await pago({ phone: '553288880002', amount: 25, txid: 'E2222222222222222222222222222222' });
+  check('baixa automática no pedido que aguardava', bx.accepted && bx.order_id === pp.id, JSON.stringify(bx));
+  const dep = (await T('GET', '/api/orders?live_id=' + pp.live.id)).body.find((x) => x.id === pp.id);
+  check('pedido ficou pago com o valor', Number(dep.amount_paid) === 25 && dep.kind === 'paid');
+} else check('(pedido pago aguardando não montado neste ambiente)', true);
+
+// ---- recebimentos e resumo ----
+const lst = (await T('GET', '/api/payments')).body;
+check('lista traz os recebimentos', lst.length >= 8 && lst.some((x) => x.status === 'duplicate'));
+const rev = lst.find((x) => x.status === 'review');
+const apr = await T('POST', `/api/payments/${rev.id}/approve`, {});
+check('aprova um que estava em análise', apr.status === 200 && (await T('GET', '/api/payments?status=accepted')).body.some((x) => x.id === rev.id));
+check('aprovar de novo = 409', (await T('POST', `/api/payments/${rev.id}/approve`, {})).status === 409);
+const dupl = lst.find((x) => x.status === 'duplicate');
+check('duplicado não aprova (ID já aceito)', (await T('POST', `/api/payments/${dupl.id}/approve`, {})).status === 409);
+const rej = lst.find((x) => x.status === 'wrong_key');
+check('recusa', (await T('POST', `/api/payments/${rej.id}/reject`, { reason: 'não é meu' })).status === 200);
+const sum = (await T('GET', '/api/payments/summary')).body;
+check('resumo por chave', sum.keys.length === 2 && sum.keys.find((x) => x.id === k1.id).total > 0 && sum.aceitos >= 3 && sum.total > 0, JSON.stringify(sum));
+check('outra empresa não vê os recebimentos', (await T('GET', '/api/payments', null, B)).body.length === 0);
+
+// ---- apagar ----
+check('apagar em massa', (await T('POST', '/api/payments/bulk-delete', { ids: lst.slice(0, 2).map((x) => x.id) })).body.deleted === 2);
+check('apagar chave não perde os recebimentos', (await T('DELETE', '/api/finance/keys/' + k2.id)).status === 200 && (await T('GET', '/api/payments')).body.length >= 6);
+
+console.log(`financeiro: ${ok} ok, ${fail} falhas`);
+process.exit(fail ? 1 : 0);

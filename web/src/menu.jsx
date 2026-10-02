@@ -29,6 +29,7 @@ export const MENU_PADRAO = [
   { id: 'clube', label: 'Programa de benefícios', icon: '⭐' },
   { id: 'pedidos', label: 'Pedidos', icon: '🎵' },
   { id: 'eventos', label: 'Eventos', icon: '🗓️' },
+  { id: 'financeiro', label: 'Financeiro', icon: '💰' },
   { id: 'fila', label: 'Fila de espera', icon: '⏳' },
   { id: 'comandos', label: 'Comandos', icon: '🎛️' },
   { id: 'bloqueios', label: 'Atendimentos bloqueados', icon: '🚫' },

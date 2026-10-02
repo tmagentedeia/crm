@@ -240,30 +240,50 @@ function Atualizacoes() {
   );
 }
 
-// Nome do agente (usado nas frases de liberar o atendimento nos Comandos)
+// Nome do agente e do proprietário/ADM (vão no início do prompt e geram as frases dos Comandos).
+// Mesmo dado da aba Comandos: qualquer alteração avisa as outras telas, que recarregam na hora.
 function NomeAgente() {
   const [nome, setNome] = useState('');
-  const [salvo, setSalvo] = useState('');
+  const [adm, setAdm] = useState('');
+  const [salvo, setSalvo] = useState({ nome: '', adm: '' });
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
-  useEffect(() => { api('/agent-config').then((c) => { setNome(c.agent_name || ''); setSalvo(c.agent_name || ''); }).catch(() => {}); }, []);
+  const carregar = () => api('/agent-config').then((c) => {
+    const n = c.agent_name || '', a = c.adm_name || '';
+    setNome(n); setAdm(a); setSalvo({ nome: n, adm: a });
+  }).catch(() => {});
+  useEffect(() => {
+    carregar();
+    window.addEventListener('agent-config-changed', carregar);
+    window.addEventListener('focus', carregar);
+    return () => { window.removeEventListener('agent-config-changed', carregar); window.removeEventListener('focus', carregar); };
+  }, []);
+  const mudou = nome.trim() !== salvo.nome || adm.trim() !== salvo.adm;
   const gravar = async () => {
     setErr(''); setMsg('');
-    try { await api('/agent-config', { method: 'PUT', body: { agent_name: nome } }); setSalvo(nome.trim()); setNome(nome.trim()); setMsg('Nome salvo'); } catch (e) { setErr(e.message); }
+    try {
+      await api('/agent-config', { method: 'PUT', body: { agent_name: nome, adm_name: adm } });
+      setSalvo({ nome: nome.trim(), adm: adm.trim() }); setNome(nome.trim()); setAdm(adm.trim()); setMsg('Nomes salvos');
+      window.dispatchEvent(new Event('agent-config-changed'));
+    } catch (e) { setErr(e.message); }
   };
+  const enter = (e) => e.key === 'Enter' && mudou && gravar();
   return (
     <div className="card" style={{ marginBottom: 12 }}>
       <div className="row" style={{ alignItems: 'flex-end', flexWrap: 'wrap' }}>
-        <div className="field" style={{ margin: 0, minWidth: 220, flex: '0 1 320px' }}>
+        <div className="field" style={{ margin: 0, minWidth: 200, flex: '0 1 260px' }}>
           <label>Nome do agente</label>
-          <input value={nome} maxLength={40} placeholder="ex.: Iara" onChange={(e) => { setNome(e.target.value); setMsg(''); }}
-            onKeyDown={(e) => e.key === 'Enter' && nome.trim() !== salvo && gravar()} />
+          <input value={nome} maxLength={40} placeholder="ex.: Iara" onChange={(e) => { setNome(e.target.value); setMsg(''); }} onKeyDown={enter} />
         </div>
-        {nome.trim() !== salvo && <button className="btn primary" onClick={gravar}>Salvar</button>}
+        <div className="field" style={{ margin: 0, minWidth: 200, flex: '0 1 260px' }}>
+          <label>Proprietário / ADM</label>
+          <input value={adm} maxLength={40} placeholder="ex.: Thiago" onChange={(e) => { setAdm(e.target.value); setMsg(''); }} onKeyDown={enter} />
+        </div>
+        {mudou && <button className="btn primary" onClick={gravar}>Salvar</button>}
         {msg && <span className="muted">{msg}</span>}
         {err && <span className="error" style={{ margin: 0 }}>{err}</span>}
       </div>
-      <p className="muted" style={{ margin: '6px 0 0' }}>Gera a frase de liberar o atendimento nos Comandos (“tá contigo <em>nome</em>”).</p>
+      <p className="muted" style={{ margin: '6px 0 0' }}>Vão na primeira linha do texto do agente e geram as frases dos Comandos (“<em>ADM</em> aqui” e “tá contigo <em>agente</em>”). São os mesmos campos da aba Comandos.</p>
     </div>
   );
 }

@@ -87,5 +87,9 @@ check('nome do agente na primeira linha', pn.prompt.startsWith('Seu nome é Iara
 check('empresa B não recebe o nome da A', !(await call('GET', '/n8n/agent/prompt', { n8n: 2 })).body.prompt.includes('Iara'));
 await call('PUT', '/api/agent-config', { token: A.token, body: { agent_name: '' } });
 check('sem nome, sem a primeira linha', !(await call('GET', '/n8n/agent/prompt', { n8n: 1 })).body.prompt.startsWith('Seu nome'));
+await call('PUT', '/api/agent-config', { token: A.token, body: { agent_name: 'Iara', adm_name: 'Thiago' } });
+pn = (await call('GET', '/n8n/agent/prompt', { n8n: 1 })).body;
+check('nome e ADM na primeira linha', pn.prompt.startsWith('Seu nome é Iara. O proprietário (ADM) se chama Thiago.\n\n') && pn.adm_name === 'Thiago', pn.prompt.slice(0, 90));
+await call('PUT', '/api/agent-config', { token: A.token, body: { agent_name: '', adm_name: '' } });
 console.log(`\natendente: ${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);
