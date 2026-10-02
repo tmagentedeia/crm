@@ -525,7 +525,9 @@ export function buildRouter() {
     if (!does.rows[0].ok) return res.status(400).json({ error: 'Este profissional não realiza esse serviço' });
     // empresa em "sob confirmação": o que o agente marca fica aguardando o responsável confirmar
     const mode = (await qg('SELECT booking_mode FROM companies WHERE id=$1', [currentCompany()])).rows[0]?.booking_mode;
-    const status = mode === 'confirm' && source === 'ia' ? 'pending' : 'scheduled';
+    // se o responsável já autorizou esse horário (o agente perguntou a ele antes), nasce agendado
+    const autorizado = req.body.adm_approved === true;
+    const status = mode === 'confirm' && source === 'ia' && !autorizado ? 'pending' : 'scheduled';
     const { rows } = await q(
       `INSERT INTO appointments (professional_id,customer_id,service_id,starts_at,ends_at,price,source,status)
        VALUES ($1,$2,$3,$4::timestamptz,$4::timestamptz + make_interval(mins => $5),$6,$7,$8) RETURNING *`,
@@ -727,7 +729,11 @@ export function buildRouter() {
     const s = new Date(start), e = new Date(end);
     if (!start || !end || isNaN(s) || isNaN(e) || e <= s)
       return res.status(400).json({ error: 'Informe start e end (ISO 8601) com end > start' });
-    const tz = (await qg('SELECT timezone FROM companies WHERE id=$1', [req.user.companyId])).rows[0].timezone;
+    const cfg = (await qg('SELECT timezone, booking_mode FROM companies WHERE id=$1', [req.user.companyId])).rows[0];
+    const tz = cfg.timezone;
+    // empresa "sob confirmação": não há grade de horários a respeitar (quem decide é o responsável);
+    // só valem conflitos reais (serviço, horário passado, já ocupado ou bloqueado)
+    const semGrade = cfg.booking_mode === 'confirm';
     const { rows } = await q(
       `WITH l AS (SELECT $1::timestamptz AS s, $2::timestamptz AS e,
                          ($1::timestamptz AT TIME ZONE $4) AS ls, ($2::timestamptz AT TIME ZONE $4) AS le)
@@ -735,11 +741,11 @@ export function buildRouter() {
          CASE
            WHEN $5::bigint IS NOT NULL AND NOT ${doesSql('b.id', '$5::bigint')} THEN 'não realiza este serviço'
            WHEN l.s <= now() THEN 'horário já passou'
-           WHEN l.ls::date <> l.le::date THEN 'fora do expediente'
-           WHEN NOT EXISTS (SELECT 1 FROM professional_schedules sc WHERE sc.professional_id=b.id
+           WHEN NOT $6::boolean AND l.ls::date <> l.le::date THEN 'fora do expediente'
+           WHEN NOT $6::boolean AND NOT EXISTS (SELECT 1 FROM professional_schedules sc WHERE sc.professional_id=b.id
                  AND sc.weekday = EXTRACT(DOW FROM l.ls)::int
                  AND l.ls::time >= sc.start_time AND l.le::time <= sc.end_time) THEN 'fora do expediente'
-           WHEN EXISTS (SELECT 1 FROM professional_schedules sc WHERE sc.professional_id=b.id
+           WHEN NOT $6::boolean AND EXISTS (SELECT 1 FROM professional_schedules sc WHERE sc.professional_id=b.id
                  AND sc.weekday = EXTRACT(DOW FROM l.ls)::int AND sc.break_start IS NOT NULL
                  AND l.ls::time < sc.break_end AND l.le::time > sc.break_start) THEN 'pausa'
            WHEN EXISTS (SELECT 1 FROM appointments a WHERE a.professional_id=b.id
@@ -751,8 +757,9 @@ export function buildRouter() {
        FROM professionals b, l
        WHERE b.active AND ($3::bigint IS NULL OR b.id=$3)
        ORDER BY b.name`,
-      [start, end, professional_id || null, tz, service_id || null]);
+      [start, end, professional_id || null, tz, service_id || null, semGrade]);
     res.json({
+      booking_mode: cfg.booking_mode || 'auto',
       free: rows.filter((x) => !x.motivo).map(({ professional_id: id, professional_name }) => ({ professional_id: id, professional_name })),
       busy: rows.filter((x) => x.motivo).map(({ professional_id: id, professional_name, motivo }) => ({ professional_id: id, professional_name, motivo })),
     });

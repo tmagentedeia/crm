@@ -35,6 +35,9 @@ check('liga sob confirmação', put.status === 200 && put.body.booking_mode === 
 check('limite de profissionais não foi mexido', put.body.max_professionals === antes.max_professionals);
 check('/booking-mode lê o modo', (await call('GET', '/api/booking-mode', { token: A.token })).body.booking_mode === 'confirm');
 check('/booking-mode traz telefone de aviso', 'notify_phone' in (await call('GET', '/api/booking-mode', { token: A.token })).body);
+const jan = (T) => call('GET', `/api/availability/window?start=${encodeURIComponent('2031-01-05T03:00:00-03:00')}&end=${encodeURIComponent('2031-01-05T03:30:00-03:00')}&professional_id=${a.professional_id}&service_id=${a.service_id}`, { token: T.token });
+const jc = await jan(A);
+check('sob confirmação: sem grade, fora do expediente não bloqueia', jc.body.booking_mode === 'confirm' && jc.body.free.length === 1 && jc.body.busy.length === 0, JSON.stringify(jc.body));
 check('empresa comum não altera o modo', (await call('PUT', `/api/admin/companies/${A.company.id}`, { token: B.token, body: { booking_mode: 'auto' } })).status === 403);
 
 // o que o agente marca fica aguardando
@@ -43,6 +46,9 @@ check('ia agenda como aguardando', p1.status === 201 && p1.body.status === 'pend
 check('horário aguardando já ocupa a agenda', (await novo(A, { source: 'manual', starts_at: dia(6, 13) })).status === 409);
 const man = await novo(A, { source: 'manual', starts_at: dia(7, 13) });
 check('marcação manual do painel já nasce agendada', man.status === 201 && man.body.status === 'scheduled');
+
+const aut = await novo(A, { source: 'ia', starts_at: dia(11, 13), adm_approved: true });
+check('autorizado pelo responsável: ia agenda direto', aut.status === 201 && aut.body.status === 'scheduled', JSON.stringify(aut));
 
 // confirmar: vale a primeira resposta
 check('decisão inválida = 400', (await call('POST', `/api/appointments/${p1.body.id}/respond`, { token: A.token, body: { decision: 'talvez' } })).status === 400);
