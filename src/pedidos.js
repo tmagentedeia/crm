@@ -25,13 +25,51 @@ export const PEDIDOS_SQL = `
     song        TEXT NOT NULL,
     dedication  TEXT,
     amount_paid NUMERIC(10,2),
-    kind        TEXT CHECK (kind IN ('franchise','paid')),   -- vazio enquanto está na fila
+    kind        TEXT CHECK (kind IN ('franchise','paid','courtesy')),   -- vazio enquanto está na fila
     level_name  TEXT,                          -- nível do cliente na hora do pedido
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     notified_at TIMESTAMPTZ
   );
   CREATE INDEX IF NOT EXISTS idx_song_orders_live ON song_orders (live_id);
   CREATE INDEX IF NOT EXISTS idx_song_orders_customer ON song_orders (customer_id);`;
+
+// Cortesia do 1º pedido: cliente novo (não assinante) que pediu e não mandou comprovante em CORTESIA_MIN minutos.
+// Vale uma vez por cliente. A marca fica no pedido (tipo "Cortesia") e na ficha (courtesy_used_at).
+export const CORTESIA_SQL = `
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS courtesy_used_at TIMESTAMPTZ;
+    DO $$
+    DECLARE c record;
+    BEGIN
+      FOR c IN SELECT conname FROM pg_constraint
+               WHERE conrelid = 'song_orders'::regclass AND contype = 'c' AND pg_get_constraintdef(oid) LIKE '%franchise%'
+      LOOP
+        EXECUTE format('ALTER TABLE song_orders DROP CONSTRAINT %I', c.conname);
+      END LOOP;
+      ALTER TABLE song_orders ADD CONSTRAINT song_orders_kind_check CHECK (kind IN ('franchise','paid','courtesy'));
+    END $$;`;
+export const CORTESIA_MIN = Math.max(Number(process.env.CORTESIA_MIN ?? 15), 0);
+export async function converterCortesias(t) {
+  await t(`
+    WITH elegiveis AS (
+      SELECT o.id, o.customer_id FROM song_orders o JOIN customers c ON c.id=o.customer_id
+      WHERE o.kind='paid' AND o.amount_paid IS NULL AND o.created_at <= now() - make_interval(mins => $1::int)
+        AND c.courtesy_used_at IS NULL AND c.club_status IS DISTINCT FROM 'member'
+        AND o.id = (SELECT min(id) FROM song_orders x WHERE x.customer_id=o.customer_id)
+        AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.customer_id=o.customer_id AND p.status='accepted' AND p.order_id IS NULL
+                          AND p.created_at >= o.created_at - interval '12 hours')
+    ), up AS (
+      UPDATE song_orders so SET kind='courtesy', amount_paid=0 FROM elegiveis e WHERE so.id=e.id RETURNING so.customer_id
+    )
+    UPDATE customers SET courtesy_used_at=now() WHERE id IN (SELECT customer_id FROM up)`, [CORTESIA_MIN]);
+}
+export function startCortesias() {
+  setInterval(async () => {
+    try {
+      const { rows } = await qg('SELECT id FROM companies ORDER BY id');
+      for (const { id } of rows) { try { await tx(id, converterCortesias); } catch { /* empresa sem as tabelas */ } }
+    } catch (e) { console.error('cortesias:', e.message); }
+  }, 60000).unref();
+}
 
 const ABERTA = (p) => `(l.closed_at IS NULL AND COALESCE(l.ends_at, ((date_trunc('day', l.starts_at AT TIME ZONE ${p}) + interval '1 day') AT TIME ZONE ${p})) > now())`;
 const MES = (col, p) => `to_char(${col} AT TIME ZONE ${p}, 'YYYY-MM')`;
@@ -96,6 +134,7 @@ export function registerOrderRoutes(r, wrap) {
 
   // ---------- LIVES ----------
   r.get('/lives', wrap(async (req, res) => {
+    await tx(currentCompany(), converterCortesias);
     const tz = await fuso();
     const so = req.query.open === '1';
     const { rows } = await q(
@@ -103,6 +142,7 @@ export function registerOrderRoutes(r, wrap) {
               (SELECT count(*)::int FROM song_orders o WHERE o.live_id=l.id) AS orders,
               (SELECT count(*)::int FROM song_orders o WHERE o.live_id=l.id AND o.kind='franchise') AS franchise_count,
               (SELECT count(*)::int FROM song_orders o WHERE o.live_id=l.id AND o.kind='paid') AS paid_count,
+              (SELECT count(*)::int FROM song_orders o WHERE o.live_id=l.id AND o.kind='courtesy') AS courtesy_count,
               (SELECT count(*)::int FROM song_orders o WHERE o.live_id=l.id AND o.kind='paid' AND o.amount_paid IS NULL) AS awaiting_count,
               (SELECT COALESCE(sum(o.amount_paid),0)::float FROM song_orders o WHERE o.live_id=l.id AND o.kind='paid') AS received
        FROM lives l WHERE ($2::boolean IS NOT TRUE OR ${ABERTA('$1')}) ORDER BY l.starts_at DESC, l.id DESC LIMIT 200`, [tz, so]);
@@ -201,7 +241,11 @@ export function registerOrderRoutes(r, wrap) {
                      AND created_at > now() - interval '12 hours' ORDER BY id DESC LIMIT 1)`, [o.id, cli.id, valor]);
       }
       const bal = await saldo(t, tz, cli.id, live?.starts_at || null);
-      return { order: o, live, balance: bal };
+      // 1º pedido sem pagamento de cliente novo: a cortesia sai se o comprovante não chegar no prazo
+      const elegivel = o.kind !== 'franchise' && !(valor > 0) && bal.club_status !== 'member'
+        && !(await t('SELECT courtesy_used_at FROM customers WHERE id=$1', [cli.id])).rows[0].courtesy_used_at
+        && (await t('SELECT count(*)::int AS n FROM song_orders WHERE customer_id=$1', [cli.id])).rows[0].n === 1;
+      return { order: o, live, balance: bal, elegivel };
     });
     res.status(201).json({
       id: out.order.id,
@@ -209,10 +253,12 @@ export function registerOrderRoutes(r, wrap) {
       kind: out.order.kind,                        // franchise (sem cobrança) | paid (cobrar) | null (na fila)
       live: out.live ? { id: out.live.id, title: out.live.title, starts_at: out.live.starts_at } : null,
       balance: out.balance,
+      courtesy_in_minutes: out.elegivel ? CORTESIA_MIN : null,   // preenchido = 1º pedido: sem comprovante nesse prazo vira cortesia
     });
   }));
   // Saldo de franquia e situação do cliente (a agente usa para responder "quantos pedidos eu ainda tenho?")
   r.get('/orders/balance', wrap(async (req, res) => {
+    await tx(currentCompany(), converterCortesias);
     const phone = normPhone(req.query.phone);
     const tz = await fuso();
     const c = (await q('SELECT id, name FROM customers WHERE phone=$1', [phone])).rows[0];
@@ -223,6 +269,7 @@ export function registerOrderRoutes(r, wrap) {
     res.json(out);
   }));
   r.get('/orders/summary', wrap(async (req, res) => {
+    await tx(currentCompany(), converterCortesias);
     const tz = await fuso();
     const mes = /^\d{4}-(0[1-9]|1[0-2])$/.test(String(req.query.month || '')) ? req.query.month : (await q(`SELECT ${MES('now()', '$1')} AS m`, [tz])).rows[0].m;
     const { rows } = await q(
@@ -230,6 +277,7 @@ export function registerOrderRoutes(r, wrap) {
               CASE WHEN c.club_status='member' THEN COALESCE(lv.benefit_qty,0) ELSE 0 END AS franchise,
               count(*) FILTER (WHERE o.kind='franchise')::int AS used,
               count(*) FILTER (WHERE o.kind='paid')::int AS paid_count,
+              count(*) FILTER (WHERE o.kind='courtesy')::int AS courtesy_count,
               COALESCE(sum(o.amount_paid) FILTER (WHERE o.kind='paid'),0)::float AS paid_total,
               count(*)::int AS total
        FROM song_orders o JOIN lives l ON l.id=o.live_id JOIN customers c ON c.id=o.customer_id
@@ -240,6 +288,7 @@ export function registerOrderRoutes(r, wrap) {
       totals: { orders: rows.reduce((s, x) => s + x.total, 0), franchise: rows.reduce((s, x) => s + x.used, 0), paid: rows.reduce((s, x) => s + x.paid_count, 0), paid_total: Math.round(rows.reduce((s, x) => s + x.paid_total, 0) * 100) / 100 } });
   }));
   r.get('/orders', wrap(async (req, res) => {
+    await tx(currentCompany(), converterCortesias);
     // ?phone=: pedidos do cliente na próxima live e na fila (a agente usa para conferir e para trocar música/dedicatória)
     if (req.query.phone) {
       const phone = normPhone(req.query.phone);
@@ -268,14 +317,14 @@ export function registerOrderRoutes(r, wrap) {
     if (b.song !== undefined && !song) return res.status(400).json({ error: 'Informe o nome da música' });
     if (b.dedication !== undefined && ded === null) return res.status(400).json({ error: 'Texto inválido' });
     if (Number.isNaN(valor)) return res.status(400).json({ error: 'Valor inválido' });
-    if (b.kind !== undefined && !['franchise', 'paid'].includes(b.kind)) return res.status(400).json({ error: 'Cobrança inválida' });
+    if (b.kind !== undefined && !['franchise', 'paid', 'courtesy'].includes(b.kind)) return res.status(400).json({ error: 'Cobrança inválida' });
     const atual = (await q('SELECT live_id FROM song_orders WHERE id=$1', [req.params.id])).rows[0];
     if (!atual) return res.status(404).json({ error: 'Não encontrado' });
     if (b.kind !== undefined && !atual.live_id) return res.status(400).json({ error: 'Pedido na fila ainda não tem cobrança: ela é definida quando a live for marcada' });
     const { rows } = await q(
       `UPDATE song_orders SET song=COALESCE($2,song), dedication=CASE WHEN $3::boolean THEN NULLIF($4,'') ELSE dedication END,
          kind=COALESCE($5::text,kind),
-         amount_paid=CASE WHEN $5::text='franchise' THEN 0 WHEN $6::boolean THEN $7 ELSE amount_paid END
+         amount_paid=CASE WHEN $5::text IN ('franchise','courtesy') THEN 0 WHEN $6::boolean THEN $7 ELSE amount_paid END
        WHERE id=$1 RETURNING *`, [req.params.id, song, b.dedication !== undefined, ded, b.kind ?? null, b.amount_paid !== undefined, valor]);
     res.json(rows[0]);
   }));

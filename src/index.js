@@ -14,6 +14,7 @@ import { listar as listarBloqueios, bloquear, liberar, numeroDoContato, nomeVali
 import { requireUser, requireN8n, requireAdmin, isAdmin, signToken, signImpersonationToken } from './auth.js';
 import { buildRouter } from './routes.js';
 import { startCampaignScheduler } from './campaigns.js';
+import { startCortesias } from './pedidos.js';
 
 const app = express();
 app.use(cors());
@@ -347,3 +348,4 @@ app.get('*', (req, res, next) => {
 
 app.listen(process.env.PORT || 3000, () => console.log('CRM rodando na porta', process.env.PORT || 3000));
 startCampaignScheduler();
+startCortesias();

@@ -84,6 +84,13 @@ const sum = (await T('GET', '/api/payments/summary')).body;
 check('resumo por chave', sum.keys.length === 2 && sum.keys.find((x) => x.id === k1.id).total > 0 && sum.aceitos >= 3 && sum.total > 0, JSON.stringify(sum));
 check('outra empresa não vê os recebimentos', (await T('GET', '/api/payments', null, B)).body.length === 0);
 
+// ---- cliente novo: o comprovante chega antes do cadastro e depois o pedido se liga ao pagamento ----
+const pg = (await T('POST', '/api/payments/check', { phone: '553288880077', payer_name: 'Novo Cliente', name: 'Novo Cliente', amount: 45, key: 'pix.teste@gmail.com', txid: 'ENOVO' + Math.random().toString(36).slice(2).padEnd(26, 'x'), paid_at: sp(2), purpose: 'Pedido de música' })).body;
+check('comprovante de cliente novo aceito', pg.accepted === true, JSON.stringify(pg));
+const pnovo = (await T('POST', '/api/orders', { phone: '553288880077', name: 'Novo Cliente', song: 'Primeira música', amount_paid: 45 })).body;
+const ligado = (await T('GET', '/api/payments')).body.find((x) => x.id === pg.payment_id);
+check('pagamento do cliente novo ligado ao pedido', ligado && String(ligado.order_id) === String(pnovo.id) && ligado.customer_name === 'Novo Cliente', JSON.stringify(ligado));
+
 // ---- apagar ----
 check('apagar em massa', (await T('POST', '/api/payments/bulk-delete', { ids: lst.slice(0, 2).map((x) => x.id) })).body.deleted === 2);
 check('apagar chave não perde os recebimentos', (await T('DELETE', '/api/finance/keys/' + k2.id)).status === 200 && (await T('GET', '/api/payments')).body.length >= 6);

@@ -215,10 +215,11 @@ function Detail({ c, nomePedidos, clube, club, onClose, onSaved, onDeleted }) {
         {(c.orders?.length > 0 || c.balance?.franchise > 0) && (
           <>
             <h2>{nomePedidos}</h2>
+            {c.courtesy_used_at && <p className="muted">Cortesia do 1º pedido usada em {new Date(c.courtesy_used_at).toLocaleDateString('pt-BR')}.</p>}
             {c.balance?.franchise > 0 && <p className="muted">Franquia do mês: usou {c.balance.used} de {c.balance.franchise} · restam {c.balance.remaining}</p>}
             {c.orders?.length > 0 ? (
               <table><tbody>{c.orders.map((o) => (
-                <tr key={o.id}><td>{o.live_starts_at ? new Date(o.live_starts_at).toLocaleDateString('pt-BR') : 'Na fila'}</td><td>{o.song}</td><td>{o.kind === 'franchise' ? 'Franquia' : o.kind === 'paid' ? 'Pago' : '—'}</td></tr>
+                <tr key={o.id}><td>{o.live_starts_at ? new Date(o.live_starts_at).toLocaleDateString('pt-BR') : 'Na fila'}</td><td>{o.song}</td><td>{o.kind === 'franchise' ? 'Franquia' : o.kind === 'courtesy' ? 'Cortesia' : o.kind === 'paid' ? 'Pago' : '—'}</td></tr>
               ))}</tbody></table>
             ) : <p className="muted">Sem pedidos ainda.</p>}
           </>

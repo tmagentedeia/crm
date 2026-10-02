@@ -1,4 +1,6 @@
 // Lives, pedidos de música e franquia do programa de benefícios. Uso: BASE=http://localhost:3999 node test/pedidos.mjs
+import { execSync } from 'child_process';
+const psql = (sql) => execSync(`psql "${process.env.DATABASE_URL}" -tAc "${sql}"`).toString().trim();
 const BASE = process.env.BASE || 'http://localhost:3999';
 let ok = 0, fail = 0;
 const check = (name, cond, extra = '') => { cond ? ok++ : (fail++, console.log('FALHOU:', name, extra)); };
@@ -126,5 +128,19 @@ check('live traz franquia, pagos, aguardando e recebido', lv1.orders === lista1.
 const meus = (await T('GET', '/api/orders?phone=' + P1)).body;
 check('pedidos do cliente por telefone (próxima live + fila)', Array.isArray(meus.orders) && meus.orders.length > 0 && meus.orders.every((x) => x.id && x.song !== undefined) && 'next_live' in meus, JSON.stringify(meus).slice(0, 200));
 check('telefone sem pedidos devolve lista vazia', ((await T('GET', '/api/orders?phone=32900000000')).body.orders || [1]).length === 0);
+// ---- cortesia do 1º pedido ----
+const PC = '553288880099';
+const c1 = (await T('POST', '/api/orders', { phone: PC, name: 'Cliente Cortesia', song: 'Primeira' })).body;
+check('1º pedido sem pagamento avisa o prazo da cortesia', c1.courtesy_in_minutes === 15 && c1.kind === 'paid', JSON.stringify(c1));
+check('dentro do prazo ainda aguarda pagamento', ((await T('GET', '/api/orders?phone=' + PC)).body.orders[0] || {}).kind === 'paid');
+const c2 = (await T('POST', '/api/orders', { phone: PC, song: 'Segunda' })).body;
+check('2º pedido não tem cortesia', c2.courtesy_in_minutes === null, JSON.stringify(c2));
+psql(`update company_1.song_orders set created_at = now() - interval '20 minutes' where id in (${c1.id}, ${c2.id})`);
+const depois = (await T('GET', '/api/orders?phone=' + PC)).body.orders;
+check('passado o prazo, só o 1º vira cortesia', depois.find((x) => String(x.id) === String(c1.id)).kind === 'courtesy' && depois.find((x) => String(x.id) === String(c2.id)).kind === 'paid', JSON.stringify(depois));
+const cliC = (await T('GET', '/api/customers/by-phone/' + PC)).body;
+check('ficha marcada com a cortesia usada', !!cliC.courtesy_used_at, JSON.stringify(cliC).slice(0, 200));
+check('cortesia não se repete no cliente', (await T('POST', '/api/orders', { phone: PC, song: 'Terceira' })).body.courtesy_in_minutes === null);
+check('assinante com pedido pago não é elegível', (await T('POST', '/api/orders', { phone: '553288880098', song: 'Pago', amount_paid: 30 })).body.courtesy_in_minutes === null);
 console.log(`pedidos: ${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);

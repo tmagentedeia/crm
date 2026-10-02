@@ -90,7 +90,7 @@ function Recebimentos() {
                   <td>{quando(p.created_at)}<div className="muted" style={{ fontSize: 12 }}>pago em {quando(p.paid_at)}</div></td>
                   <td>{p.payer_name || <span className="muted">—</span>}</td>
                   <td>{money(p.amount)}</td>
-                  <td>{p.beneficiary || p.key_text || <span className="muted">—</span>}</td>
+                  <td>{p.key_registered || p.key_text || <span className="muted">—</span>}{p.beneficiary ? <div className="muted" style={{ fontSize: 12 }}>{p.beneficiary}</div> : null}</td>
                   <td>{[p.customer_name, p.customer_last_name].filter(Boolean).join(' ') || <span className="muted">—</span>}{p.order_song ? <div className="muted" style={{ fontSize: 12 }}>{p.order_song}</div> : null}</td>
                   <td><span style={{ color: cor, fontWeight: 600 }}>{rot}</span>{p.reason && <div className="muted" style={{ fontSize: 12 }}>{p.reason}</div>}</td>
                   <td className="row">

@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { pool, schemaOf } from './db.js';
-import { PEDIDOS_SQL } from './pedidos.js';
+import { PEDIDOS_SQL, CORTESIA_SQL } from './pedidos.js';
 import { EVENTOS_SQL } from './eventos.js';
 import { FINANCEIRO_SQL } from './financeiro.js';
 
@@ -87,6 +87,8 @@ export const TENANT_STEPS = [
   { version: 10, sql: exclusoesSql },
   // 11: financeiro (chaves Pix e recebimentos)
   { version: 11, sql: FINANCEIRO_SQL },
+  // 12: cortesia do 1º pedido (tipo novo no pedido e marca na ficha)
+  { version: 12, sql: CORTESIA_SQL },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 
@@ -102,6 +104,7 @@ export async function createCompanySchema(cx, companyId) {
   await cx.query(EVENTOS_SQL);
   await cx.query(exclusoesSql);
   await cx.query(FINANCEIRO_SQL);
+  await cx.query(CORTESIA_SQL);
   await cx.query('SET LOCAL search_path TO public');
   await cx.query('INSERT INTO tenant_versions (company_id, version) VALUES ($1, 1)', [companyId]);
 }

@@ -156,7 +156,11 @@ export function registerFinanceRoutes(r, wrap) {
         if (!Number.isNaN(dt.getTime())) paidAt = dt;
       }
       if (txid) await t('SELECT pg_advisory_xact_lock(hashtext($1))', [txid]);
-      const cust = phone ? (await t('SELECT id FROM customers WHERE phone=$1', [phone])).rows[0] : null;
+      // cliente novo (ainda sem cadastro) já nasce aqui, para o pagamento ficar ligado a ele e depois ao pedido
+      const nomeCli = txt(b.name ?? b.customer_name ?? '', 120) || '';
+      const cust = phone ? (await t(
+        `INSERT INTO customers (name,phone,status,source) VALUES (NULLIF($1,''),$2,'lead','ia')
+         ON CONFLICT (phone) DO UPDATE SET name=COALESCE(customers.name, NULLIF(EXCLUDED.name,'')) RETURNING id`, [nomeCli, phone])).rows[0] : null;
       const chaves = (await t('SELECT * FROM pix_keys')).rows;
       const ativas = chaves.filter((k) => k.active);
       const achada = keyText ? chaves.find((k) => normKey(k.key_type, keyText) === k.key_norm) : null;

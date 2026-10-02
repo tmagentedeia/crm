@@ -6,7 +6,7 @@ import { useSelecao, CelulaTodos, CelulaLinha, ApagarSelecionados, resumoApagado
 const quando = (d) => (d ? new Date(d).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—');
 const paraInput = (d) => { if (!d) return ''; const x = new Date(d); x.setMinutes(x.getMinutes() - x.getTimezoneOffset()); return x.toISOString().slice(0, 16); };
 const nomeDe = (o) => [o.customer_name, o.customer_last_name].filter(Boolean).join(' ') || fmtPhone(o.customer_phone);
-const COBRANCA = { franchise: 'Franquia', paid: 'Pago' };
+const COBRANCA = { franchise: 'Franquia', paid: 'Pago', courtesy: 'Cortesia' };
 const mesLabel = (m) => { const [y, mo] = m.split('-'); return new Date(+y, +mo - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }); };
 const mesAtual = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); };
 
@@ -68,7 +68,7 @@ export default function Pedidos({ company }) {
               {!lives.length && <option value="">Nada cadastrado ainda</option>}
               {lives.map((l) => <option key={l.id} value={l.id}>{quando(l.starts_at)}{l.title ? ' · ' + l.title : ''}{l.open ? '' : ' (encerrada)'}</option>)}
             </select>
-            {live && <span className="muted">{live.orders} registro(s) · {live.franchise_count} pela franquia · {live.paid_count} pago(s) · recebido {money(live.received)}{live.awaiting_count > 0 && <strong style={{ color: 'var(--bad)' }}> · {live.awaiting_count} aguardando pagamento</strong>}</span>}
+            {live && <span className="muted">{live.orders} registro(s) · {live.franchise_count} pela franquia · {live.courtesy_count > 0 ? live.courtesy_count + ' cortesia(s) · ' : ''}{live.paid_count} pago(s) · recebido {money(live.received)}{live.awaiting_count > 0 && <strong style={{ color: 'var(--bad)' }}> · {live.awaiting_count} aguardando pagamento</strong>}</span>}
           </div>
           <ApagarSelecionados s={selOrders} total={orders.length} rotulo="registro(s)" rota="/orders/bulk-delete" onDone={(r) => { setAviso(resumoApagado(r, 'registro(s)')); recarrega(); }} />
           <TabelaPedidos L={L} rows={orders} sel={selOrders} vazio="Nada registrado aqui." onEdit={setEdit} onDel={apagar} />
@@ -197,7 +197,7 @@ function NovoPedido({ L, onClose, onSaved }) {
         {ok && (
           <p className="muted" style={{ marginBottom: 8 }}>
             {ok.status === 'queued' ? 'Anotado na fila: nada marcado ainda.'
-              : `Anotado para ${quando(ok.live.starts_at)} · ${ok.kind === 'franchise' ? 'pela franquia' : 'pago'}.`}
+              : `Anotado para ${quando(ok.live.starts_at)} · ${ok.kind === 'franchise' ? 'pela franquia' : ok.kind === 'courtesy' ? 'cortesia' : 'pago'}.`}
             {ok.balance.franchise > 0 ? ` Franquia do mês: ${ok.balance.used} de ${ok.balance.franchise}.` : ''}
           </p>
         )}
@@ -235,7 +235,7 @@ function EditarPedido({ L, o, onClose, onSaved }) {
         {o.live_id && (
           <div className="row">
             <div className="field"><label>Cobrança</label>
-              <select value={f.kind} onChange={set('kind')}><option value="franchise">Franquia (cortesia)</option><option value="paid">Pago</option></select></div>
+              <select value={f.kind} onChange={set('kind')}><option value="franchise">Franquia</option><option value="courtesy">Cortesia</option><option value="paid">Pago</option></select></div>
             <div className="field"><label>Valor pago (R$)</label><input inputMode="decimal" value={f.amount_paid} onChange={set('amount_paid')} /></div>
           </div>
         )}
