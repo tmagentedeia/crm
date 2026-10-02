@@ -2,16 +2,10 @@ import { Router } from 'express';
 import { q, qg, tx, currentCompany } from './db.js';
 import { runImport } from './importer.js';
 import { registerCampaignRoutes } from './campaigns.js';
+import { normPhone } from './phone.js';
 
 const digits = (s) => String(s || '').replace(/\D/g, '');
-// Telefone digitado só com DDD (10 ou 11 dígitos): põe o 55 e tira o 9 extra do celular,
-// que é como o WhatsApp/UAZAPI entrega o número ao agente (55 + DDD + 8 dígitos).
-const custPhone = (s) => {
-  const d = digits(s);
-  if (d.length === 11 && d[2] === '9') return '55' + d.slice(0, 2) + d.slice(3);
-  if (d.length === 10 || d.length === 11) return '55' + d;
-  return d;
-};
+const custPhone = normPhone;
 const wrap = (fn) => (req, res) => fn(req, res).catch((e) => {
   if (e.code === '23P01') return res.status(409).json({ error: 'Horário indisponível (conflito de agenda)' });
   if (e.code === '23505') return res.status(409).json({ error: 'Registro duplicado' });
@@ -607,8 +601,9 @@ export function buildRouter() {
   }));
   // Modo de agendamento da empresa: 'auto' (horários fixos) ou 'confirm' (sob confirmação do responsável)
   r.get('/booking-mode', wrap(async (req, res) => {
-    const m = (await qg('SELECT booking_mode FROM companies WHERE id=$1', [currentCompany()])).rows[0]?.booking_mode || 'auto';
-    res.json({ booking_mode: m });
+    const c = (await qg('SELECT booking_mode, phone, adm_name FROM companies WHERE id=$1', [currentCompany()])).rows[0] || {};
+    // notify_phone = telefone cadastrado da empresa (para onde vai o aviso de agendamento a confirmar)
+    res.json({ booking_mode: c.booking_mode || 'auto', notify_phone: normPhone(c.phone) || null, adm_name: c.adm_name || null });
   }));
   // guarda o id do evento espelhado no Google Agenda (string vazia = remove)
   r.patch('/appointments/:id', wrap(async (req, res) => {
@@ -654,7 +649,7 @@ export function buildRouter() {
     const cu = await q(
       `INSERT INTO customers (name,phone,source) VALUES ($1,$2,'ia')
        ON CONFLICT (phone) DO UPDATE SET name=COALESCE(customers.name,EXCLUDED.name) RETURNING id`,
-      [name || null, digits(phone)]);
+      [name || null, normPhone(phone)]);
     const dup = await q(
       `SELECT id FROM waitlist WHERE customer_id=$1 AND status='waiting'
        AND desired_at=$2 AND professional_id IS NOT DISTINCT FROM $3::bigint`, [cu.rows[0].id, d, bid]);

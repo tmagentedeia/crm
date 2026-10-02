@@ -34,6 +34,7 @@ const put = await call('PUT', `/api/admin/companies/${A.company.id}`, { token: A
 check('liga sob confirmação', put.status === 200 && put.body.booking_mode === 'confirm', JSON.stringify(put));
 check('limite de profissionais não foi mexido', put.body.max_professionals === antes.max_professionals);
 check('/booking-mode lê o modo', (await call('GET', '/api/booking-mode', { token: A.token })).body.booking_mode === 'confirm');
+check('/booking-mode traz telefone de aviso', 'notify_phone' in (await call('GET', '/api/booking-mode', { token: A.token })).body);
 check('empresa comum não altera o modo', (await call('PUT', `/api/admin/companies/${A.company.id}`, { token: B.token, body: { booking_mode: 'auto' } })).status === 403);
 
 // o que o agente marca fica aguardando

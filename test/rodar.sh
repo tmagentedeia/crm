@@ -37,6 +37,7 @@ BASE=http://localhost:3999 node test/modelos.mjs || R=1
 BASE=http://localhost:3999 node test/acesso_admin.mjs || R=1
 BASE=http://localhost:3999 node test/bloqueios.mjs || R=1
 BASE=http://localhost:3999 node test/confirmacao.mjs || R=1
+node test/telefone.mjs || R=1
 BASE=http://localhost:3999 node test/campanhas.mjs || R=1
 BASE=http://localhost:3999 node test/exclusao.mjs || R=1
 # campanhas no modo "painel aciona o fluxo": o endereço é definido pela empresa (Administração) durante o teste

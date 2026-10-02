@@ -2,6 +2,7 @@ import { tx, qg } from './db.js';
 
 // ---------- utilidades ----------
 const norm = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+import { normPhone } from './phone.js';
 const digits = (s) => String(s ?? '').replace(/\D/g, '');
 const txt = (v) => String(v ?? '').trim();
 
@@ -192,10 +193,7 @@ export async function runImport(companyId, data, dryRun) {
       const rawPhone = rowGet(row, 'telefone', 'celular', 'whatsapp');
       if (!name && !rawPhone) continue;
       const line = `Clientes, linha ${i + 2}${name ? ` (${name})` : ''}`;
-      let phone = digits(rawPhone);
-      if (phone.length === 10 || phone.length === 11) phone = '55' + phone;
-      // WhatsApp/UAZAPI entrega o número BR sem o 9 extra (55 + DDD + 8 dígitos); padroniza para casar com o agente
-      if (phone.length === 13 && phone.startsWith('55') && phone[4] === '9') phone = phone.slice(0, 4) + phone.slice(5);
+      const phone = normPhone(rawPhone);
       if (phone.length < 12) { rep.errors.push(`${line}: telefone inválido (use DDD + número)`); continue; }
       const r = await q(
         `INSERT INTO customers (name,phone,status,source) VALUES ($1,$2,'client','manual')
