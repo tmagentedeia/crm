@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Nome } from '../menu.jsx';
 import { api } from '../api.js';
+import { lerSecoes, juntarSecoes, sugerirSecoes, temSecoes, rotulo } from '../manualSecoes.js';
 
 const fmtMomento = (s) => (s ? `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)} ${s.slice(11, 16)}` : '');
 const fmtDataHora = (d) => new Date(d).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
@@ -27,6 +28,90 @@ function achar(texto, busca, exato) {
   return achados;
 }
 
+// Editor do manual em várias caixas de texto: cada caixa é um pedaço do manual; o manual continua sendo um texto só.
+function Secoes({ texto, onChange }) {
+  const secs = lerSecoes(texto);
+  const [abertas, setAbertas] = useState(() => new Set());
+  const [filtro, setFiltro] = useState('');
+  const aplicar = (novas, abrir) => {
+    onChange(juntarSecoes(novas));
+    if (abrir !== undefined) setAbertas(new Set(abrir));
+  };
+  const alternar = (i) => setAbertas((a) => (a.has(i) ? new Set() : new Set([i])));   // uma aberta por vez, as outras ficam fechadas e juntinhas
+  const f = semAcento(filtro).toLowerCase();
+  const visivel = (s) => !f || semAcento(s.corpo).toLowerCase().includes(f);
+  const editar = (i, valor) => aplicar(secs.map((s, k) => (k === i ? { corpo: valor } : s)));
+  const mover = (i, d) => {
+    const novas = [...secs]; const j = i + d;
+    if (j < 0 || j >= novas.length) return;
+    [novas[i], novas[j]] = [novas[j], novas[i]];
+    aplicar(novas, [j]);
+  };
+  const excluir = (i) => {
+    if (!window.confirm(`Apagar esta caixa e o texto dela?\n\n${rotulo(secs[i].corpo)}`)) return;
+    aplicar(secs.length > 1 ? secs.filter((_, k) => k !== i) : [{ corpo: '' }], []);
+  };
+  const juntarComAnterior = (i) => {
+    const novas = secs.filter((_, k) => k !== i);
+    novas[i - 1] = { corpo: secs[i - 1].corpo ? `${secs[i - 1].corpo}\n${secs[i].corpo}` : secs[i].corpo };
+    aplicar(novas, [i - 1]);
+  };
+  const dividir = (i) => {
+    const ta = document.getElementById(`sec-ta-${i}`);
+    const pos = ta ? ta.selectionStart : 0;
+    const corpo = secs[i].corpo;
+    if (!ta || pos <= 0 || pos >= corpo.length) { window.alert('Clique dentro do texto, no ponto onde a nova caixa deve começar, e aperte “Dividir aqui” de novo.'); return; }
+    const novas = [...secs];
+    novas.splice(i, 1, { corpo: corpo.slice(0, pos).replace(/\n+$/, '') }, { corpo: corpo.slice(pos).replace(/^\n+/, '') });
+    aplicar(novas, [i + 1]);
+  };
+  const nova = (depoisDe) => {
+    const novas = [...secs];
+    novas.splice(depoisDe + 1, 0, { corpo: '' });
+    aplicar(novas, [depoisDe + 1]);
+  };
+
+  return (
+    <div>
+      <p className="muted" style={{ margin: '0 0 10px' }}>
+        Cada caixa é um pedaço do manual; o atendente lê tudo como um texto só, na ordem. Escreva o título em maiúsculas na primeira linha da caixa: ele aparece na lista.
+      </p>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
+        <input value={filtro} onChange={(e) => setFiltro(e.target.value)} placeholder="🔎 Procurar nas caixas" style={{ flex: 1, minWidth: 220 }} />
+      </div>
+      {secs.map((s, i) => {
+        if (!visivel(s)) return null;
+        const aberta = abertas.has(i) || !!f;
+        return (
+          <div key={i} style={{ border: '1px solid var(--border, #ddd)', borderRadius: 6, marginBottom: 3 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 10px', cursor: 'pointer' }} onClick={() => alternar(i)}>
+              <span>{aberta ? '▾' : '▸'}</span>
+              <strong style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rotulo(s.corpo)}</strong>
+              <span className="muted">{s.corpo.length} caracteres</span>
+            </div>
+            {aberta && (
+              <div style={{ padding: '0 10px 10px' }}>
+                <textarea id={`sec-ta-${i}`} value={s.corpo} onChange={(e) => editar(i, e.target.value)}
+                  rows={Math.min(30, Math.max(5, s.corpo.split('\n').length + 1))} style={{ width: '100%', fontFamily: 'inherit' }} />
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                  <button className="btn sm" onClick={() => dividir(i)}>Dividir aqui</button>
+                  <button className="btn sm" onClick={() => nova(i)}>＋ Caixa depois desta</button>
+                  {i > 0 && <button className="btn sm" onClick={() => juntarComAnterior(i)}>Juntar com a anterior</button>}
+                  <button className="btn sm" onClick={() => mover(i, -1)} disabled={i === 0}>↑ Subir</button>
+                  <button className="btn sm" onClick={() => mover(i, 1)} disabled={i === secs.length - 1}>↓ Descer</button>
+                  <button className="btn sm" onClick={() => excluir(i)}>Apagar caixa</button>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {f && !secs.some(visivel) && <p className="muted">Nada encontrado.</p>}
+      <button className="btn sm" style={{ marginTop: 6 }} onClick={() => nova(secs.length - 1)} title="Adicionar caixa de texto no final">＋</button>
+    </div>
+  );
+}
+
 function Manual() {
   const [info, setInfo] = useState(null);
   const [texto, setTexto] = useState('');
@@ -39,10 +124,16 @@ function Manual() {
   const [trocarPor, setTrocarPor] = useState('');
   const [exato, setExato] = useState(false);           // true = diferencia maiúsculas e acentos
   const [antesDaTroca, setAntesDaTroca] = useState(null); // texto antes da última troca, para desfazer
+  const [visao, setVisao] = useState(null);             // 'secoes' | 'texto' (null = escolhe sozinho ao abrir)
+  const [antesDeOrganizar, setAntesDeOrganizar] = useState(null);
 
   const load = (preencher = true) => api('/agent-manual').then((i) => {
     setInfo(i);
-    if (preencher) { setTexto(i.draft ? i.draft.content : i.current ? i.current.content : ''); setSujo(false); }
+    if (preencher) {
+      const t = i.draft ? i.draft.content : i.current ? i.current.content : '';
+      setTexto(t); setSujo(false);
+      setVisao((v) => v || (temSecoes(t) ? 'secoes' : 'texto'));
+    }
   }).catch((e) => setErr(e.message));
   useEffect(() => { load(); }, []);
   if (!info) return <p className="muted">Carregando…</p>;
@@ -70,6 +161,14 @@ function Manual() {
     setErr('');
     setMsg(`${achados.length} ${achados.length === 1 ? 'troca feita' : 'trocas feitas'} no texto. Confira e publique para o atendente passar a usar.`);
   };
+  const organizar = () => {
+    const r = sugerirSecoes(texto);
+    if (!r.quantas) { setErr('Não achei títulos em letras maiúsculas para separar. Use “Dividir aqui” dentro da visão por caixas.'); setVisao('secoes'); return; }
+    setAntesDeOrganizar(texto);
+    setTexto(r.texto); setSujo(true); setErr(''); setVisao('secoes');
+    setMsg(`Separei em ${r.quantas + 1} caixas, uma por título em maiúsculas. Confira, junte ou divida o que precisar. Nada foi publicado ainda.`);
+  };
+  const desfazerOrganizar = () => { setTexto(antesDeOrganizar); setAntesDeOrganizar(null); setSujo(true); setMsg('Organização desfeita.'); };
   const desfazerTroca = () => { setTexto(antesDaTroca); setAntesDaTroca(null); setSujo(true); setMsg('Troca desfeita.'); };
   return (
     <>
@@ -96,8 +195,16 @@ function Manual() {
             </div>
           )}
         </div>
-        <textarea value={texto} onChange={(e) => { setTexto(e.target.value); setSujo(true); setAntesDaTroca(null); }} rows={18}
-          style={{ width: '100%', fontFamily: 'inherit' }} placeholder="Ex.: Você é a atendente da empresa… Seja simpática e objetiva…" />
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
+          <button className={'btn sm' + (visao === 'secoes' ? ' primary' : '')} onClick={() => setVisao('secoes')}>Por caixas</button>
+          <button className={'btn sm' + (visao === 'texto' ? ' primary' : '')} onClick={() => setVisao('texto')}>Texto completo</button>
+          {!temSecoes(texto) && texto.trim() && <button className="btn sm" onClick={organizar}>✨ Separar em caixas automaticamente</button>}
+          {antesDeOrganizar !== null && <button className="btn sm" onClick={desfazerOrganizar}>Desfazer organização</button>}
+        </div>
+        {visao === 'secoes'
+          ? <Secoes texto={texto} onChange={(t) => { setTexto(t); setSujo(true); setAntesDaTroca(null); setAntesDeOrganizar(null); }} />
+          : <textarea value={texto} onChange={(e) => { setTexto(e.target.value); setSujo(true); setAntesDaTroca(null); }} rows={18}
+              style={{ width: '100%', fontFamily: 'inherit' }} placeholder="Ex.: Você é a atendente da empresa… Seja simpática e objetiva…" />}
         <div className="muted" style={{ margin: '6px 0 10px' }}>
           {texto.length} caracteres ·{' '}
           {info.current ? <>publicado em {fmtDataHora(info.current.published_at)}{igualAoPublicado ? '' : ' (você tem alterações ainda não publicadas)'}</> : 'nada publicado ainda'}

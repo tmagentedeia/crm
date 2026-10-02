@@ -91,5 +91,11 @@ await call('PUT', '/api/agent-config', { token: A.token, body: { agent_name: 'Ia
 pn = (await call('GET', '/n8n/agent/prompt', { n8n: 1 })).body;
 check('nome e ADM na primeira linha', pn.prompt.startsWith('Seu nome é Iara. O proprietário (ADM) se chama Thiago.\n\n') && pn.adm_name === 'Thiago', pn.prompt.slice(0, 90));
 await call('PUT', '/api/agent-config', { token: A.token, body: { agent_name: '', adm_name: '' } });
+// manual em caixas: as linhas "=====" separam as caixas no painel e não chegam ao atendente
+await call('PUT', '/api/agent-manual', { token: A.token, body: { content: 'CAIXA UM\nregra 1\n=====\nCAIXA DOIS\nregra 2\n=====   \nCAIXA TRÊS' } });
+await call('POST', '/api/agent-manual/publish', { token: A.token });
+pn = (await call('GET', '/n8n/agent/prompt', { n8n: 1 })).body;
+check('separadores de caixa não vão para o atendente', pn.prompt.startsWith('CAIXA UM\nregra 1\nCAIXA DOIS\nregra 2\nCAIXA TRÊS') && !pn.prompt.includes('=====') && pn.manual === 'CAIXA UM\nregra 1\nCAIXA DOIS\nregra 2\nCAIXA TRÊS', JSON.stringify(pn.prompt.slice(0, 120)));
+check('o painel guarda as caixas separadas', (await call('GET', '/api/agent-manual', { token: A.token })).body.current.content.includes('\n=====\n'));
 console.log(`\natendente: ${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);

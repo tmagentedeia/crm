@@ -238,7 +238,9 @@ export function buildRouter() {
     const man = (await q('SELECT content, published_at FROM agent_manual_versions WHERE published_at IS NOT NULL ORDER BY published_at DESC, id DESC LIMIT 1')).rows[0];
     const updates = (await q(
       `SELECT n.text, ${fromTs('n.ends_at')} AS ends_at FROM agent_updates n WHERE ${ACTIVE_NOW} ORDER BY n.created_at, n.id`, [req.user.companyId])).rows;
-    let prompt = man ? man.content.trim() : '';
+    // as caixas do manual são separadas por uma linha "=====" no painel; o atendente recebe o texto sem elas
+    const semSeparadores = (t) => t.replace(/^={5}[ \t]*\r?\n?/gm, '');
+    let prompt = man ? semSeparadores(man.content).trim() : '';
     // primeira linha: o nome do agente (definido na tela Atendente), para não precisar estar escrito no prompt do fluxo
     const cfgRow = (await qg('SELECT agent_name, adm_name FROM companies WHERE id=$1', [req.user.companyId])).rows[0] || {};
     const agentName = (cfgRow.agent_name || '').trim();
@@ -248,7 +250,7 @@ export function buildRouter() {
     if (updates.length)
       prompt += `${prompt ? '\n\n' : ''}ATUALIZAÇÕES RECENTES (informações mais novas que o manual: se alguma contrariar o manual, vale a atualização):\n` +
         updates.map((n) => `- ${n.text}`).join('\n');
-    res.json({ prompt, agent_name: agentName || null, adm_name: admName || null, manual: man ? man.content : '', updates, published_at: man ? man.published_at : null });
+    res.json({ prompt, agent_name: agentName || null, adm_name: admName || null, manual: man ? semSeparadores(man.content) : '', updates, published_at: man ? man.published_at : null });
   }));
 
   // ---------- CATEGORIAS ----------
