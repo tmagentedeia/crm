@@ -101,5 +101,15 @@ check('empresa 2 não usa nível da 1', (await T('/api/customers', { token: B, m
 check('empresa 2 não edita nível da 1', (await T('/api/club/levels/' + niv['Nível 1'], { token: B, method: 'PUT', body: { name: 'Hack' } })).status === 404);
 check('sem login = 401', (await call('GET', '/api/club')).status === 401);
 
+// cadastro de assinante pela agente
+const m1 = await T('/api/club/member', { method: 'POST', body: { phone: '553288770001', name: 'Assinante Novo', level: '4', birthday: '25/09/1990', last_name: 'Silva' } });
+check('cadastra assinante novo com nível 4', m1.status === 201 && m1.body.club_status === 'member' && m1.body.club_level_name === 'Nível 4' && m1.body.birth_day === 25 && m1.body.last_name === 'Silva', JSON.stringify(m1.body));
+const m2 = await T('/api/club/member', { method: 'POST', body: { phone: '553288770001', level: 'Nível 5' } });
+check('muda o nível do assinante existente', m2.status === 201 && m2.body.club_level_name === 'Nível 5' && m2.body.id === m1.body.id && m2.body.name === 'Assinante Novo', JSON.stringify(m2.body));
+const m3 = await T('/api/club/member', { method: 'POST', body: { phone: '553288770001', level: '9' } });
+check('nível inexistente = 400 com a lista', m3.status === 400 && Array.isArray(m3.body.levels), JSON.stringify(m3.body));
+check('telefone inválido = 400', (await T('/api/club/member', { method: 'POST', body: { phone: '12', level: '1' } })).status === 400);
+check('data inválida = 400', (await T('/api/club/member', { method: 'POST', body: { phone: '553288770002', level: '1', birthday: '40/13/2000' } })).status === 400);
+check('empresa 2 não tem esse nível', (await T('/api/club/member', { token: B, method: 'POST', body: { phone: '553288770003', level: '1' } })).status === 400);
 console.log(`clube: ${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);

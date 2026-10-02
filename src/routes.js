@@ -499,6 +499,28 @@ export function buildRouter() {
     await q(`UPDATE customers SET ${cols.map((c, i) => `${c}=$${i + 2}`).join(', ')}, updated_at=now() WHERE id=$1`, [id, ...cols.map((c) => campos[c])]);
   }
 
+  // Cadastro de assinante pela agente: cria o cliente se precisar, marca como membro e põe o nível (número ou nome do nível).
+  r.post('/club/member', wrap(async (req, res) => {
+    const b = req.body || {};
+    const phone = custPhone(b.phone);
+    if (digits(phone).length < 10) return res.status(400).json({ error: 'Telefone inválido (use DDD + número)' });
+    const nome = String(b.name ?? '').trim();
+    if (nome.length > 80 || /[\u0000-\u001f<>]/.test(nome)) return res.status(400).json({ error: 'Nome inválido' });
+    const f = await lerFicha({ ...(b.last_name !== undefined ? { last_name: b.last_name } : {}), ...(b.birthday ? { birthday: b.birthday } : {}) });
+    if (f.erro) return res.status(400).json({ error: f.erro });
+    const niveis = (await q('SELECT id, name FROM loyalty_levels ORDER BY position, id')).rows;
+    const pedido = String(b.level ?? '').trim().toLowerCase();
+    const num = pedido.match(/\d+/)?.[0];
+    const nivel = niveis.find((l) => l.name.trim().toLowerCase() === pedido)
+      || (num ? niveis.find((l) => l.name.match(/\d+/)?.[0] === num) : null);
+    if (!nivel) return res.status(400).json({ error: 'Nível não encontrado', levels: niveis.map((l) => l.name) });
+    const { rows } = await q(
+      `INSERT INTO customers (name,phone,source,status) VALUES (NULLIF($1,''),$2,'ia','client')
+       ON CONFLICT (phone) DO UPDATE SET name=COALESCE(customers.name, EXCLUDED.name) RETURNING id`, [nome, phone]);
+    await gravarFicha(rows[0].id, { ...f.campos, club_status: 'member', club_level_id: nivel.id });
+    res.status(201).json((await q(`${CUST} WHERE c.id=$1`, [rows[0].id])).rows[0]);
+  }));
+
   r.get('/customers', wrap(async (req, res) => {
     const { rows } = await q(`${CUST} WHERE ${FILTRO} ORDER BY c.created_at DESC LIMIT 500`, filtroArgs(req.query));
     res.json(rows);
