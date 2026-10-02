@@ -240,6 +240,17 @@ export function registerOrderRoutes(r, wrap) {
       totals: { orders: rows.reduce((s, x) => s + x.total, 0), franchise: rows.reduce((s, x) => s + x.used, 0), paid: rows.reduce((s, x) => s + x.paid_count, 0), paid_total: Math.round(rows.reduce((s, x) => s + x.paid_total, 0) * 100) / 100 } });
   }));
   r.get('/orders', wrap(async (req, res) => {
+    // ?phone=: pedidos do cliente na próxima live e na fila (a agente usa para conferir e para trocar música/dedicatória)
+    if (req.query.phone) {
+      const phone = normPhone(req.query.phone);
+      const tz = await fuso();
+      const live = await proximaLive((s, p) => q(s, p), tz);
+      const { rows } = await q(
+        `SELECT o.id, o.song, o.dedication, o.kind, o.amount_paid, o.live_id, o.created_at, (o.live_id IS NULL) AS in_queue
+         FROM song_orders o JOIN customers c ON c.id=o.customer_id
+         WHERE c.phone=$1 AND (o.live_id IS NULL OR o.live_id=$2::bigint) ORDER BY o.created_at, o.id`, [phone, live?.id || null]);
+      return res.json({ next_live: live ? { id: live.id, title: live.title, starts_at: live.starts_at } : null, orders: rows });
+    }
     const fila = req.query.queue === '1';
     const live = /^\d+$/.test(String(req.query.live_id || '')) ? req.query.live_id : null;
     const { rows } = await q(

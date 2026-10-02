@@ -123,5 +123,8 @@ const lista1 = (await T('GET', '/api/orders?live_id=' + l1.live.id)).body;
 check('live traz franquia, pagos, aguardando e recebido', lv1.orders === lista1.length && lv1.franchise_count === lista1.filter((x) => x.kind === 'franchise').length
   && lv1.paid_count === lista1.filter((x) => x.kind === 'paid').length && lv1.awaiting_count === lista1.filter((x) => x.kind === 'paid' && x.amount_paid == null).length
   && Math.abs(lv1.received - lista1.filter((x) => x.kind === 'paid').reduce((s2, x) => s2 + Number(x.amount_paid || 0), 0)) < 0.001, JSON.stringify(lv1));
+const meus = (await T('GET', '/api/orders?phone=' + P1)).body;
+check('pedidos do cliente por telefone (próxima live + fila)', Array.isArray(meus.orders) && meus.orders.length > 0 && meus.orders.every((x) => x.id && x.song !== undefined) && 'next_live' in meus, JSON.stringify(meus).slice(0, 200));
+check('telefone sem pedidos devolve lista vazia', ((await T('GET', '/api/orders?phone=32900000000')).body.orders || [1]).length === 0);
 console.log(`pedidos: ${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);
