@@ -732,11 +732,29 @@ export function buildRouter() {
     // se o responsável já autorizou esse horário (o agente perguntou a ele antes), nasce agendado
     const autorizado = req.body.adm_approved === true;
     const status = mode === 'confirm' && source === 'ia' && !autorizado ? 'pending' : 'scheduled';
-    const { rows } = await q(
-      `INSERT INTO appointments (professional_id,customer_id,service_id,starts_at,ends_at,price,source,status)
-       VALUES ($1,$2,$3,$4::timestamptz,$4::timestamptz + make_interval(mins => $5),$6,$7,$8) RETURNING *`,
-      [professional_id, customer_id, service_id, starts_at,
-       sv.rows[0].duration_min, sv.rows[0].price, source, status]);
+    const r = await tx(currentCompany(), async (t) => {
+      // Agente repetindo o pedido (cliente insistiu, ou duas chamadas no mesmo segundo): não marca de novo, devolve o que já existe.
+      // Vale para o mesmo cliente, no mesmo horário (1 min), com o mesmo profissional ou o mesmo serviço.
+      // A trava por cliente faz chamadas simultâneas passarem uma de cada vez.
+      if (source === 'ia') {
+        await t('SELECT pg_advisory_xact_lock($1)', [Number(customer_id)]);
+        const dup = (await t(
+          `SELECT * FROM appointments
+           WHERE customer_id=$1 AND status IN ('pending','scheduled')
+             AND abs(extract(epoch FROM (starts_at - $2::timestamptz))) < 60
+             AND (professional_id=$3 OR service_id=$4)
+           ORDER BY id LIMIT 1`, [customer_id, starts_at, professional_id, service_id])).rows[0];
+        if (dup) return { row: dup, dup: true };
+      }
+      const ins = await t(
+        `INSERT INTO appointments (professional_id,customer_id,service_id,starts_at,ends_at,price,source,status)
+         VALUES ($1,$2,$3,$4::timestamptz,$4::timestamptz + make_interval(mins => $5),$6,$7,$8) RETURNING *`,
+        [professional_id, customer_id, service_id, starts_at,
+         sv.rows[0].duration_min, sv.rows[0].price, source, status]);
+      return { row: ins.rows[0], dup: false };
+    });
+    const rows = [r.row];
+    if (r.dup) return res.status(200).json({ ...r.row, already_exists: true });
     res.status(201).json(rows[0]);
     apptSnapshot(rows[0].id).then((s) => notifyN8n('created', s)).catch(() => {});
   }));
