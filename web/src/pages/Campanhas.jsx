@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { api, fmtPhone } from '../api.js';
 import { Nome } from "../menu.jsx";
 
@@ -63,27 +63,50 @@ export default function Campanhas() {
   );
 }
 
+const lerJson = (k) => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
+
 function Form({ id, voltar, abrir, frases }) {
   const [f, setF] = useState(PADRAO);
   const [clientes, setClientes] = useState([]);
   const [sim, setSim] = useState(null);
   const [erro, setErro] = useState('');
   const [salvando, setSalvando] = useState(false);
+  const [recuperado, setRecuperado] = useState(false); // voltou com o que estava sendo preenchido
+  const [pronto, setPronto] = useState(false);
+  const mexeu = useRef(false); // só guarda o rascunho depois que a pessoa mexe em alguma coisa
+  // O que ainda não foi salvo fica guardado neste navegador, por empresa e por campanha
+  const chave = 'crm_campanha_rascunho:' + (lerJson('crm_company')?.id ?? '') + ':' + (id || 'novo');
+
+  const doServidor = () => api('/campaigns/' + id).then((c) => setF({
+    name: c.name, messages: c.messages,
+    interval_min: c.interval_min, interval_max: c.interval_max, batch_size: c.batch_size,
+    batch_pause_min: c.batch_pause_min, daily_limit: c.daily_limit,
+    mode: 'selected', ids: c.recipients.map((r) => r.customer_id).filter(Boolean),
+  }));
 
   useEffect(() => {
     Promise.all([api('/customers?status=client'), api('/customers?status=lead')])
       .then(([c, l]) => setClientes([...c.map((x) => ({ ...x, tipo: 'Cliente' })), ...l.map((x) => ({ ...x, tipo: 'Lead' }))]))
       .catch(() => {});
-    if (id) api('/campaigns/' + id).then((c) => setF({
-      name: c.name, messages: c.messages,
-      interval_min: c.interval_min, interval_max: c.interval_max, batch_size: c.batch_size,
-      batch_pause_min: c.batch_pause_min, daily_limit: c.daily_limit,
-      mode: 'selected', ids: c.recipients.map((r) => r.customer_id).filter(Boolean),
-    }));
+    const rasc = lerJson(chave);
+    if (rasc) { setF({ ...PADRAO, ...rasc }); setRecuperado(true); mexeu.current = true; setPronto(true); }
+    else if (id) doServidor().then(() => setPronto(true));
+    else setPronto(true);
   }, [id]);
 
-  const set = (k, v) => setF((x) => ({ ...x, [k]: v }));
-  const setMsg = (i, v) => setF((x) => ({ ...x, messages: x.messages.map((m, j) => (j === i ? v : m)) }));
+  useEffect(() => {
+    if (!pronto || !mexeu.current) return;
+    try { localStorage.setItem(chave, JSON.stringify(f)); } catch {}
+  }, [f, pronto]);
+
+  const descartar = async () => {
+    try { localStorage.removeItem(chave); } catch {}
+    mexeu.current = false; setRecuperado(false); setErro('');
+    if (id) await doServidor(); else setF(PADRAO);
+  };
+
+  const set = (k, v) => { mexeu.current = true; setF((x) => ({ ...x, [k]: v })); };
+  const setMsg = (i, v) => { mexeu.current = true; setF((x) => ({ ...x, messages: x.messages.map((m, j) => (j === i ? v : m)) })); };
   const total = useMemo(() => {
     if (f.mode === 'selected') return f.ids.length;
     if (f.mode === 'clients') return clientes.filter((c) => c.tipo === 'Cliente').length;
@@ -132,6 +155,8 @@ function Form({ id, voltar, abrir, frases }) {
     setErro(''); setSalvando(true);
     try {
       const r = await api(id ? '/campaigns/' + id : '/campaigns', { method: id ? 'PUT' : 'POST', body: body() });
+      try { localStorage.removeItem(chave); } catch {}
+      mexeu.current = false;
       abrir(r.id);
     } catch (e) { setErro(e.message); }
     setSalvando(false);
@@ -143,6 +168,12 @@ function Form({ id, voltar, abrir, frases }) {
         <h1>{id ? 'Editar campanha' : 'Nova campanha'}</h1>
         <button className="btn" onClick={voltar}>Voltar</button>
       </div>
+      {recuperado && (
+        <div className="card" style={{ marginBottom: 12, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span>Recuperamos o que você tinha começado a preencher e ainda não salvou.</span>
+          <button className="btn sm" onClick={descartar}>Descartar e começar de novo</button>
+        </div>
+      )}
       {erro && <div className="error">{erro}</div>}
 
       <div className="card" style={{ marginBottom: 14 }}>

@@ -226,6 +226,9 @@ export default function Admin() {
               <div style={{ display: 'flex', gap: 22, flexWrap: 'wrap', alignItems: 'flex-end' }}>
                 <Campo rotulo="Código"><strong>{s.id}</strong></Campo>
                 <Campo rotulo="Empresa"><strong>{s.name}</strong></Campo>
+                <Campo rotulo=" ">
+                  <button className="btn sm" style={{ fontWeight: 700 }} onClick={() => abrirPainel(s)}>Abrir painel</button>
+                </Campo>
                 <Campo rotulo="E-mail do responsável">
                   {s.owner_email
                     ? <input readOnly value={s.owner_email} title={s.owner_email} onFocus={(e) => e.target.select()} style={{ width: '13ch', minWidth: 0 }} />
@@ -267,9 +270,6 @@ export default function Admin() {
                 </Campo>
                 <Campo rotulo="Modelo">
                   <button className="btn sm" onClick={() => setSalvarModelo({ company_id: s.id, empresa: s.name, name: '', description: '' })}>Salvar como modelo</button>
-                </Campo>
-                <Campo rotulo="Painel">
-                  <button className="btn sm" onClick={() => abrirPainel(s)}>Abrir painel</button>
                 </Campo>
               </div>
             </div>

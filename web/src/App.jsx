@@ -116,10 +116,15 @@ export default function App() {
           <span>{company.name || 'Minha Empresa'}</span>
         </div>
         {MENU.map((m) => (
-          <button key={m.id} className={'nav-item' + (atual.id === m.id ? ' active' : '')} onClick={() => go(m.id)} title={m.label}>
+          <a key={m.id} href={'#' + m.id} className={'nav-item' + (atual.id === m.id ? ' active' : '')} title={m.label}
+            onClick={(e) => {
+              // Ctrl/Cmd/Shift + clique e clique do meio: deixa o navegador abrir em outra aba
+              if (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1) return;
+              e.preventDefault(); go(m.id);
+            }}>
             <span className="nav-icon">{m.icon}</span>
             <span>{m.label}</span>
-          </button>
+          </a>
         ))}
         <div className="spacer" />
         <button className="nav-item" onClick={() => { setToken(null); localStorage.removeItem(ADMIN_KEY); localStorage.removeItem('crm_company'); setLogged(false); }}>
