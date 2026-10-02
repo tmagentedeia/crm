@@ -43,6 +43,8 @@ export default function Admin() {
       const { [s.id]: _, ...resto } = cx; setCx(resto); setMsg('Bloqueios de ' + s.name + ' atualizados.'); load();
     } catch (e) { setErr(e.message); }
   };
+  const [em, setEm] = useState({}); // id -> e-mail do responsável em edição
+  const [trocaEmail, setTrocaEmail] = useState(null); // { id, empresa, de, para, senha }
   const [wh, setWh] = useState({}); // endereço do fluxo de campanhas em edição, por empresa
   const salvarWh = async (s) => {
     setErr(''); setMsg('');
@@ -88,6 +90,15 @@ export default function Admin() {
     } catch (e) { setErr(e.message); }
   }
 
+  async function confirmarEmail() {
+    setErr(''); setMsg('');
+    try {
+      const r = await api(`/admin/companies/${trocaEmail.id}/owner`, { method: 'PUT', body: { email: trocaEmail.para, password: trocaEmail.senha } });
+      setMsg(`E-mail do responsável de "${trocaEmail.empresa}" agora é ${r.owner_email}, com a senha nova.`);
+      setEm((x) => { const n = { ...x }; delete n[trocaEmail.id]; return n; });
+      setTrocaEmail(null); load();
+    } catch (e) { setErr(e.message); }
+  }
   async function salvarModo(s, modo) {
     setErr(''); setMsg('');
     try {
@@ -219,6 +230,23 @@ export default function Admin() {
         </div>
       )}
 
+      {trocaEmail && (
+        <div className="modal-bg" onClick={() => setTrocaEmail(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>Trocar o e-mail de login?</h2>
+            <p>Empresa <strong>{trocaEmail.empresa}</strong>:<br />de <strong>{trocaEmail.de}</strong><br />para <strong>{trocaEmail.para}</strong></p>
+            <div className="field"><label>Senha nova para este login (8 ou mais caracteres)</label>
+              <CampoSenha value={trocaEmail.senha} onChange={(e) => setTrocaEmail({ ...trocaEmail, senha: e.target.value })} autoFocus autoComplete="new-password" />
+            </div>
+            {err && <div className="error">{err}</div>}
+            <div className="row">
+              <button className="btn primary" disabled={trocaEmail.senha.length < 8} onClick={confirmarEmail}>Trocar e-mail e senha</button>
+              <button className="btn" onClick={() => setTrocaEmail(null)}>Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {list.map((s) => {
         const changed = s.id in edit;
         return (
@@ -232,7 +260,13 @@ export default function Admin() {
                 </Campo>
                 <Campo rotulo="E-mail do responsável">
                   {s.owner_email
-                    ? <input readOnly value={s.owner_email} title={s.owner_email} onFocus={(e) => e.target.select()} style={{ width: '13ch', minWidth: 0 }} />
+                    ? <input type="email" value={em[s.id] ?? s.owner_email} title="Clique, edite e aperte Enter para trocar" style={{ width: '13ch', minWidth: 0 }}
+                        onChange={(e) => setEm({ ...em, [s.id]: e.target.value })}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape') setEm((x) => { const n = { ...x }; delete n[s.id]; return n; });
+                          if (e.key === 'Enter' && em[s.id] !== undefined && em[s.id].trim().toLowerCase() !== s.owner_email.toLowerCase())
+                            setTrocaEmail({ id: s.id, empresa: s.name, de: s.owner_email, para: em[s.id].trim().toLowerCase(), senha: '' });
+                        }} />
                     : <span className="muted">—</span>}
                 </Campo>
                 <Campo rotulo="Criado em"><span className="muted" style={{ fontSize: 12 }}>{fmtDate(s.created_at)}</span></Campo>

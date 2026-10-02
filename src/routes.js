@@ -132,7 +132,7 @@ export function buildRouter() {
   const r = Router();
 
   // ---------- ATENDENTE: MANUAL E ATUALIZAÇÕES PROVISÓRIAS ----------
-  const MANUAL_MAX = 30000, UPDATE_MAX = 1000, UPDATES_MAX = 10;
+  const MANUAL_MAX = 50000, UPDATE_MAX = 1000, UPDATES_MAX = 10;
   // Momento escolhido pela pessoa, no horário da empresa: "aaaa-mm-ddThh:mm"
   const isMoment = (v) => v === null || v === undefined || v === '' || /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(String(v));
   const mOrNull = (v) => (v ? String(v) : null);

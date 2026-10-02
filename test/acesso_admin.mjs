@@ -31,4 +31,19 @@ check('não usa a administração estando dentro da empresa', (await call('GET',
 check('não encadeia para outra empresa', (await call('POST', '/api/admin/companies/1/impersonate', { token: T })).status === 403);
 const normal = await call('GET', '/api/me', { token: B.token });
 check('login normal não é marcado como acesso do administrador', normal.body.impersonating === false);
+
+// ---- trocar o e-mail de login do responsável (com senha nova) ----
+const ow = (body, token = A.token, id = idB) => call('PUT', `/api/admin/companies/${id}/owner`, { token, body });
+check('troca de e-mail: só administrador', (await ow({ email: 'novo@x.com', password: 'senhanova1' }, B.token)).status === 403);
+check('troca de e-mail: e-mail inválido = 400', (await ow({ email: 'abc', password: 'senhanova1' })).status === 400);
+check('troca de e-mail: exige senha nova = 400', (await ow({ email: 'novo@x.com', password: '123' })).status === 400);
+check('troca de e-mail: empresa inexistente = 404', (await ow({ email: 't@x.com', password: 'senhanova1' }, A.token, 99999)).status === 404);
+check('troca de e-mail: já existente = 409', (await ow({ email: 'demo@demo.com', password: 'senhanova1' })).status === 409);
+check('troca de e-mail do administrador para fora da lista = 409', (await ow({ email: 'fora@x.com', password: 'senhanova1' }, A.token, A.company.id)).status === 409);
+const rr = await ow({ email: 'Troca.Teste@X.com', password: 'senhanova1' });
+check('troca de e-mail ok', rr.body?.owner_email === 'troca.teste@x.com', JSON.stringify(rr));
+check('login antigo não entra mais', (await call('POST', '/api/auth/login', { body: { email: 'dois@x.com', password: 'senhasenha' } })).status === 401);
+check('login novo entra', !!(await login('troca.teste@x.com', 'senhanova1')).token);
+await ow({ email: 'dois@x.com', password: 'senhasenha' });
+check('volta ao e-mail original', !!(await login('dois@x.com', 'senhasenha')).token);
 console.log(`acesso_admin: ${ok} ok, ${fail} falhas`); process.exit(fail ? 1 : 0);

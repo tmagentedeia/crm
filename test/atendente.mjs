@@ -33,7 +33,8 @@ check('duas versões, a mais nova em uso', m.versions.length === 2 && m.current.
 const v1 = m.versions.find((v) => v.content === 'Versão 1b');
 check('voltar versão antiga vira rascunho', (await call('POST', `/api/agent-manual/restore/${v1.id}`, { token: A.token })).status === 200
   && (await call('GET', '/api/agent-manual', { token: A.token })).body.draft.content === 'Versão 1b');
-check('manual enorme = 400', (await call('PUT', '/api/agent-manual', { token: A.token, body: { content: 'x'.repeat(30001) } })).status === 400);
+check('manual de 50 mil cabe', (await call('PUT', '/api/agent-manual', { token: A.token, body: { content: 'x'.repeat(50000) } })).status === 200);
+check('manual enorme = 400', (await call('PUT', '/api/agent-manual', { token: A.token, body: { content: 'x'.repeat(50001) } })).status === 400);
 check('empresa B não vê o manual de A', (await call('GET', '/api/agent-manual', { token: B.token })).body.versions.length === 0
   && (await call('GET', '/n8n/agent/prompt', { n8n: 2 })).body.prompt === '');
 check('restaurar versão de outra empresa = 404', (await call('POST', `/api/agent-manual/restore/${v1.id}`, { token: B.token })).status === 404);

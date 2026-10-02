@@ -176,6 +176,27 @@ app.get('/api/admin/companies', requireUser, requireAdmin, async (req, res) => {
   res.json(rows);
 });
 
+// Troca o e-mail de login do responsável da empresa; exige uma senha nova junto.
+app.put('/api/admin/companies/:id/owner', requireUser, requireAdmin, async (req, res) => {
+  const email = String(req.body.email || '').trim().toLowerCase();
+  const password = String(req.body.password || '');
+  if (!/^\S+@\S+\.\S+$/.test(email)) return res.status(400).json({ error: 'E-mail inválido' });
+  if (password.length < 8) return res.status(400).json({ error: 'A senha nova precisa ter ao menos 8 caracteres' });
+  const u = (await qg(`SELECT id, email FROM users WHERE company_id=$1 ORDER BY (role='owner') DESC, id LIMIT 1`, [req.params.id])).rows[0];
+  if (!u) return res.status(404).json({ error: 'Responsável não encontrado' });
+  // quem é administrador é reconhecido pelo e-mail: não deixa trocar de um jeito que tire o acesso à Administração
+  const admins = (process.env.ADMIN_EMAILS || '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
+  if (admins.includes(u.email.toLowerCase()) && !admins.includes(email))
+    return res.status(409).json({ error: 'Este é um e-mail de administrador. Para não perder o acesso à Administração, inclua primeiro o novo e-mail na lista de administradores do servidor (ADMIN_EMAILS) e só depois faça a troca.' });
+  try {
+    await qg('UPDATE users SET email=$2, password_hash=$3 WHERE id=$1', [u.id, email, await bcrypt.hash(password, 10)]);
+  } catch (e) {
+    if (e.code === '23505') return res.status(409).json({ error: 'Já existe um usuário com este e-mail' });
+    throw e;
+  }
+  res.json({ id: Number(req.params.id), owner_email: email });
+});
+
 app.put('/api/admin/companies/:id', requireUser, requireAdmin, async (req, res) => {
   let { max_professionals } = req.body; // null/'' = sem limite; ausente = não mexe
   const mexeLimite = max_professionals !== undefined;
