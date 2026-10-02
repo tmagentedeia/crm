@@ -9,10 +9,30 @@ const baseline = fs.readFileSync(path.join(dir, '..', 'db', 'tenant.sql'), 'utf8
 // Alterações futuras na estrutura das empresas: cada item roda uma vez em CADA schema (company_<id>),
 // em ordem. O número da versão é a posição na lista (a base, tenant.sql, é a versão 1).
 // Exemplo: { version: 2, sql: "ALTER TABLE customers ADD COLUMN IF NOT EXISTS algo TEXT" }
-const atendenteSql = baseline.slice(baseline.indexOf('-- ========== ATENDENTE'));
+const atendenteSql = baseline.slice(baseline.indexOf('-- ========== ATENDENTE'), baseline.indexOf('-- ========== CAMPANHAS'));
+const campanhasSql = baseline.slice(baseline.indexOf('-- ========== CAMPANHAS'));
 export const TENANT_STEPS = [
   // 2: manual e avisos do atendente (empresas criadas antes dele; as novas já nascem com isso na base)
   { version: 2, sql: atendenteSql },
+  // 3: status "pending" (aguardando confirmação do responsável); o horário pendente já ocupa a agenda
+  { version: 3, sql: `
+    DO $$
+    DECLARE c record;
+    BEGIN
+      FOR c IN SELECT conname FROM pg_constraint
+               WHERE conrelid = 'appointments'::regclass AND contype IN ('c','x')
+                 AND (pg_get_constraintdef(oid) LIKE '%no_show%' OR contype = 'x')
+      LOOP
+        EXECUTE format('ALTER TABLE appointments DROP CONSTRAINT %I', c.conname);
+      END LOOP;
+      ALTER TABLE appointments ADD CONSTRAINT appointments_status_check
+        CHECK (status IN ('pending','scheduled','attended','no_show','cancelled'));
+      ALTER TABLE appointments ADD CONSTRAINT appointments_no_overlap
+        EXCLUDE USING gist (professional_id WITH =, tstzrange(starts_at, ends_at) WITH &&)
+        WHERE (status IN ('pending','scheduled','attended'));
+    END $$;` },
+  // 4: campanhas (envio em lote com ritmo controlado)
+  { version: 4, sql: campanhasSql },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 

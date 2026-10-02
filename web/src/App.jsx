@@ -14,6 +14,7 @@ import Admin from './pages/Admin.jsx';
 import Atendente from './pages/Atendente.jsx';
 import Comandos from './pages/Comandos.jsx';
 import Bloqueios from './pages/Bloqueios.jsx';
+import Campanhas from './pages/Campanhas.jsx';
 import { moduleOn } from './modules.js';
 import { MenuCustomContext, nomeDoMenu, iconeDoMenu } from './menu.jsx';
 
@@ -31,16 +32,17 @@ const ADMIN_ITEM = { id: 'admin', label: 'Administração', icon: '🛠️', com
 // module = módulo que precisa estar ligado para o item aparecer (sem module = sempre aparece)
 const BASE_MENU = [
   { id: 'dashboard', module: 'dashboard', label: 'Dashboard', icon: '📊', comp: Dashboard },
-  { id: 'agenda', module: 'agenda', label: 'Agenda', icon: '📅', comp: Agenda },
-  { id: 'fila', module: 'fila', label: 'Fila de espera', icon: '⏳', comp: Fila },
+  { id: 'atendente', module: 'atendente', label: 'Atendente', icon: '🤖', comp: Atendente },
   { id: 'clientes', module: 'clientes', label: 'Clientes e Leads', icon: '👥', comp: Clientes },
-  { id: 'inativos', module: 'inativos', label: 'Retorno de inativos', icon: '🔁', comp: Inativos },
+  { id: 'agenda', module: 'agenda', label: 'Agenda', icon: '📅', comp: Agenda },
   { id: 'profissionais', module: 'profissionais', label: 'Profissionais', icon: '✂️', comp: Profissionais },
   { id: 'servicos', module: 'servicos', label: 'Serviços', icon: '🏢', comp: Servicos },
-  { id: 'importar', module: 'importar', label: 'Importar planilha', icon: '📥', comp: Importar },
-  { id: 'atendente', module: 'atendente', label: 'Atendente', icon: '🤖', comp: Atendente },
+  { id: 'inativos', module: 'inativos', label: 'Retorno de inativos', icon: '🔁', comp: Inativos },
+  { id: 'campanhas', module: 'campanhas', label: 'Campanhas', icon: '📣', comp: Campanhas },
+  { id: 'fila', module: 'fila', label: 'Fila de espera', icon: '⏳', comp: Fila },
   { id: 'comandos', module: 'comandos', label: 'Comandos', icon: '🎛️', comp: Comandos },
   { id: 'bloqueios', module: 'bloqueios', label: 'Atendimentos bloqueados', icon: '🚫', comp: Bloqueios },
+  { id: 'importar', module: 'importar', label: 'Importar planilha', icon: '📥', comp: Importar },
   { id: 'config', label: 'Configurações', icon: '⚙️', comp: Config },
 ];
 

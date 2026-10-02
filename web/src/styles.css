@@ -5,7 +5,7 @@
 :root[data-mode='dark'] input, :root[data-mode='dark'] select, :root[data-mode='dark'] textarea { background: var(--bg); color: var(--text); }
 :root[data-mode='dark'] .modal { background: var(--card); }
 :root[data-mode='dark'] .badge.client, :root[data-mode='dark'] .badge.attended { background: #123524; }
-:root[data-mode='dark'] .badge.lead { background: #3a2c10; }
+:root[data-mode='dark'] .badge.lead, :root[data-mode='dark'] .badge.pending { background: #3a2c10; }
 :root[data-mode='dark'] .badge.no_show { background: #3d1a1a; }
 :root[data-mode='dark'] .badge.cancelled { background: #2a3140; }
 :root[data-mode='dark'] .error { background: #3d1a1a; }
@@ -90,6 +90,7 @@ tr.click { cursor: pointer; } tr.click:hover td { background: var(--bg); }
 .badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; }
 .badge.lead { background: #fff4e0; color: var(--warn); }
 .badge.client { background: #e3f6ea; color: var(--ok); }
+.badge.pending { background: #fff4e0; color: var(--warn); }
 .badge.scheduled { background: var(--primary-soft); color: var(--primary); }
 .badge.attended { background: #e3f6ea; color: var(--ok); }
 .badge.no_show { background: #fde8e8; color: var(--bad); }

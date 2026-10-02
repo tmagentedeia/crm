@@ -82,7 +82,7 @@ CREATE TABLE appointments (
   ends_at         TIMESTAMPTZ NOT NULL,
   price           NUMERIC(10,2) NOT NULL DEFAULT 0,   -- congela o preço na hora do agendamento
   status          TEXT NOT NULL DEFAULT 'scheduled'
-                  CHECK (status IN ('scheduled','attended','no_show','cancelled')),
+                  CHECK (status IN ('pending','scheduled','attended','no_show','cancelled')),
   source          TEXT NOT NULL DEFAULT 'ia' CHECK (source IN ('ia','manual')),
   google_event_id TEXT,                               -- evento espelhado no Google Agenda (opcional)
   reminder_sent_at TIMESTAMPTZ,                       -- lembrete enviado ao cliente (NULL = ainda não)
@@ -92,7 +92,7 @@ CREATE TABLE appointments (
   EXCLUDE USING gist (
     professional_id WITH =,
     tstzrange(starts_at, ends_at) WITH &&
-  ) WHERE (status IN ('scheduled','attended'))
+  ) WHERE (status IN ('pending','scheduled','attended'))
 );
 CREATE INDEX idx_appt_start ON appointments (starts_at);
 CREATE INDEX idx_appt_customer ON appointments (customer_id, starts_at DESC);
@@ -204,3 +204,42 @@ CREATE TABLE IF NOT EXISTS agent_updates (
   active     BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- ========== CAMPANHAS ==========
+-- Envio em lote com ritmo controlado. Status: draft (rascunho), running, paused, stopped (parada pelo dono), done.
+CREATE TABLE IF NOT EXISTS campaigns (
+  id            BIGSERIAL PRIMARY KEY,
+  name          TEXT NOT NULL,
+  status        TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','running','paused','stopped','done')),
+  messages      JSONB NOT NULL DEFAULT '[]',          -- 3 versões do texto
+  greeting_random BOOLEAN NOT NULL DEFAULT true,
+  interval_min  INT NOT NULL DEFAULT 5,               -- minutos entre mensagens (sorteado entre min e max)
+  interval_max  INT NOT NULL DEFAULT 10,
+  batch_size    INT NOT NULL DEFAULT 20,              -- envios seguidos antes da pausa
+  batch_pause_min INT NOT NULL DEFAULT 60,            -- minutos de pausa depois de cada lote
+  daily_limit   INT NOT NULL DEFAULT 50,
+  accepted_at   TIMESTAMPTZ,                          -- quando o dono confirmou o aviso de risco
+  accepted_by   TEXT,
+  next_send_at  TIMESTAMPTZ,
+  batch_sent    INT NOT NULL DEFAULT 0,
+  consecutive_failures INT NOT NULL DEFAULT 0,
+  pause_reason  TEXT,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  started_at    TIMESTAMPTZ,
+  finished_at   TIMESTAMPTZ
+);
+CREATE TABLE IF NOT EXISTS campaign_recipients (
+  id          BIGSERIAL PRIMARY KEY,
+  campaign_id BIGINT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+  customer_id BIGINT REFERENCES customers(id) ON DELETE SET NULL,
+  name        TEXT,
+  phone       TEXT NOT NULL,
+  chat_id     TEXT,
+  status      TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','sending','sent','failed','cancelled')),
+  sent_text   TEXT,
+  sent_at     TIMESTAMPTZ,
+  claimed_at  TIMESTAMPTZ,
+  error       TEXT,
+  UNIQUE (campaign_id, phone)
+);
+CREATE INDEX IF NOT EXISTS idx_camp_rec_pending ON campaign_recipients (campaign_id, status);

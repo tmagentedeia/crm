@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { q, qg, tx, currentCompany } from './db.js';
 import { runImport } from './importer.js';
+import { registerCampaignRoutes } from './campaigns.js';
 
 const digits = (s) => String(s || '').replace(/\D/g, '');
 // Telefone digitado só com DDD (10 ou 11 dígitos): põe o 55 e tira o 9 extra do celular,
@@ -528,11 +529,14 @@ export function buildRouter() {
     if (!ok.rows[0].b || !ok.rows[0].c) return res.status(400).json({ error: 'Profissional ou cliente inválido' });
     const does = await q(`SELECT ${doesSql('$1', '$2')} AS ok`, [professional_id, service_id]);
     if (!does.rows[0].ok) return res.status(400).json({ error: 'Este profissional não realiza esse serviço' });
+    // empresa em "sob confirmação": o que o agente marca fica aguardando o responsável confirmar
+    const mode = (await qg('SELECT booking_mode FROM companies WHERE id=$1', [currentCompany()])).rows[0]?.booking_mode;
+    const status = mode === 'confirm' && source === 'ia' ? 'pending' : 'scheduled';
     const { rows } = await q(
-      `INSERT INTO appointments (professional_id,customer_id,service_id,starts_at,ends_at,price,source)
-       VALUES ($1,$2,$3,$4::timestamptz,$4::timestamptz + make_interval(mins => $5),$6,$7) RETURNING *`,
+      `INSERT INTO appointments (professional_id,customer_id,service_id,starts_at,ends_at,price,source,status)
+       VALUES ($1,$2,$3,$4::timestamptz,$4::timestamptz + make_interval(mins => $5),$6,$7,$8) RETURNING *`,
       [professional_id, customer_id, service_id, starts_at,
-       sv.rows[0].duration_min, sv.rows[0].price, source]);
+       sv.rows[0].duration_min, sv.rows[0].price, source, status]);
     res.status(201).json(rows[0]);
     apptSnapshot(rows[0].id).then((s) => notifyN8n('created', s)).catch(() => {});
   }));
@@ -570,7 +574,7 @@ export function buildRouter() {
   // status: attended | no_show | cancelled | scheduled
   r.patch('/appointments/:id/status', wrap(async (req, res) => {
     const { status } = req.body;
-    if (!['scheduled', 'attended', 'no_show', 'cancelled'].includes(status))
+    if (!['pending', 'scheduled', 'attended', 'no_show', 'cancelled'].includes(status))
       return res.status(400).json({ error: 'Status inválido' });
     const { rows } = await q('UPDATE appointments SET status=$2 WHERE id=$1 RETURNING *',
       [req.params.id, status]);
@@ -581,6 +585,30 @@ export function buildRouter() {
       // cancelado ou faltou = horário liberado (só sai aviso se o horário ainda for futuro)
       if (status === 'cancelled' || status === 'no_show') checkWaitlist(s);
     }).catch(() => {});
+  }));
+  // Resposta do responsável a um agendamento aguardando confirmação (pelo painel ou pelo WhatsApp):
+  // vale a primeira resposta; quem chegar depois recebe 409 com a situação atual.
+  r.post('/appointments/:id/respond', wrap(async (req, res) => {
+    const { decision } = req.body || {};
+    if (!['confirm', 'reject'].includes(decision)) return res.status(400).json({ error: 'Decisão inválida (confirm ou reject)' });
+    const { rows } = await q(
+      "UPDATE appointments SET status=$2 WHERE id=$1 AND status='pending' RETURNING *",
+      [req.params.id, decision === 'confirm' ? 'scheduled' : 'cancelled']);
+    if (!rows[0]) {
+      const cur = (await q('SELECT status FROM appointments WHERE id=$1', [req.params.id])).rows[0];
+      if (!cur) return res.status(404).json({ error: 'Não encontrado' });
+      return res.status(409).json({ error: 'Esse agendamento já foi respondido', ja_respondido: true, status: cur.status });
+    }
+    res.json(rows[0]);
+    apptSnapshot(rows[0].id).then((s) => {
+      notifyN8n('updated', s);
+      if (decision === 'reject') checkWaitlist(s);
+    }).catch(() => {});
+  }));
+  // Modo de agendamento da empresa: 'auto' (horários fixos) ou 'confirm' (sob confirmação do responsável)
+  r.get('/booking-mode', wrap(async (req, res) => {
+    const m = (await qg('SELECT booking_mode FROM companies WHERE id=$1', [currentCompany()])).rows[0]?.booking_mode || 'auto';
+    res.json({ booking_mode: m });
   }));
   // guarda o id do evento espelhado no Google Agenda (string vazia = remove)
   r.patch('/appointments/:id', wrap(async (req, res) => {
@@ -596,7 +624,7 @@ export function buildRouter() {
     await q('DELETE FROM appointments WHERE id=$1', [req.params.id]);
     res.json({ ok: true });
     notifyN8n('deleted', snap);
-    if (snap && ['scheduled', 'attended'].includes(snap.status)) checkWaitlist(snap).catch(() => {});
+    if (snap && ['pending', 'scheduled', 'attended'].includes(snap.status)) checkWaitlist(snap).catch(() => {});
   }));
 
   // ---------- FILA DE ESPERA ----------
@@ -681,7 +709,7 @@ export function buildRouter() {
        WHERE (break_start IS NULL OR NOT (t_start::time < break_end AND t_end::time > break_start))
          AND (t_start AT TIME ZONE $4) > now()
          AND NOT EXISTS (SELECT 1 FROM appointments a WHERE a.professional_id=slots.professional_id
-               AND a.status IN ('scheduled','attended')
+               AND a.status IN ('pending','scheduled','attended')
                AND tstzrange(a.starts_at,a.ends_at) && tstzrange(t_start AT TIME ZONE $4, t_end AT TIME ZONE $4))
          AND NOT EXISTS (SELECT 1 FROM blocked_slots x WHERE x.professional_id=slots.professional_id
                AND tstzrange(x.starts_at,x.ends_at) && tstzrange(t_start AT TIME ZONE $4, t_end AT TIME ZONE $4))
@@ -714,7 +742,7 @@ export function buildRouter() {
                  AND sc.weekday = EXTRACT(DOW FROM l.ls)::int AND sc.break_start IS NOT NULL
                  AND l.ls::time < sc.break_end AND l.le::time > sc.break_start) THEN 'pausa'
            WHEN EXISTS (SELECT 1 FROM appointments a WHERE a.professional_id=b.id
-                 AND a.status IN ('scheduled','attended')
+                 AND a.status IN ('pending','scheduled','attended')
                  AND tstzrange(a.starts_at,a.ends_at) && tstzrange(l.s,l.e)) THEN 'ocupado'
            WHEN EXISTS (SELECT 1 FROM blocked_slots x WHERE x.professional_id=b.id
                  AND tstzrange(x.starts_at,x.ends_at) && tstzrange(l.s,l.e)) THEN 'bloqueado'
@@ -857,5 +885,6 @@ export function buildRouter() {
     send({ action: /(\?|\.\.\.|…)$/.test(raw) ? 'resume' : 'pause', phrase: null, rule: 'geral' });
   }));
 
+  registerCampaignRoutes(r, wrap);
   return r;
 }

@@ -19,15 +19,16 @@ export const ICONES = ['📊','📅','🗓️','⏳','👥','👤','🧑‍💼'
 // Itens do menu que a empresa pode renomear / trocar o ícone (mesmos padrões do menu em App.jsx)
 export const MENU_PADRAO = [
   { id: 'dashboard', label: 'Dashboard', icon: '📊' },
-  { id: 'agenda', label: 'Agenda', icon: '📅' },
-  { id: 'fila', label: 'Fila de espera', icon: '⏳' },
+  { id: 'atendente', label: 'Atendente', icon: '🤖' },
   { id: 'clientes', label: 'Clientes e Leads', icon: '👥' },
-  { id: 'inativos', label: 'Retorno de inativos', icon: '🔁' },
+  { id: 'agenda', label: 'Agenda', icon: '📅' },
   { id: 'profissionais', label: 'Profissionais', icon: '✂️' },
   { id: 'servicos', label: 'Serviços', icon: '🏢' },
-  { id: 'importar', label: 'Importar planilha', icon: '📥' },
-  { id: 'atendente', label: 'Atendente', icon: '🤖' },
+  { id: 'inativos', label: 'Retorno de inativos', icon: '🔁' },
+  { id: 'campanhas', label: 'Campanhas', icon: '📣' },
+  { id: 'fila', label: 'Fila de espera', icon: '⏳' },
   { id: 'comandos', label: 'Comandos', icon: '🎛️' },
   { id: 'bloqueios', label: 'Atendimentos bloqueados', icon: '🚫' },
+  { id: 'importar', label: 'Importar planilha', icon: '📥' },
   { id: 'config', label: 'Configurações', icon: '⚙️' },
 ];

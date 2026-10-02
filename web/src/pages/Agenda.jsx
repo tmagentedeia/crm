@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { Nome } from '../menu.jsx';
 import { api, fmtTime, money } from '../api.js';
 
-const STATUS = { scheduled: 'Agendado', attended: 'Compareceu', no_show: 'Faltou', cancelled: 'Cancelado' };
+const STATUS = { pending: 'Aguardando confirmação', scheduled: 'Agendado', attended: 'Compareceu', no_show: 'Faltou', cancelled: 'Cancelado' };
 const todayStr = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
 const shift = (s, n) => { const d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
 
@@ -22,6 +22,10 @@ export default function Agenda() {
   useEffect(() => { load(); }, [load]);
 
   const setStatus = async (id, status) => { await api(`/appointments/${id}/status`, { method: 'PATCH', body: { status } }); load(); };
+  const responder = async (id, decision) => {
+    try { await api(`/appointments/${id}/respond`, { method: 'POST', body: { decision } }); } catch (e) { alert(e.data?.ja_respondido ? 'Esse horário já foi respondido (pelo WhatsApp ou por outra pessoa). A agenda foi atualizada.' : e.message); }
+    load();
+  };
   const remove = async (id) => { if (confirm('Excluir este agendamento?')) { await api('/appointments/' + id, { method: 'DELETE' }); load(); } };
 
   return (
@@ -46,7 +50,7 @@ export default function Agenda() {
                 <button className="btn sm" style={{ marginLeft: 'auto' }} onClick={() => setModal({ professional_id: b.id })}>+</button>
               </div>
               {mine.map((a) => (
-                <div key={a.id} className={'appt' + (a.status !== 'scheduled' ? ' done' : '')} style={{ borderLeftColor: b.color }}>
+                <div key={a.id} className={'appt' + (a.status !== 'scheduled' && a.status !== 'pending' ? ' done' : '')} style={{ borderLeftColor: b.color }}>
                   <div className="row" style={{ justifyContent: 'space-between' }}>
                     <span className="t">{fmtTime(a.starts_at)}–{fmtTime(a.ends_at)}</span>
                     <span className={'badge ' + a.status}>{STATUS[a.status]}</span>
@@ -55,10 +59,11 @@ export default function Agenda() {
                   <div>{a.customer_name || a.customer_phone}</div>
                   <div className="muted">{a.service_name} · {money(a.price)}</div>
                   <div className="row" style={{ marginTop: 8 }}>
+                    {a.status === 'pending' && <><button className="btn sm ok" onClick={() => responder(a.id, 'confirm')}>Confirmar</button><button className="btn sm bad" onClick={() => responder(a.id, 'reject')}>Recusar</button></>}
                     {a.status === 'scheduled' && <button className="btn sm" onClick={() => setStatus(a.id, 'cancelled')}>Cancelar</button>}
-                    {a.status !== 'attended' && <button className="btn sm ok" onClick={() => setStatus(a.id, 'attended')}>Compareceu</button>}
-                    {a.status !== 'no_show' && <button className="btn sm bad" onClick={() => setStatus(a.id, 'no_show')}>Faltou</button>}
-                    {a.status !== 'scheduled' && <button className="btn sm" onClick={() => setStatus(a.id, 'scheduled')}>Reabrir</button>}
+                    {a.status !== 'pending' && a.status !== 'attended' && <button className="btn sm ok" onClick={() => setStatus(a.id, 'attended')}>Compareceu</button>}
+                    {a.status !== 'pending' && a.status !== 'no_show' && <button className="btn sm bad" onClick={() => setStatus(a.id, 'no_show')}>Faltou</button>}
+                    {a.status !== 'pending' && a.status !== 'scheduled' && <button className="btn sm" onClick={() => setStatus(a.id, 'scheduled')}>Reabrir</button>}
                     <button className="btn sm" onClick={() => remove(a.id)}>Excluir</button>
                   </div>
                 </div>

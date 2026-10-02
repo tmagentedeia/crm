@@ -11,7 +11,7 @@ const dataBr = (d) => (d ? new Date(d).toLocaleDateString('pt-BR') : '');
 const COLUNAS = ['Nome', 'Telefone', 'Tipo', 'Origem', 'Última visita', 'Cadastrado em', 'Observações'];
 const linhas = (rows) => rows.map((c) => [c.name, c.phone, c.status === 'client' ? 'Cliente' : 'Lead', c.source === 'ia' ? 'Agente IA' : 'Manual', dataBr(c.last_visit_at), dataBr(c.created_at), c.notes].map(cel));
 
-const STATUS = { scheduled: 'Agendado', attended: 'Compareceu', no_show: 'Faltou', cancelled: 'Cancelado' };
+const STATUS = { pending: 'Aguardando confirmação', scheduled: 'Agendado', attended: 'Compareceu', no_show: 'Faltou', cancelled: 'Cancelado' };
 
 export default function Clientes() {
   const [tab, setTab] = useState('');

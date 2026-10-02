@@ -71,6 +71,15 @@ export default function Admin() {
     } catch (e) { setErr(e.message); }
   }
 
+  async function salvarModo(s, modo) {
+    setErr(''); setMsg('');
+    try {
+      await api('/admin/companies/' + s.id, { method: 'PUT', body: { booking_mode: modo } });
+      setMsg(`Agendamento de "${s.name}": ${modo === 'confirm' ? 'sob confirmação' : 'automático'}.`);
+      load();
+    } catch (e) { setErr(e.message); }
+  }
+
   // Entra no painel da empresa sem usar a senha dela (acesso temporário, registrado). O acesso do administrador fica guardado para voltar.
   async function abrirPainel(s) {
     try {
@@ -195,7 +204,7 @@ export default function Admin() {
 
       <div className="card table-wrap">
         <table>
-          <thead><tr><th>Código</th><th>Empresa</th><th>E-mail do responsável</th><th>Criado em</th><th>Ativos</th><th>Limite</th><th>Módulos</th><th>Bloqueios (instância e prefixo)</th><th>Chave de integração</th><th>Modelo</th><th></th></tr></thead>
+          <thead><tr><th>Código</th><th>Empresa</th><th>E-mail do responsável</th><th>Criado em</th><th>Ativos</th><th>Limite</th><th>Agendamento</th><th>Módulos</th><th>Bloqueios (instância e prefixo)</th><th>Chave de integração</th><th>Modelo</th><th></th></tr></thead>
           <tbody>
             {list.map((s) => {
               const changed = s.id in edit;
@@ -206,10 +215,16 @@ export default function Admin() {
                   <td>{s.owner_email || <span className="muted">—</span>}</td>
                   <td>{fmtDate(s.created_at)}</td>
                   <td>{s.ativos}</td>
-                  <td style={{ width: 130 }}>
-                    <input type="number" min="0" placeholder="sem limite" value={shown(s)}
+                  <td style={{ minWidth: 120 }}>
+                    <input type="number" min="0" placeholder="sem limite" value={shown(s)} style={{ width: 100, minWidth: 100 }}
                       onChange={(e) => setEdit({ ...edit, [s.id]: e.target.value })}
                       onKeyDown={(e) => e.key === 'Enter' && changed && save(s)} />
+                  </td>
+                  <td style={{ minWidth: 150 }}>
+                    <select value={s.booking_mode || 'auto'} onChange={(e) => salvarModo(s, e.target.value)}>
+                      <option value="auto">Automático (horários fixos)</option>
+                      <option value="confirm">Sob confirmação</option>
+                    </select>
                   </td>
                   <td style={{ minWidth: 170 }}>
                     {MODULES.map((m) => (
