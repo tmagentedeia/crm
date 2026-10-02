@@ -243,3 +243,14 @@ CREATE TABLE IF NOT EXISTS campaign_recipients (
   UNIQUE (campaign_id, phone)
 );
 CREATE INDEX IF NOT EXISTS idx_camp_rec_pending ON campaign_recipients (campaign_id, status);
+
+-- ========== CAMPANHAS: SAUDAÇÕES E CUMPRIMENTOS ==========
+-- Uma linha só por empresa. NULL = usa a lista padrão. Os "bag" guardam o que ainda não saiu no rodízio.
+CREATE TABLE IF NOT EXISTS campaign_settings (
+  id          INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  greetings   JSONB,
+  compliments JSONB,
+  greetings_bag   JSONB,
+  compliments_bag JSONB
+);
+INSERT INTO campaign_settings (id) VALUES (1) ON CONFLICT DO NOTHING;

@@ -10,7 +10,8 @@ const baseline = fs.readFileSync(path.join(dir, '..', 'db', 'tenant.sql'), 'utf8
 // em ordem. O número da versão é a posição na lista (a base, tenant.sql, é a versão 1).
 // Exemplo: { version: 2, sql: "ALTER TABLE customers ADD COLUMN IF NOT EXISTS algo TEXT" }
 const atendenteSql = baseline.slice(baseline.indexOf('-- ========== ATENDENTE'), baseline.indexOf('-- ========== CAMPANHAS'));
-const campanhasSql = baseline.slice(baseline.indexOf('-- ========== CAMPANHAS'));
+const campanhasSql = baseline.slice(baseline.indexOf('-- ========== CAMPANHAS'), baseline.indexOf('-- ========== CAMPANHAS: SAUDA'));
+const frasesSql = baseline.slice(baseline.indexOf('-- ========== CAMPANHAS: SAUDA'));
 export const TENANT_STEPS = [
   // 2: manual e avisos do atendente (empresas criadas antes dele; as novas já nascem com isso na base)
   { version: 2, sql: atendenteSql },
@@ -33,6 +34,8 @@ export const TENANT_STEPS = [
     END $$;` },
   // 4: campanhas (envio em lote com ritmo controlado)
   { version: 4, sql: campanhasSql },
+  // 5: saudações e cumprimentos das campanhas (listas por empresa)
+  { version: 5, sql: frasesSql },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 

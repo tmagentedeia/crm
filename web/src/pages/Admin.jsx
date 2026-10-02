@@ -212,11 +212,13 @@ export default function Admin() {
                 <tr key={s.id}>
                   <td>{s.id}</td>
                   <td>{s.name}</td>
-                  <td>{s.owner_email || <span className="muted">—</span>}</td>
+                  <td>{s.owner_email
+                    ? <input readOnly value={s.owner_email} title={s.owner_email} onFocus={(e) => e.target.select()} style={{ width: '13ch', minWidth: 0 }} />
+                    : <span className="muted">—</span>}</td>
                   <td>{fmtDate(s.created_at)}</td>
                   <td>{s.ativos}</td>
-                  <td style={{ minWidth: 120 }}>
-                    <input type="number" min="0" placeholder="sem limite" value={shown(s)} style={{ width: 100, minWidth: 100 }}
+                  <td style={{ minWidth: 60 }}>
+                    <input type="number" min="0" placeholder="—" value={shown(s)} style={{ width: 50, minWidth: 50 }}
                       onChange={(e) => setEdit({ ...edit, [s.id]: e.target.value })}
                       onKeyDown={(e) => e.key === 'Enter' && changed && save(s)} />
                   </td>

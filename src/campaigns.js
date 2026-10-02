@@ -12,6 +12,8 @@ export const LIMITS = {
   END_HOUR: 22,
   FAIL_PAUSE: 3,          // falhas seguidas que pausam a campanha
   VARIANTS: 3,
+  GREETINGS_MIN: 3,       // saudações (Oi, Ei, Olá...) no mínimo
+  COMPLIMENTS_MIN: 20,    // cumprimentos (Como vai?...) no mínimo
   SAVED_MAX: 10,          // campanhas guardadas por empresa
 };
 
@@ -19,7 +21,43 @@ export const LIMITS = {
 // (pergunta, para a atendente responder se o contato voltar a escrever).
 const OPT_OUT_END = /(t[áa]|ok|tudo bem)\s*\?\s*$/i;
 const LINK = /(https?:\/\/|www\.|\b[a-z0-9-]+\.(com|net|org|io|me|app)(\.br)?\b)/i;
-const GREETINGS = ['Oi!', 'Olá!', 'Oi, tudo bem?', 'Olá, tudo certo?'];
+export const DEFAULT_GREETINGS = ['Oi', 'Ei', 'Olá'];
+export const DEFAULT_COMPLIMENTS = [
+  'Como vai?', 'Como vai você?', 'Como vai seu dia?', 'Como vai por aí?', 'Que bom falar com você!',
+  'Prazer falar com você!', 'Tudo certo por aí?', 'Beleza?', 'Tudo bom?', 'Tudo bom com você?',
+  'Tudo bom por aí?', 'Como vai, tudo bem?', 'Tudo certo?', 'Tudo certinho?', 'Bom falar com você!',
+  'Como você está?', 'Como você anda?', 'Como vão as coisas?', 'Como vão as coisas por aí?',
+  'Como está por aí?', 'Como andam as coisas?', 'Espero que esteja bem!', 'Tudo beleza?',
+  'Como estão as coisas por aí?', 'Tudo tranquilo por aí?', 'Como vai a vida?',
+  'Espero que esteja tendo um ótimo dia!', 'Tudo bem com você?', 'Como você está hoje?',
+  'Como estão as coisas?', 'Tudo em ordem por aí?', 'Como estão indo as coisas?',
+  'Espero encontrar você bem!', 'Espero que esteja tudo ótimo!', 'Que bom falar com você hoje!',
+];
+
+// Valida e limpa uma lista de frases. Devolve { list } ou { error }.
+export function cleanPhrases(input, min, rotulo) {
+  if (!Array.isArray(input)) return { error: `Lista de ${rotulo} inválida` };
+  const seen = new Set(), list = [];
+  for (const raw of input) {
+    const t = String(raw ?? '').trim().replace(/\s+/g, ' ');
+    if (!t) continue;
+    if (t.length > 120 || /[\u0000-\u001f<>]/.test(t)) return { error: `Há uma frase inválida nos ${rotulo}` };
+    if (seen.has(t.toLowerCase())) continue;
+    seen.add(t.toLowerCase()); list.push(t);
+  }
+  if (list.length < min) return { error: `Mantenha pelo menos ${min} ${rotulo}` };
+  return { list };
+}
+
+// Rodízio sem repetir: sorteia do "saco" e só o reabastece quando acaba. Devolve { item, bag }.
+export function takeFromBag(bag, list) {
+  let b = Array.isArray(bag) ? bag.filter((x) => list.includes(x)) : [];
+  if (!b.length) b = [...list];
+  const i = Math.floor(Math.random() * b.length);
+  const item = b[i];
+  b.splice(i, 1);
+  return { item, bag: b };
+}
 
 export const hasLink = (messages) => (messages || []).some((m) => LINK.test(String(m || '')));
 
@@ -67,12 +105,13 @@ const rand = (a, b) => a + Math.random() * (b - a);
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 const firstName = (s) => String(s || '').trim().split(/\s+/)[0] || '';
 
-export function buildText(campaign, name) {
-  let text = pick(campaign.messages).replaceAll('{nome}', firstName(name)).replace(/\s+([,!?.])/g, '$1').trim();
-  if (campaign.greeting_random) text = `${pick(GREETINGS)} ${text}`;
-  return text;
+// Saudação + nome (se houver) + cumprimento + texto da campanha (que já traz a frase de saída).
+export function buildText(campaign, name, greeting, compliment, variantIndex = 0) {
+  const body = campaign.messages[variantIndex % campaign.messages.length]
+    .replaceAll('{nome}', firstName(name)).replace(/\s+([,!?.])/g, '$1').trim();
+  const nome = firstName(name);
+  return `${greeting}${nome ? ' ' + nome : ''}! ${compliment} ${body}`;
 }
-
 const hourOf = (tz, d = new Date()) =>
   Number(new Intl.DateTimeFormat('en-GB', { hour: '2-digit', hour12: false, timeZone: tz }).format(d)) % 24;
 export const inWindow = (tz, d) => { const h = hourOf(tz, d); return h >= LIMITS.START_HOUR && h < LIMITS.END_HOUR; };
@@ -80,7 +119,7 @@ export const inWindow = (tz, d) => { const h = hourOf(tz, d); return h >= LIMITS
 const toCampaign = (c) => ({ ...c, messages: c.messages || [] });
 
 export function registerCampaignRoutes(r, wrap) {
-  const companyTz = async (id) => (await qg('SELECT timezone FROM companies WHERE id=$1', [id])).rows[0]?.timezone || 'America/Sao_Paulo';
+  const companyCfg = async (id) => (await qg('SELECT timezone, whatsapp_instance FROM companies WHERE id=$1', [id])).rows[0] || {};
 
   async function pickRecipients(sel) {
     const mode = sel?.mode;
@@ -102,11 +141,36 @@ export function registerCampaignRoutes(r, wrap) {
   const cleanBody = (b) => ({
     name: String(b.name || '').trim(),
     messages: Array.isArray(b.messages) ? b.messages.map((m) => String(m || '').trim()) : [],
-    greeting_random: b.greeting_random !== false,
+    greeting_random: true,
     interval_min: Number(b.interval_min), interval_max: Number(b.interval_max),
     batch_size: Number(b.batch_size), batch_pause_min: Number(b.batch_pause_min),
     daily_limit: Number(b.daily_limit),
   });
+
+  // Saudações e cumprimentos da empresa (sem lista própria, valem os padrões).
+  const lerFrases = async () => {
+    const st = (await q('SELECT greetings, compliments FROM campaign_settings WHERE id=1')).rows[0] || {};
+    return { greetings: st.greetings || DEFAULT_GREETINGS, compliments: st.compliments || DEFAULT_COMPLIMENTS,
+             personalizada: !!(st.greetings || st.compliments),
+             minimos: { greetings: LIMITS.GREETINGS_MIN, compliments: LIMITS.COMPLIMENTS_MIN },
+             padrao: { greetings: DEFAULT_GREETINGS, compliments: DEFAULT_COMPLIMENTS } };
+  };
+  r.get('/campaigns/phrases', wrap(async (req, res) => res.json(await lerFrases())));
+  r.put('/campaigns/phrases', wrap(async (req, res) => {
+    const g = cleanPhrases(req.body?.greetings, LIMITS.GREETINGS_MIN, 'saudações');
+    if (g.error) return res.status(400).json({ error: g.error });
+    const k = cleanPhrases(req.body?.compliments, LIMITS.COMPLIMENTS_MIN, 'cumprimentos');
+    if (k.error) return res.status(400).json({ error: k.error });
+    await q(`INSERT INTO campaign_settings (id, greetings, compliments, greetings_bag, compliments_bag)
+             VALUES (1,$1,$2,NULL,NULL)
+             ON CONFLICT (id) DO UPDATE SET greetings=$1, compliments=$2, greetings_bag=NULL, compliments_bag=NULL`,
+      [JSON.stringify(g.list), JSON.stringify(k.list)]);
+    res.json(await lerFrases());
+  }));
+  r.delete('/campaigns/phrases', wrap(async (req, res) => {
+    await q('UPDATE campaign_settings SET greetings=NULL, compliments=NULL, greetings_bag=NULL, compliments_bag=NULL WHERE id=1');
+    res.json(await lerFrases());
+  }));
 
   // Previsão sem salvar nada.
   r.post('/campaigns/simulate', wrap(async (req, res) => {
@@ -239,7 +303,8 @@ export function registerCampaignRoutes(r, wrap) {
   // o quê e quando é o painel; o fluxo apenas envia o que recebe e reporta o resultado.
   r.post('/campaigns/claim', wrap(async (req, res) => {
     const companyId = currentCompany();
-    const tz = await companyTz(companyId);
+    const cfg = await companyCfg(companyId);
+    const tz = cfg.timezone || 'America/Sao_Paulo';
     if (!inWindow(tz)) return res.json(null);
     const out = await tx(companyId, async (t) => {
       // quem ficou "enviando" sem resposta por mais de 30 min é dado como falho (nunca reenvia)
@@ -262,14 +327,19 @@ export function registerCampaignRoutes(r, wrap) {
           if (!open) await t("UPDATE campaigns SET status='done', finished_at=now() WHERE id=$1", [c.id]);
           continue;
         }
-        const text = buildText(toCampaign(c), rec.name);
+        const st = (await t('SELECT * FROM campaign_settings WHERE id=1 FOR UPDATE')).rows[0] || {};
+        const greetings = st.greetings || DEFAULT_GREETINGS, compliments = st.compliments || DEFAULT_COMPLIMENTS;
+        const g = takeFromBag(st.greetings_bag, greetings), k = takeFromBag(st.compliments_bag, compliments);
+        await t('UPDATE campaign_settings SET greetings_bag=$1, compliments_bag=$2 WHERE id=1', [JSON.stringify(g.bag), JSON.stringify(k.bag)]);
+        const done = (await t("SELECT COUNT(*)::int AS n FROM campaign_recipients WHERE campaign_id=$1 AND status IN ('sent','sending','failed')", [c.id])).rows[0].n;
+        const text = buildText(toCampaign(c), rec.name, g.item, k.item, done);
         await t("UPDATE campaign_recipients SET status='sending', claimed_at=now(), sent_text=$2 WHERE id=$1", [rec.id, text]);
         let gap = rand(c.interval_min, c.interval_max);
         let batch = c.batch_sent + 1;
         if (batch >= c.batch_size) { gap = Math.max(gap, c.batch_pause_min); batch = 0; }
         await t("UPDATE campaigns SET next_send_at = now() + make_interval(secs => $2), batch_sent=$3 WHERE id=$1",
           [c.id, Math.round(gap * 60), batch]);
-        return { campaign_id: c.id, recipient_id: rec.id, phone: rec.phone, chat_id: rec.chat_id, name: rec.name, text };
+        return { campaign_id: c.id, recipient_id: rec.id, phone: rec.phone, chat_id: rec.chat_id, name: rec.name, text, instance: cfg.whatsapp_instance || null };
       }
       return null;
     });

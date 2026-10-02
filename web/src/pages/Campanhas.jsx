@@ -13,11 +13,11 @@ const STATUS = {
 };
 const STATUS_ENVIO = { pending: 'Na fila', sending: 'Enviando', sent: 'Enviada', failed: 'Não enviada', cancelled: 'Cancelada' };
 const PADRAO = {
-  name: '', messages: ['', '', ''], greeting_random: true,
+  name: '', messages: ['', '', ''],
   interval_min: 5, interval_max: 10, batch_size: 20, batch_pause_min: 60, daily_limit: 50,
   mode: 'clients', ids: [],
 };
-const AVISO = 'Os limites definidos aqui são baseados em critérios subjetivos. O risco varia muito de acordo com o seu histórico de interações com os contatos. Recomendamos sempre o mínimo possível de envios com o máximo intervalo possível, para reduzir o risco de bloqueio do seu número pelo WhatsApp. Não nos responsabilizamos pela sua decisão.';
+const AVISO = 'Os limites definidos aqui são baseados em critérios subjetivos. O risco varia muito de acordo com o seu histórico de interações com os contatos e de número para número: já houve relatos de bloqueio com apenas 10 envios por dia, assim como números que fizeram mais de 100 envios por dia sem nenhum bloqueio. Por isso, recomendamos sempre o mínimo possível de envios com o máximo intervalo possível, para reduzir o risco de o WhatsApp bloquear o seu número. Não nos responsabilizamos por eventuais bloqueios nem pela sua decisão.';
 
 export default function Campanhas() {
   const [lista, setLista] = useState(null);
@@ -27,14 +27,18 @@ export default function Campanhas() {
   const carregar = () => api('/campaigns').then((l) => { setLista(l); setErro(''); }).catch((e) => { setLista([]); setErro(e.message); });
   useEffect(() => { carregar(); }, []);
 
-  if (tela.nome === 'form') return <Form id={tela.id} voltar={() => { setTela({ nome: 'lista' }); carregar(); }} abrir={(id) => { setTela({ nome: 'detalhe', id }); carregar(); }} />;
+  if (tela.nome === 'form') return <Form frases={() => setTela({ nome: 'frases', de: tela })} id={tela.id} voltar={() => { setTela({ nome: 'lista' }); carregar(); }} abrir={(id) => { setTela({ nome: 'detalhe', id }); carregar(); }} />;
+  if (tela.nome === 'frases') return <Frases voltar={() => setTela(tela.de?.nome === 'form' ? tela.de : { nome: 'lista' })} />;
   if (tela.nome === 'detalhe') return <Detalhe key={tela.id} id={tela.id} voltar={() => { setTela({ nome: 'lista' }); carregar(); }} editar={() => setTela({ nome: 'form', id: tela.id })} irPara={(id) => setTela({ nome: 'detalhe', id })} />;
 
   return (
     <div>
       <div className="topbar">
         <h1><Nome id="campanhas">Campanhas</Nome></h1>
-        <button className="btn primary" onClick={() => setTela({ nome: 'form' })}>Nova campanha</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn" onClick={() => setTela({ nome: 'frases', de: { nome: 'lista' } })}>Saudações e cumprimentos</button>
+          <button className="btn primary" onClick={() => setTela({ nome: 'form' })}>Nova campanha</button>
+        </div>
       </div>
       {erro && <div className="error">{erro}</div>}
       <p className="muted">Suas campanhas ficam guardadas. Só uma pode estar ativa por vez; para reaproveitar uma, abra e clique em “Duplicar”.</p>
@@ -59,7 +63,7 @@ export default function Campanhas() {
   );
 }
 
-function Form({ id, voltar, abrir }) {
+function Form({ id, voltar, abrir, frases }) {
   const [f, setF] = useState(PADRAO);
   const [clientes, setClientes] = useState([]);
   const [sim, setSim] = useState(null);
@@ -71,7 +75,7 @@ function Form({ id, voltar, abrir }) {
       .then(([c, l]) => setClientes([...c.map((x) => ({ ...x, tipo: 'Cliente' })), ...l.map((x) => ({ ...x, tipo: 'Lead' }))]))
       .catch(() => {});
     if (id) api('/campaigns/' + id).then((c) => setF({
-      name: c.name, messages: c.messages, greeting_random: c.greeting_random,
+      name: c.name, messages: c.messages,
       interval_min: c.interval_min, interval_max: c.interval_max, batch_size: c.batch_size,
       batch_pause_min: c.batch_pause_min, daily_limit: c.daily_limit,
       mode: 'selected', ids: c.recipients.map((r) => r.customer_id).filter(Boolean),
@@ -88,7 +92,7 @@ function Form({ id, voltar, abrir }) {
   }, [f.mode, f.ids, clientes]);
 
   const body = () => ({
-    name: f.name, messages: f.messages, greeting_random: f.greeting_random,
+    name: f.name, messages: f.messages,
     interval_min: Number(f.interval_min), interval_max: Number(f.interval_max),
     batch_size: Number(f.batch_size), batch_pause_min: Number(f.batch_pause_min), daily_limit: Number(f.daily_limit),
     recipients: { mode: f.mode, ids: f.ids },
@@ -101,10 +105,25 @@ function Form({ id, voltar, abrir }) {
     return () => clearTimeout(t);
   }, [f, total]);
 
-  const num = (k, min, max, rotulo, ajuda) => (
-    <label className="field">{rotulo}
-      <input type="number" min={min} max={max} value={f[k]} onChange={(e) => set(k, e.target.value)} style={{ width: 110 }} />
-      {ajuda && <span className="muted">{ajuda}</span>}
+  const [aviso, setAviso] = useState({}); // aviso de limite por campo
+  const avisar = (k, texto) => setAviso((a) => ({ ...a, [k]: texto }));
+  const num = (k, min, max, rotulo, ajuda, unidade) => (
+    <label className="field" style={{ flex: '0 0 auto', minWidth: 150 }}>
+      <div>{rotulo}</div>
+      <div className="muted">({ajuda})</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+        <input type="number" min={min} max={max} value={f[k]} style={{ width: 90 }}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v !== '' && Number(v) > max) { set(k, max); avisar(k, `Máximo ${max}`); }
+            else { set(k, v); avisar(k, ''); }
+          }}
+          onBlur={() => {
+            if (f[k] === '' || Number(f[k]) < min) { set(k, min); avisar(k, `Mínimo ${min}`); }
+          }} />
+        {unidade && <span className="muted">{unidade}</span>}
+      </div>
+      {aviso[k] && <span style={{ color: 'var(--bad)', fontSize: 13 }}>{aviso[k]}</span>}
     </label>
   );
   const alternar = (cid) => set('ids', f.ids.includes(cid) ? f.ids.filter((x) => x !== cid) : [...f.ids, cid]);
@@ -130,7 +149,12 @@ function Form({ id, voltar, abrir }) {
         <label className="field">Nome da campanha
           <input value={f.name} onChange={(e) => set('name', e.target.value)} placeholder="Ex.: Promoção de outubro" />
         </label>
-        <p className="muted">Escreva a mensagem e mais duas variações. Cada envio usa uma delas, o que deixa as mensagens menos repetitivas. Use {'{nome}'} para colocar o primeiro nome do contato.</p>
+        <p className="muted">
+          Cada mensagem chega assim: uma <strong>saudação</strong> (“Oi”, “Ei”, “Olá”), o <strong>nome</strong> da pessoa, um <strong>cumprimento</strong> (“Como vai você?”),
+          depois o <strong>seu texto</strong> e, no fim, a <strong>frase de saída</strong> para quem não quiser mais receber. Saudação e cumprimento são colocados por nós, de forma variada
+          (se o contato não tem nome cadastrado, o nome é pulado). Você escreve só o seu texto, em três versões que se alternam, sempre terminando com a frase de saída.
+          Quer mudar as saudações e os cumprimentos? <a href="#" onClick={(e) => { e.preventDefault(); frases(); }}>Editar saudações e cumprimentos</a>.
+        </p>
         {f.messages.map((m, i) => (
           <div key={i} style={{ marginBottom: 10 }}>
             <label className="field">{i === 0 ? 'Mensagem' : `Variação ${i}`}
@@ -144,22 +168,21 @@ function Form({ id, voltar, abrir }) {
             </div>
           </div>
         ))}
-        <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <input type="checkbox" checked={f.greeting_random} onChange={(e) => set('greeting_random', e.target.checked)} />
-          Começar cada mensagem com uma saudação diferente (“Oi!”, “Olá!”…)
-        </label>
         {sim?.has_link && <div className="error" style={{ marginTop: 10 }}>Atenção: links nas mensagens aumentam o risco de bloqueio do seu número.</div>}
       </div>
 
       <div className="card" style={{ marginBottom: 14 }}>
         <h3>Ritmo de envio</h3>
         <p className="muted">Os envios acontecem só entre 7h e 22h. O tempo entre uma mensagem e outra é sorteado dentro da faixa que você escolher.</p>
+        <p style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 9, padding: '8px 12px', fontSize: 14 }}>
+          <strong>Atenção:</strong> não nos responsabilizamos por eventuais bloqueios. Os valores aqui seguem uma prática de equilíbrio e razoabilidade, mas o risco varia muito de número para número.
+        </p>
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-          {num('interval_min', 5, 600, 'Menor intervalo (min)', 'mínimo 5')}
-          {num('interval_max', 10, 600, 'Maior intervalo (min)', 'mínimo 10')}
-          {num('batch_size', 1, 30, 'Envios seguidos', 'até 30')}
-          {num('batch_pause_min', 60, 1440, 'Pausa depois deles (min)', 'mínimo 60')}
-          {num('daily_limit', 1, 100, 'Limite por dia', 'até 100')}
+          {num('interval_min', 5, 600, 'Menor intervalo', 'mínimo 5', 'minutos')}
+          {num('interval_max', 10, 600, 'Maior intervalo', 'mínimo 10', 'minutos')}
+          {num('batch_size', 1, 30, 'Envios seguidos', 'máximo 30')}
+          {num('batch_pause_min', 60, 1440, 'Pausa depois deles', 'mínimo 60 minutos', 'minutos')}
+          {num('daily_limit', 1, 100, 'Limite por dia', 'máximo 100')}
         </div>
         {sim && (
           <p style={{ marginTop: 10 }}>
@@ -285,6 +308,75 @@ function Detalhe({ id, voltar, editar, irPara }) {
             ))}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+function Frases({ voltar }) {
+  const [d, setD] = useState(null);
+  const [g, setG] = useState([]);
+  const [k, setK] = useState([]);
+  const [novoG, setNovoG] = useState('');
+  const [novoK, setNovoK] = useState('');
+  const [erro, setErro] = useState('');
+  const [msg, setMsg] = useState('');
+
+  const aplicar = (r) => { setD(r); setG(r.greetings); setK(r.compliments); };
+  useEffect(() => { api('/campaigns/phrases').then(aplicar).catch((e) => setErro(e.message)); }, []);
+  if (!d) return <div>{erro ? <div className="error">{erro}</div> : 'Carregando…'}</div>;
+
+  const salvar = async () => {
+    setErro(''); setMsg('');
+    try { aplicar(await api('/campaigns/phrases', { method: 'PUT', body: { greetings: g, compliments: k } })); setMsg('Salvo.'); }
+    catch (e) { setErro(e.message); }
+  };
+  const restaurar = async () => {
+    if (!window.confirm('Voltar para as saudações e cumprimentos originais? As suas mudanças serão perdidas.')) return;
+    setErro(''); setMsg('');
+    try { aplicar(await api('/campaigns/phrases', { method: 'DELETE' })); setMsg('Listas originais restauradas.'); }
+    catch (e) { setErro(e.message); }
+  };
+
+  const lista = (titulo, ajuda, itens, setItens, novo, setNovo, minimo) => (
+    <div className="card" style={{ marginBottom: 14 }}>
+      <h3>{titulo} <span className="muted">({itens.length} — mínimo {minimo})</span></h3>
+      <p className="muted">{ajuda}</p>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+        {itens.map((t, i) => (
+          <span key={t + i} className="badge" style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+            {t}
+            <button type="button" title={itens.length <= minimo ? `É preciso manter pelo menos ${minimo}` : 'Remover'}
+              disabled={itens.length <= minimo} style={{ border: 0, background: 'none', cursor: itens.length <= minimo ? 'not-allowed' : 'pointer', opacity: itens.length <= minimo ? .3 : 1 }}
+              onClick={() => setItens(itens.filter((_, j) => j !== i))}>✕</button>
+          </span>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input value={novo} onChange={(e) => setNovo(e.target.value)} placeholder="Escreva uma nova" style={{ flex: 1 }}
+          onKeyDown={(e) => { if (e.key === 'Enter' && novo.trim()) { setItens([...itens, novo.trim()]); setNovo(''); } }} />
+        <button className="btn" disabled={!novo.trim()} onClick={() => { setItens([...itens, novo.trim()]); setNovo(''); }}>Adicionar</button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div>
+      <div className="topbar">
+        <h1>Saudações e cumprimentos</h1>
+        <button className="btn" onClick={voltar}>Voltar</button>
+      </div>
+      {erro && <div className="error">{erro}</div>}
+      {msg && <p style={{ color: 'var(--ok)' }}>{msg}</p>}
+      <p className="muted">
+        Toda mensagem de campanha começa com uma saudação, o nome da pessoa e um cumprimento, e os usamos em rodízio para as mensagens não ficarem iguais.
+        Exemplo: “<strong>{g[0]} Maria!</strong> {k[0]} <em>(seu texto)</em>”. Você pode incluir os seus e tirar os que não gostar, mas precisa manter o mínimo para o rodízio funcionar bem.
+      </p>
+      {lista('Saudações', 'Como a mensagem começa.', g, setG, novoG, setNovoG, d.minimos.greetings)}
+      {lista('Cumprimentos', 'Logo depois do nome.', k, setK, novoK, setNovoK, d.minimos.compliments)}
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button className="btn primary" onClick={salvar}>Salvar</button>
+        <button className="btn" onClick={restaurar}>Voltar ao padrão</button>
       </div>
     </div>
   );
