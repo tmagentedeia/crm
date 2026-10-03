@@ -127,7 +127,9 @@ export const TENANT_STEPS = [
   { version: 15, sql: ATENDIDO_SQL + SUGESTOES_SQL },
   { version: 16, sql: ATENDIDO_FIX_SQL },
   // 17: pedidos pagos viram lançamentos do Financeiro (um controle só)
-  { version: 17, sql: FINANCEIRO_ORIGEM_SQL, FINANCEIRO_DEDUP_SQL },
+  { version: 17, sql: FINANCEIRO_ORIGEM_SQL },
+  // 18: sem duplicar comprovante já registrado nos lançamentos de pedido; tipo da entrada
+  { version: 18, sql: FINANCEIRO_DEDUP_SQL },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 

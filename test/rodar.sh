@@ -47,6 +47,7 @@ BASE=http://localhost:3999 node test/eventos.mjs || R=1
 BASE=http://localhost:3999 node test/financeiro.mjs || R=1
 BASE=http://localhost:3999 node test/venda.mjs || R=1
 node test/telefone.mjs || R=1
+node test/passos.mjs || R=1
 BASE=http://localhost:3999 node test/campanhas.mjs || R=1
 BASE=http://localhost:3999 node test/excecoes.mjs || R=1
 BASE=http://localhost:3999 node test/exclusao.mjs || R=1
