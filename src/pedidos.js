@@ -225,7 +225,15 @@ export function registerOrderRoutes(r, wrap) {
     if (!song) return res.status(400).json({ error: 'Informe o nome da música' });
     if (dedication === null || nome === null) return res.status(400).json({ error: 'Texto inválido' });
     if (Number.isNaN(valor)) return res.status(400).json({ error: 'Valor inválido' });
+    // live escolhida na mão (pode já ter terminado: pedido que ficou sem anotar); vazio = próxima live aberta ou fila
+    const liveEscolhida = String(req.body.live_id ?? '').trim();
+    if (liveEscolhida && !/^\d+$/.test(liveEscolhida)) return res.status(400).json({ error: 'Live inválida' });
     const out = await run(async (t, tz) => {
+      let liveAlvo = null;
+      if (liveEscolhida) {
+        liveAlvo = (await t('SELECT * FROM lives WHERE id=$1', [liveEscolhida])).rows[0];
+        if (!liveAlvo) return { semLive: true };
+      }
       // sem telefone: acha o cliente pelo nome (nome ou nome completo, sem diferenciar maiúscula nem espaços sobrando).
       // 1º procura entre os assinantes do clube (é neles que o pedido conta na franquia): um só = usa ele; mais de um = pede o telefone.
       // Sem assinante com esse nome: se o modo for franquia, avisa; senão usa o único cliente com o nome, cria um só com o nome
@@ -254,7 +262,7 @@ export function registerOrderRoutes(r, wrap) {
         }
       }
       await t('SELECT id FROM customers WHERE id=$1 FOR UPDATE', [cli.id]); // dois pedidos juntos do mesmo cliente não furam a franquia
-      const live = await proximaLive(t, tz);
+      const live = liveAlvo || await proximaLive(t, tz);
       let kind = null, level = null;
       if (live) {
         kind = escolha || await decidirTipo(t, tz, cli.id, live);
@@ -277,6 +285,7 @@ export function registerOrderRoutes(r, wrap) {
         && (await t('SELECT count(*)::int AS n FROM song_orders WHERE customer_id=$1', [cli.id])).rows[0].n === 1;
       return { order: o, live, balance: bal, elegivel };
     });
+    if (out.semLive) return res.status(404).json({ error: 'Live não encontrada' });
     if (out.semMembro) return res.status(409).json({ error: 'Não achei assinante do clube com esse nome para usar a franquia. Informe o telefone ou escolha cortesia ou pago.' });
     if (out.ambiguo) return res.status(409).json({ error: 'Há mais de um cliente com esse nome. Informe o telefone para eu saber qual é.' });
     res.status(201).json({
@@ -358,6 +367,26 @@ export function registerOrderRoutes(r, wrap) {
     if (b.dedication !== undefined && ded === null) return res.status(400).json({ error: 'Texto inválido' });
     if (Number.isNaN(valor)) return res.status(400).json({ error: 'Valor inválido' });
     if (b.kind !== undefined && !['franchise', 'paid', 'courtesy'].includes(b.kind)) return res.status(400).json({ error: 'Cobrança inválida' });
+    // atribuir o pedido a uma live (inclusive uma que já terminou): quem estava na fila ganha a cobrança dessa live
+    const novaLive = String(b.live_id ?? '').trim();
+    if (novaLive) {
+      if (!/^\d+$/.test(novaLive)) return res.status(400).json({ error: 'Live inválida' });
+      const mv = await run(async (t, tz) => {
+        const lv = (await t('SELECT * FROM lives WHERE id=$1', [novaLive])).rows[0];
+        if (!lv) return { semLive: true };
+        const cur = (await t('SELECT * FROM song_orders WHERE id=$1 FOR UPDATE', [req.params.id])).rows[0];
+        if (!cur) return { semPedido: true };
+        await t('SELECT id FROM customers WHERE id=$1 FOR UPDATE', [cur.customer_id]);
+        const kind = b.kind || cur.kind || await decidirTipo(t, tz, cur.customer_id, lv);
+        const level = (await t(`SELECT lv.name FROM customers c LEFT JOIN loyalty_levels lv ON lv.id=c.club_level_id WHERE c.id=$1`, [cur.customer_id])).rows[0]?.name || null;
+        await t(`UPDATE song_orders SET live_id=$2, kind=$3, level_name=$4,
+                   amount_paid=CASE WHEN $3 IN ('franchise','courtesy') THEN 0 ELSE amount_paid END WHERE id=$1`, [cur.id, lv.id, kind, level]);
+        return { kind };
+      });
+      if (mv.semLive) return res.status(404).json({ error: 'Live não encontrada' });
+      if (mv.semPedido) return res.status(404).json({ error: 'Não encontrado' });
+      if (!b.kind) b.kind = mv.kind;   // a cobrança definida pela live vale também na gravação abaixo
+    }
     const atual = (await q('SELECT live_id FROM song_orders WHERE id=$1', [req.params.id])).rows[0];
     if (!atual) return res.status(404).json({ error: 'Não encontrado' });
     if (b.kind !== undefined && !atual.live_id) return res.status(400).json({ error: 'Pedido na fila ainda não tem cobrança: ela é definida quando a live for marcada' });

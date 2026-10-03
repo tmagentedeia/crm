@@ -51,6 +51,36 @@ const exclusoesSql = `
       note       TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );`;
+// Qualquer venda que movimenta valor (pagamento aceito ou pedido pago) transforma o lead em cliente, em qualquer fluxo.
+// A presença em agendamento já faz isso no baseline. Repetível: pode rodar de novo sem efeito colateral.
+const VENDA_SQL = `
+    CREATE OR REPLACE FUNCTION trg_venda_vira_cliente() RETURNS trigger AS $$
+    DECLARE cid BIGINT;
+    BEGIN
+      IF TG_TABLE_NAME = 'payments' THEN
+        IF NEW.status = 'accepted' AND NEW.amount > 0 THEN
+          cid := COALESCE(NEW.customer_id, (SELECT customer_id FROM song_orders WHERE id = NEW.order_id));
+        END IF;
+      ELSIF COALESCE(NEW.amount_paid, 0) > 0 THEN
+        cid := NEW.customer_id;
+      END IF;
+      IF cid IS NOT NULL THEN
+        UPDATE customers SET status = 'client' WHERE id = cid AND status <> 'client';
+      END IF;
+      RETURN NEW;
+    END $$ LANGUAGE plpgsql;
+    DROP TRIGGER IF EXISTS venda_vira_cliente ON payments;
+    CREATE TRIGGER venda_vira_cliente AFTER INSERT OR UPDATE OF status, amount, customer_id, order_id ON payments
+      FOR EACH ROW EXECUTE FUNCTION trg_venda_vira_cliente();
+    DROP TRIGGER IF EXISTS venda_vira_cliente ON song_orders;
+    CREATE TRIGGER venda_vira_cliente AFTER INSERT OR UPDATE OF amount_paid, customer_id ON song_orders
+      FOR EACH ROW EXECUTE FUNCTION trg_venda_vira_cliente();
+    UPDATE customers c SET status = 'client'
+     WHERE c.status <> 'client' AND (
+       EXISTS (SELECT 1 FROM song_orders o WHERE o.customer_id = c.id AND COALESCE(o.amount_paid, 0) > 0)
+       OR EXISTS (SELECT 1 FROM payments p WHERE p.status = 'accepted' AND p.amount > 0
+                    AND c.id = COALESCE(p.customer_id, (SELECT o.customer_id FROM song_orders o WHERE o.id = p.order_id))));`;
+
 export const TENANT_STEPS = [
   // 2: manual e avisos do atendente (empresas criadas antes dele; as novas já nascem com isso na base)
   { version: 2, sql: atendenteSql },
@@ -91,6 +121,8 @@ export const TENANT_STEPS = [
   { version: 12, sql: CORTESIA_SQL },
   // 13: cliente pode existir só com o nome (pedido anotado na mão, sem telefone). O telefone continua único quando existe.
   { version: 13, sql: 'ALTER TABLE customers ALTER COLUMN phone DROP NOT NULL' },
+  // 14: venda com valor (pagamento aceito ou pedido pago) vira cliente automaticamente
+  { version: 14, sql: VENDA_SQL },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 
@@ -107,6 +139,7 @@ export async function createCompanySchema(cx, companyId) {
   await cx.query(exclusoesSql);
   await cx.query(FINANCEIRO_SQL);
   await cx.query(CORTESIA_SQL);
+  await cx.query(VENDA_SQL);
   await cx.query('SET LOCAL search_path TO public');
   await cx.query('INSERT INTO tenant_versions (company_id, version) VALUES ($1, 1)', [companyId]);
 }

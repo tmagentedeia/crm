@@ -10,6 +10,9 @@ const COBRANCA = { franchise: 'Franquia', paid: 'Pago', courtesy: 'Cortesia' };
 const mesLabel = (m) => { const [y, mo] = m.split('-'); return new Date(+y, +mo - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }); };
 const mesAtual = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); };
 
+const rotuloLive = (l) => `${l.title ? l.title + ' · ' : ''}${quando(l.starts_at)}${l.open ? '' : ' (encerrada)'}`;
+const OpcoesLive = ({ lives }) => lives.map((l) => <option key={l.id} value={l.id}>{rotuloLive(l)}</option>);
+
 export default function Pedidos({ company }) {
   const L = rotulosDe(company, 'pedidos');
   const g = minusc(L.group), i = minusc(L.item);
@@ -167,8 +170,8 @@ export default function Pedidos({ company }) {
         </>
       )}
 
-      {novo && <NovoPedido L={L} onClose={() => setNovo(false)} onSaved={() => { recarrega(); }} />}
-      {edit && <EditarPedido L={L} o={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); recarrega(); }} />}
+      {novo && <NovoPedido L={L} lives={lives} onClose={() => setNovo(false)} onSaved={() => { recarrega(); }} />}
+      {edit && <EditarPedido L={L} lives={lives} o={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); recarrega(); }} />}
       {liveEdit && <FormLive L={L} l={liveEdit} onClose={() => setLiveEdit(null)} onSaved={(r) => { setLiveEdit(null); setAviso(''); recarrega(); if (r?.attached?.length) alert(`${r.attached.length} registro(s) da fila entraram.`); }} />}
     </>
   );
@@ -197,8 +200,8 @@ function TabelaPedidos({ L, rows, sel, fila, vazio, onEdit, onDel }) {
   );
 }
 
-function NovoPedido({ L, onClose, onSaved }) {
-  const [f, setF] = useState({ phone: '', name: '', song: '', dedication: '', amount_paid: '', kind: '' });
+function NovoPedido({ L, lives, onClose, onSaved }) {
+  const [f, setF] = useState({ phone: '', name: '', song: '', dedication: '', amount_paid: '', kind: '', live_id: '' });
   const [err, setErr] = useState('');
   const [ok, setOk] = useState(null);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
@@ -225,6 +228,11 @@ function NovoPedido({ L, onClose, onSaved }) {
         <div className="field"><label>{f.phone.trim() ? 'Nome (se for cliente novo)' : 'Nome *'}</label><input value={f.name} onChange={set('name')} required={!f.phone.trim()} /></div>
         <div className="field"><label>{L.song} *</label><input value={f.song} onChange={set('song')} required /></div>
         <div className="field"><label>{L.dedication}</label><input value={f.dedication} onChange={set('dedication')} /></div>
+        <div className="field"><label>{L.group}</label>
+          <select value={f.live_id} onChange={set('live_id')}>
+            <option value="">Automático (próxima que ainda não terminou; sem nenhuma, fica na fila)</option>
+            <OpcoesLive lives={lives} />
+          </select></div>
         <div className="field"><label>Modo de pagamento</label>
           <select value={f.kind} onChange={set('kind')}>
             <option value="">Automático (franquia, se tiver; senão pago)</option>
@@ -241,14 +249,16 @@ function NovoPedido({ L, onClose, onSaved }) {
   );
 }
 
-function EditarPedido({ L, o, onClose, onSaved }) {
-  const [f, setF] = useState({ song: o.song, dedication: o.dedication || '', amount_paid: o.amount_paid ?? '', kind: o.kind || '' });
+function EditarPedido({ L, lives, o, onClose, onSaved }) {
+  const [f, setF] = useState({ song: o.song, dedication: o.dedication || '', amount_paid: o.amount_paid ?? '', kind: o.kind || '', live_id: o.live_id ? String(o.live_id) : '' });
   const [err, setErr] = useState('');
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   async function save(e) {
     e.preventDefault(); setErr('');
     try {
       const body = { song: f.song, dedication: f.dedication, amount_paid: f.amount_paid === '' ? null : f.amount_paid };
+      const moveu = f.live_id && String(f.live_id) !== String(o.live_id || '');
+      if (moveu) body.live_id = f.live_id;
       if (o.live_id && f.kind && f.kind !== o.kind) body.kind = f.kind;
       await api('/orders/' + o.id, { method: 'PUT', body }); onSaved();
     } catch (e2) { setErr(e2.message); }
@@ -261,6 +271,13 @@ function EditarPedido({ L, o, onClose, onSaved }) {
         {err && <div className="error">{err}</div>}
         <div className="field"><label>{L.song}</label><input value={f.song} onChange={set('song')} required /></div>
         <div className="field"><label>{L.dedication}</label><input value={f.dedication} onChange={set('dedication')} /></div>
+        <div className="field"><label>{L.group}</label>
+          <select value={f.live_id} onChange={set('live_id')}>
+            {!o.live_id && <option value="">Continuar na fila</option>}
+            <OpcoesLive lives={lives} />
+          </select>
+          {!o.live_id && <span className="muted">Escolha {minusc(L.group)} para tirar da fila; a cobrança é definida por ela.</span>}
+        </div>
         {o.live_id && (
           <div className="row">
             <div className="field"><label>Cobrança</label>

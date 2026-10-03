@@ -124,7 +124,7 @@ export default function Clientes({ company }) {
           </tbody>
         </table>
       </div>
-      {detail && <Detail c={detail} nomePedidos={rotulosDe(company, 'pedidos').items} clube={clube} club={club} onClose={() => setDetail(null)} onSaved={() => { load(); open(detail.id); }} onDeleted={() => { setDetail(null); load(); }} />}
+      {detail && <Detail c={detail} nomePedidos={rotulosDe(company, 'pedidos').items} clube={clube} club={club} onClose={() => setDetail(null)} onSaved={() => { setDetail(null); load(); }} onDeleted={() => { setDetail(null); load(); }} />}
       {adding && <AddCustomer clube={clube} club={club} onClose={() => setAdding(false)} onSaved={() => { setAdding(false); load(); }} />}
     </>
   );

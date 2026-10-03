@@ -5,6 +5,7 @@
 #  - modelos.mjs: salvar como modelo e começar do modelo
 #  - acesso_admin.mjs: "abrir painel" do administrador
 #  - sessao.mjs: sessão do painel renova com o uso
+#  - venda.mjs: venda com valor (pagamento aceito ou pedido pago) vira cliente
 #  - bloqueios.mjs: lista de atendimentos bloqueados (precisa do redis-server instalado)
 #  - chave_global.mjs: chave global desligada com ALLOW_GLOBAL_KEY=false (segundo servidor, porta 3998)
 # Precisa de um Postgres de teste (PGBASE = conexão sem banco, ex.: postgres://postgres@/postgres?host=/var/tmp/pgtest&port=55432)
@@ -44,6 +45,7 @@ BASE=http://localhost:3999 node test/importar_clube.mjs || R=1
 BASE=http://localhost:3999 node test/pedidos.mjs || R=1
 BASE=http://localhost:3999 node test/eventos.mjs || R=1
 BASE=http://localhost:3999 node test/financeiro.mjs || R=1
+BASE=http://localhost:3999 node test/venda.mjs || R=1
 node test/telefone.mjs || R=1
 BASE=http://localhost:3999 node test/campanhas.mjs || R=1
 BASE=http://localhost:3999 node test/excecoes.mjs || R=1

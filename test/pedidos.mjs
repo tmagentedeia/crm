@@ -195,5 +195,32 @@ const lista = [...filaMm, ...(await T('GET', '/api/orders?live_id=' + (mf.body.l
 const gf = lista.find((o) => o.song === 'Pela franquia'), gp = lista.find((o) => o.song === 'Pago manual');
 check('franquia manual grava valor 0', gf && Number(gf.amount_paid) === 0 && gf.kind === 'franchise', JSON.stringify(gf));
 check('pago manual grava o valor informado', gp && Number(gp.amount_paid) === 25 && gp.kind === 'paid', JSON.stringify(gp));
+
+// atribuir pedido a uma live que já terminou (pedido que ficou sem anotar na hora)
+const lp = (await T('POST', '/api/lives', { title: 'Live passada', starts_at: dia(-1, 5) })).body.live;
+await T('POST', `/api/lives/${lp.id}/close`);
+const pp = await T('POST', '/api/orders', { phone: '553288880081', name: 'Esqueci Anotar', song: 'Na live passada', live_id: lp.id, kind: 'paid', amount_paid: 30 });
+check('anotar direto numa live encerrada', pp.status === 201 && pp.body.status === 'confirmed' && String(pp.body.live.id) === String(lp.id) && pp.body.kind === 'paid', JSON.stringify(pp.body));
+check('live inexistente ao anotar = 404', (await T('POST', '/api/orders', { phone: '553288880082', song: 'x', live_id: 99999999 })).status === 404);
+check('live inválida ao anotar = 400', (await T('POST', '/api/orders', { phone: '553288880082', song: 'x', live_id: 'abc' })).status === 400);
+check('empresa 2 não anota na live da 1', (await T('POST', '/api/orders', { phone: '553288880083', song: 'x', live_id: lp.id }, B)).status === 404);
+for (const lv of (await T('GET', '/api/lives?open=1')).body) await T('POST', `/api/lives/${lv.id}/close`);   // sem live aberta, o pedido cai na fila
+await T('POST', '/api/orders', { phone: '553288880085', name: 'Fila Esquecida', song: 'Estava na fila' });
+const fila2 = (await T('GET', '/api/orders?queue=1')).body;
+check('há pedido na fila para atribuir', fila2.length > 0, 'sem live aberta o pedido deveria cair na fila');
+if (fila2.length) {
+  const alvo = fila2[0];
+  const mv = await T('PUT', `/api/orders/${alvo.id}`, { live_id: lp.id, song: alvo.song, amount_paid: null });
+  check('tirar da fila e atribuir à live encerrada', mv.status === 200 && String(mv.body.live_id) === String(lp.id) && mv.body.kind, JSON.stringify(mv.body));
+  check('some da fila', !(await T('GET', '/api/orders?queue=1')).body.some((o) => o.id === alvo.id));
+  check('aparece na live atribuída', (await T('GET', '/api/orders?live_id=' + lp.id)).body.some((o) => o.id === alvo.id));
+}
+const outra = await T('POST', '/api/orders', { phone: '553288880084', name: 'Mudar Live', song: 'Trocar de live', live_id: lp.id, kind: 'courtesy' });
+const l9 = (await T('POST', '/api/lives', { title: 'Outra passada', starts_at: dia(-1, 6) })).body.live;
+await T('POST', `/api/lives/${l9.id}/close`);
+const troca = await T('PUT', `/api/orders/${outra.body.id}`, { live_id: l9.id });
+check('mover pedido para outra live', troca.status === 200 && String(troca.body.live_id) === String(l9.id) && troca.body.kind === 'courtesy' && Number(troca.body.amount_paid) === 0, JSON.stringify(troca.body));
+check('live inexistente ao mover = 404', (await T('PUT', `/api/orders/${outra.body.id}`, { live_id: 99999999 })).status === 404);
+check('empresa 2 não move pedido da 1', (await T('PUT', `/api/orders/${outra.body.id}`, { live_id: l9.id }, B)).status === 404);
 console.log(`pedidos: ${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);
