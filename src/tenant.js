@@ -4,7 +4,7 @@ import { fileURLToPath } from 'url';
 import { pool, schemaOf } from './db.js';
 import { PEDIDOS_SQL, CORTESIA_SQL, ATENDIDO_SQL, SUGESTOES_SQL, ATENDIDO_FIX_SQL } from './pedidos.js';
 import { EVENTOS_SQL } from './eventos.js';
-import { FINANCEIRO_SQL } from './financeiro.js';
+import { FINANCEIRO_SQL, FINANCEIRO_ORIGEM_SQL } from './financeiro.js';
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const baseline = fs.readFileSync(path.join(dir, '..', 'db', 'tenant.sql'), 'utf8');
@@ -126,6 +126,8 @@ export const TENANT_STEPS = [
   // 15: pedido atendido (marcação de um clique) e lista de músicas sugeridas da live
   { version: 15, sql: ATENDIDO_SQL + SUGESTOES_SQL },
   { version: 16, sql: ATENDIDO_FIX_SQL },
+  // 17: pedidos pagos viram lançamentos do Financeiro (um controle só)
+  { version: 17, sql: FINANCEIRO_ORIGEM_SQL },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 

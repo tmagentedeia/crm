@@ -14,7 +14,7 @@ export default function Financeiro() {
   const [aba, setAba] = useState('recebimentos');
   return (
     <>
-      <div style={{ marginBottom: 12 }}><h1>Financeiro</h1><p className="muted">Chaves Pix que valem para a conferência e os comprovantes recebidos.</p></div>
+      <div style={{ marginBottom: 12 }}><h1>Financeiro</h1><p className="muted">Controle geral de tudo que entra: comprovantes Pix e pedidos pagos.</p></div>
       <div className="row" style={{ marginBottom: 12 }}>
         {[['recebimentos', 'Recebimentos'], ['chaves', 'Chaves Pix'], ['ajustes', 'Ajustes']].map(([v, l]) => (
           <button key={v} className={'btn' + (aba === v ? ' primary' : '')} onClick={() => setAba(v)}>{l}</button>
@@ -33,6 +33,7 @@ function Recebimentos() {
   const [rows, setRows] = useState([]);
   const [resumo, setResumo] = useState(null);
   const [aviso, setAviso] = useState('');
+  const [edit, setEdit] = useState(null);
   const sel = useSelecao(rows);
   const load = () => {
     api(`/payments?month=${mes}${status ? '&status=' + status : ''}`).then(setRows).catch((e) => setAviso(e.message));
@@ -82,6 +83,8 @@ function Recebimentos() {
             <div><div className="muted" style={{ fontSize: 12 }}>Em análise</div><strong style={{ color: resumo.em_analise ? '#c27c0e' : undefined }}>{resumo.em_analise}</strong></div>
             <div><div className="muted" style={{ fontSize: 12 }}>Recusados</div><strong>{resumo.recusados}</strong></div>
             <div><div className="muted" style={{ fontSize: 12 }}>Aceitos sem pedido ligado</div><strong>{resumo.sem_pedido}</strong></div>
+            <div><div className="muted" style={{ fontSize: 12 }}>Por comprovante Pix</div><strong>{money(resumo.via_comprovantes)}</strong></div>
+            <div><div className="muted" style={{ fontSize: 12 }}>Lançados nos pedidos</div><strong>{money(resumo.via_pedidos)}</strong></div>
           </div>
           {resumo.keys.length > 0 && (
             <table style={{ marginTop: 10 }}>
@@ -111,10 +114,11 @@ function Recebimentos() {
                   <td>{quando(p.created_at)}<div className="muted" style={{ fontSize: 12 }}>pago em {quando(p.paid_at)}</div></td>
                   <td>{p.payer_name || <span className="muted">—</span>}</td>
                   <td>{money(p.amount)}</td>
-                  <td>{p.key_registered || p.key_text || <span className="muted">—</span>}{p.beneficiary ? <div className="muted" style={{ fontSize: 12 }}>{p.beneficiary}</div> : null}</td>
+                  <td>{p.source === 'pedido' ? <span className="muted">lançado no pedido</span> : (p.key_registered || p.key_text || <span className="muted">—</span>)}{p.beneficiary ? <div className="muted" style={{ fontSize: 12 }}>{p.beneficiary}</div> : null}</td>
                   <td>{[p.customer_name, p.customer_last_name].filter(Boolean).join(' ') || <span className="muted">—</span>}{p.order_song ? <div className="muted" style={{ fontSize: 12 }}>{p.order_song}</div> : null}</td>
                   <td><span style={{ color: cor, fontWeight: 600 }}>{rot}</span>{p.reason && <div className="muted" style={{ fontSize: 12 }}>{p.reason}</div>}</td>
                   <td className="row">
+                    {p.source !== 'pedido' && <button className="btn" onClick={() => setEdit({ id: p.id, key: p.key_text || '', payer_name: p.payer_name || '', amount: String(p.amount).replace('.', ','), purpose: p.purpose || '' })}>Editar</button>}
                     {p.status !== 'accepted' && <button className="btn" onClick={() => acao(p, 'approve', 'Aceitar este comprovante mesmo assim?')}>Aceitar</button>}
                     {!['accepted', 'rejected'].includes(p.status) && <button className="btn bad" onClick={() => acao(p, 'reject')}>Recusar</button>}
                   </td>
@@ -125,7 +129,32 @@ function Recebimentos() {
           </tbody>
         </table>
       </div>
+      {edit && <FormRecebimento r={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); load(); }} />}
     </>
+  );
+}
+
+function FormRecebimento({ r, onClose, onSaved }) {
+  const [f, setF] = useState(r);
+  const [err, setErr] = useState('');
+  const set = (c) => (e) => setF({ ...f, [c]: e.target.value });
+  async function save(e) {
+    e.preventDefault(); setErr('');
+    try { await api('/payments/' + f.id, { method: 'PUT', body: { key: f.key, payer_name: f.payer_name, amount: f.amount, purpose: f.purpose } }); onSaved(); } catch (x) { setErr(x.message); }
+  }
+  return (
+    <div className="modal-bg" onClick={onClose}>
+      <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={save}>
+        <h2>Editar recebimento</h2>
+        {err && <div className="error">{err}</div>}
+        <div className="field"><label>Chave Pix que recebeu</label><input value={f.key} maxLength={120} onChange={set('key')} autoFocus />
+          <small className="muted">Se for uma das suas chaves, um recebimento marcado como “chave diferente” passa a valer.</small></div>
+        <div className="field"><label>Pagador</label><input value={f.payer_name} maxLength={120} onChange={set('payer_name')} /></div>
+        <div className="field"><label>Valor *</label><input value={f.amount} onChange={set('amount')} required /></div>
+        <div className="field"><label>Finalidade</label><input value={f.purpose} maxLength={120} onChange={set('purpose')} /></div>
+        <div className="row"><button className="btn primary">Salvar</button><button type="button" className="btn" onClick={onClose}>Cancelar</button></div>
+      </form>
+    </div>
   );
 }
 

@@ -38,6 +38,38 @@ export const FINANCEIRO_SQL = `
   CREATE INDEX IF NOT EXISTS idx_payments_txid ON payments (txid);
   CREATE INDEX IF NOT EXISTS idx_payments_created ON payments (created_at);`;
 
+// Todo valor recebido passa por aqui: comprovantes Pix e pedidos pagos lançados no painel (coluna "source").
+// sync_pagamento_pedido garante UM lançamento por pedido pago, sem contar em dobro quando já existe comprovante aceito ligado ao pedido.
+export const FINANCEIRO_ORIGEM_SQL = `
+  ALTER TABLE payments ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'comprovante';
+  CREATE OR REPLACE FUNCTION sync_pagamento_pedido(oid BIGINT) RETURNS void AS $f$
+  DECLARE o song_orders%ROWTYPE;
+  BEGIN
+    SELECT * INTO o FROM song_orders WHERE id = oid;
+    IF NOT FOUND OR o.kind IS DISTINCT FROM 'paid' OR COALESCE(o.amount_paid, 0) <= 0
+       OR EXISTS (SELECT 1 FROM payments WHERE order_id = oid AND source <> 'pedido' AND status = 'accepted') THEN
+      DELETE FROM payments WHERE order_id = oid AND source = 'pedido';
+      RETURN;
+    END IF;
+    IF EXISTS (SELECT 1 FROM payments WHERE order_id = oid AND source = 'pedido') THEN
+      UPDATE payments SET amount = o.amount_paid, customer_id = o.customer_id, status = 'accepted', reason = NULL
+       WHERE order_id = oid AND source = 'pedido';
+    ELSE
+      INSERT INTO payments (payer_name, amount, paid_at, purpose, customer_id, order_id, status, source, created_at)
+      SELECT NULLIF(btrim(concat_ws(' ', c.name, c.last_name)), ''), o.amount_paid, o.created_at, 'Pedido: ' || o.song, o.customer_id, o.id, 'accepted', 'pedido', o.created_at
+        FROM customers c WHERE c.id = o.customer_id;
+    END IF;
+  END $f$ LANGUAGE plpgsql;
+  CREATE OR REPLACE FUNCTION trg_pedido_apagado() RETURNS trigger AS $f$
+  BEGIN
+    DELETE FROM payments WHERE order_id = OLD.id AND source = 'pedido';
+    RETURN OLD;
+  END $f$ LANGUAGE plpgsql;
+  DROP TRIGGER IF EXISTS pedido_apagado ON song_orders;
+  CREATE TRIGGER pedido_apagado BEFORE DELETE ON song_orders FOR EACH ROW EXECUTE FUNCTION trg_pedido_apagado();
+  -- carga inicial: pedidos já pagos entram no financeiro
+  SELECT sync_pagamento_pedido(id) FROM song_orders WHERE kind = 'paid' AND COALESCE(amount_paid, 0) > 0;`;
+
 const TIPOS = ['email', 'phone', 'cpf', 'cnpj', 'random'];
 const txt = (v, max) => { const s = String(v ?? '').trim(); return s.length <= max && !/[\u0000-\u0008\u000b-\u001f<>]/.test(s) ? s : null; };
 const dinheiro = (v) => { if (v === undefined || v === null || v === '') return null; const n = Number(String(v).replace(/[R$\s]/g, '').replace(/\.(?=\d{3}\b)/g, '').replace(',', '.')); return Number.isFinite(n) && n >= 0 && n < 1000000 ? Math.round(n * 100) / 100 : NaN; };
@@ -127,6 +159,7 @@ export function registerFinanceRoutes(r, wrap) {
     if (!alvo) return null;
     await t("UPDATE song_orders SET kind=CASE WHEN live_id IS NOT NULL AND kind IS NULL THEN 'paid' ELSE kind END, amount_paid=$2 WHERE id=$1", [alvo.id, pagamento.amount]);
     await t('UPDATE payments SET order_id=$2, customer_id=COALESCE(customer_id,$3) WHERE id=$1', [pagamento.id, alvo.id, alvo.customer_id]);
+    await t('SELECT sync_pagamento_pedido($1)', [alvo.id]);   // o comprovante passa a ser o lançamento do pedido
     return alvo.id;
   }
 
@@ -224,11 +257,48 @@ export function registerFinanceRoutes(r, wrap) {
               count(*) FILTER (WHERE status='accepted')::int AS aceitos,
               count(*) FILTER (WHERE status='review')::int AS em_analise,
               count(*) FILTER (WHERE status IN ('duplicate','old','wrong_key','low_amount','rejected'))::int AS recusados,
-              count(*) FILTER (WHERE status='accepted' AND order_id IS NULL)::int AS sem_pedido
+              count(*) FILTER (WHERE status='accepted' AND order_id IS NULL)::int AS sem_pedido,
+              COALESCE(sum(amount) FILTER (WHERE status='accepted' AND source='pedido'),0)::float AS via_pedidos,
+              COALESCE(sum(amount) FILTER (WHERE status='accepted' AND source<>'pedido'),0)::float AS via_comprovantes
        FROM payments WHERE to_char(created_at AT TIME ZONE $1,'YYYY-MM')=$2`, [tz, mes])).rows[0];
     res.json({ month: mes, keys: porChave, ...t });
   }));
   // aprova (e dá baixa) ou recusa um recebimento que ficou em análise ou foi recusado
+  // corrige um recebimento (ex.: a chave Pix foi lida errada no comprovante)
+  r.put('/payments/:id', wrap(async (req, res) => {
+    const b = req.body || {};
+    const out = await tx(currentCompany(), async (t) => {
+      const p = (await t('SELECT * FROM payments WHERE id=$1 FOR UPDATE', [req.params.id])).rows[0];
+      if (!p) return { code: 404, error: 'Não encontrado' };
+      if (p.source === 'pedido') return { code: 409, error: 'Este valor vem de um pedido: corrija o valor na tela de Pedidos.' };
+      const keyText = b.key === undefined ? (p.key_text ?? '') : txt(b.key, 120);
+      const payer = b.payer_name === undefined ? (p.payer_name ?? '') : txt(b.payer_name, 120);
+      const purpose = b.purpose === undefined ? (p.purpose ?? '') : txt(b.purpose, 120);
+      const amount = b.amount === undefined ? Number(p.amount) : dinheiro(b.amount);
+      if (keyText === null || payer === null || purpose === null) return { code: 400, error: 'Texto inválido' };
+      if (amount === null || Number.isNaN(amount) || amount <= 0) return { code: 400, error: 'Valor inválido' };
+      const chaves = (await t('SELECT * FROM pix_keys')).rows;
+      const achada = keyText ? chaves.find((k) => normKey(k.key_type, keyText) === k.key_norm) : null;
+      let status = p.status, reason = p.reason;
+      // chave corrigida para uma das nossas: o recebimento que estava como "chave diferente" passa a valer
+      if (p.status === 'wrong_key' && achada && achada.active) {
+        if (p.txid && (await t("SELECT 1 FROM payments WHERE txid=$1 AND status='accepted' AND id<>$2", [p.txid, p.id])).rowCount)
+          return { code: 409, error: 'Já existe um recebimento aceito com este ID de transação' };
+        status = 'accepted'; reason = null;
+      }
+      const u = (await t(
+        `UPDATE payments SET key_text=NULLIF($2,''), pix_key_id=$3, payer_name=NULLIF($4,''), purpose=NULLIF($5,''), amount=$6, status=$7, reason=$8 WHERE id=$1 RETURNING *`,
+        [p.id, keyText, achada?.id || null, payer, purpose, amount, status, reason])).rows[0];
+      let ordem = u.order_id;
+      if (u.status === 'accepted' && p.status !== 'accepted') ordem = await darBaixa(t, u, null);
+      else if (u.status === 'accepted' && u.order_id && Number(p.amount) !== amount) {
+        await t('UPDATE song_orders SET amount_paid=$2 WHERE id=$1', [u.order_id, amount]);
+        await t('SELECT sync_pagamento_pedido($1)', [u.order_id]);
+      }
+      return { id: u.id, status: u.status, order_id: ordem };
+    });
+    out.error ? res.status(out.code).json({ error: out.error }) : res.json(out);
+  }));
   r.post('/payments/:id/approve', wrap(async (req, res) => {
     const out = await tx(currentCompany(), async (t) => {
       const p = (await t('SELECT * FROM payments WHERE id=$1 FOR UPDATE', [req.params.id])).rows[0];
@@ -247,13 +317,21 @@ export function registerFinanceRoutes(r, wrap) {
     rowCount ? res.json({ ok: true }) : res.status(409).json({ error: 'Não encontrado ou já aceito' });
   }));
   r.delete('/payments/:id', wrap(async (req, res) => {
-    const { rowCount } = await q('DELETE FROM payments WHERE id=$1', [req.params.id]);
-    rowCount ? res.json({ ok: true }) : res.status(404).json({ error: 'Não encontrado' });
+    const n = await tx(currentCompany(), async (t) => {
+      const del = await t('DELETE FROM payments WHERE id=$1 RETURNING order_id', [req.params.id]);
+      if (del.rows[0]?.order_id) await t('SELECT sync_pagamento_pedido($1)', [del.rows[0].order_id]);
+      return del.rowCount;
+    });
+    n ? res.json({ ok: true }) : res.status(404).json({ error: 'Não encontrado' });
   }));
   r.post('/payments/bulk-delete', wrap(async (req, res) => {
     const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(Number).filter((n) => Number.isInteger(n) && n > 0))].slice(0, 2000);
     if (!ids.length) return res.status(400).json({ error: 'Nenhum item selecionado' });
     if (req.body.dry_run === true) return res.json({ found: (await q('SELECT count(*)::int AS n FROM payments WHERE id = ANY($1::bigint[])', [ids])).rows[0].n });
-    res.json({ deleted: (await q('DELETE FROM payments WHERE id = ANY($1::bigint[])', [ids])).rowCount });
+    res.json({ deleted: await tx(currentCompany(), async (t) => {
+      const del = await t('DELETE FROM payments WHERE id = ANY($1::bigint[]) RETURNING order_id', [ids]);
+      for (const o of [...new Set(del.rows.map((x) => x.order_id).filter(Boolean))]) await t('SELECT sync_pagamento_pedido($1)', [o]);
+      return del.rowCount;
+    }) });
   }));
 }

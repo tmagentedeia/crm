@@ -306,6 +306,7 @@ export function registerOrderRoutes(r, wrap) {
                    SELECT id FROM payments WHERE customer_id=$2 AND status='accepted' AND order_id IS NULL AND amount=$3
                      AND created_at > now() - interval '12 hours' ORDER BY id DESC LIMIT 1)`, [o.id, cli.id, valor]);
       }
+      await t('SELECT sync_pagamento_pedido($1)', [o.id]);   // pedido pago vira lançamento no Financeiro
       await t(`DELETE FROM song_suggestions WHERE lower(btrim(song)) = lower(btrim($1))`, [song]);
       const bal = await saldo(t, tz, cli.id, live?.starts_at || null);
       // 1º pedido sem pagamento de cliente novo: a cortesia sai se o comprovante não chegar no prazo
@@ -425,6 +426,7 @@ export function registerOrderRoutes(r, wrap) {
          amount_paid=CASE WHEN $5::text IN ('franchise','courtesy') THEN 0 WHEN $6::boolean THEN $7 ELSE amount_paid END,
          served_at=CASE WHEN $8::boolean THEN (CASE WHEN $9::boolean THEN COALESCE(served_at, now()) ELSE NULL END) ELSE served_at END
        WHERE id=$1 RETURNING *`, [req.params.id, song, b.dedication !== undefined, ded, b.kind ?? null, b.amount_paid !== undefined, valor, b.served !== undefined, b.served === true]);
+    await q('SELECT sync_pagamento_pedido($1)', [req.params.id]);   // mantém o Financeiro igual ao pedido
     res.json(rows[0]);
   }));
   // marca de uma vez todos os pedidos ainda não atendidos de uma live

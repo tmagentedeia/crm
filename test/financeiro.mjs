@@ -99,5 +99,41 @@ check('assinatura dos recebimentos muda com pagamento novo', (await T('GET', '/a
 check('apagar em massa', (await T('POST', '/api/payments/bulk-delete', { ids: lst.slice(0, 2).map((x) => x.id) })).body.deleted === 2);
 check('apagar chave não perde os recebimentos', (await T('DELETE', '/api/finance/keys/' + k2.id)).status === 200 && (await T('GET', '/api/payments')).body.length >= 6);
 
+// ---- editar recebimento e controle único (pedidos pagos entram no Financeiro) ----
+const novoTx = () => 'E' + Math.random().toString(36).slice(2).padEnd(30, 'y');
+const errado = (await T('POST', '/api/payments/check', { phone: '553288880055', payer_name: 'Dani', amount: 25, key: 'pix.te.ste@gmail.com', txid: novoTx(), paid_at: sp(5) })).body;
+check('chave com ponto a mais = chave diferente', errado.status === 'wrong_key', JSON.stringify(errado));
+const antesAcc = (await T('GET', '/api/payments/summary')).body.total;
+const ed = await T('PUT', '/api/payments/' + errado.payment_id, { key: 'pix.teste@gmail.com' });
+check('corrigir a chave aceita o recebimento', ed.status === 200 && ed.body.status === 'accepted', JSON.stringify(ed.body));
+const depoisAcc = (await T('GET', '/api/payments/summary')).body.total;
+check('total do mês sobe com o recebimento corrigido', Math.abs(depoisAcc - antesAcc - 25) < 0.01, `${antesAcc} -> ${depoisAcc}`);
+const pagList = async () => (await T('GET', '/api/payments')).body;
+check('recebimento corrigido liga à chave cadastrada', (await pagList()).find((x) => x.id === errado.payment_id)?.pix_key_id === k1.id);
+check('editar valor inválido = 400', (await T('PUT', '/api/payments/' + errado.payment_id, { amount: 'abc' })).status === 400);
+check('outra empresa não edita', (await T('PUT', '/api/payments/' + errado.payment_id, { payer_name: 'x' }, B)).status === 404);
+
+const lvF = (await T('POST', '/api/lives', { title: 'Fin', starts_at: new Date(Date.now() - 3 * 864e5).toISOString() })).body.live;
+await T('POST', `/api/lives/${lvF.id}/close`);   // live passada: não puxa a fila de pedidos de outros testes
+const pedFin = (await T('POST', '/api/orders', { phone: '553288880066', name: 'Pagou Pedido', song: 'Direto no pedido', live_id: lvF.id, kind: 'paid', amount_paid: 40 })).body;
+let pagsPed = (await pagList()).filter((x) => x.order_id === pedFin.id);
+check('pedido pago vira lançamento no Financeiro', pagsPed.length === 1 && pagsPed[0].source === 'pedido' && pagsPed[0].status === 'accepted' && Number(pagsPed[0].amount) === 40, JSON.stringify(pagsPed));
+await T('PUT', '/api/orders/' + pedFin.id, { amount_paid: 55 });
+pagsPed = (await pagList()).filter((x) => x.order_id === pedFin.id);
+check('mudar o valor do pedido muda o lançamento (sem duplicar)', pagsPed.length === 1 && Number(pagsPed[0].amount) === 55, JSON.stringify(pagsPed));
+check('lançamento vindo de pedido não se edita no Financeiro', (await T('PUT', '/api/payments/' + pagsPed[0].id, { amount: 1 })).status === 409);
+await T('PUT', '/api/orders/' + pedFin.id, { kind: 'courtesy' });
+check('pedido deixa de ser pago = lançamento some', (await pagList()).filter((x) => x.order_id === pedFin.id).length === 0);
+await T('PUT', '/api/orders/' + pedFin.id, { kind: 'paid', amount_paid: 40 });
+check('volta a ser pago = lançamento volta', (await pagList()).filter((x) => x.order_id === pedFin.id).length === 1);
+await T('DELETE', '/api/orders/' + pedFin.id);
+check('apagar o pedido apaga o lançamento dele', (await pagList()).filter((x) => x.order_id === pedFin.id).length === 0);
+
+// comprovante aceito depois: não conta em dobro
+const aguard = (await T('POST', '/api/orders', { phone: '553288880077', name: 'Comprovante Depois', song: 'Aguardando', live_id: lvF.id, kind: 'paid' })).body;
+const rec = (await T('POST', '/api/payments/check', { phone: '553288880077', payer_name: 'Comprovante Depois', amount: 30, key: 'pix.teste@gmail.com', txid: novoTx(), paid_at: sp(3) })).body;
+const doOrdem = (await pagList()).filter((x) => x.order_id === aguard.id);
+check('comprovante dá baixa e o pedido tem um lançamento só', rec.accepted && doOrdem.length === 1 && doOrdem[0].source === 'comprovante', JSON.stringify(doOrdem));
+
 console.log(`financeiro: ${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);
