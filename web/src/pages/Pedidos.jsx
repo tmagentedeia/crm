@@ -194,7 +194,7 @@ function TabelaPedidos({ L, rows, sel, fila, vazio, onEdit, onDel, onServe }) {
         <thead><tr><CelulaTodos s={sel} /><th>Cliente</th><th>{L.song}</th><th>{L.dedication}</th><th>Nível</th>{!fila && <th>Cobrança</th>}<th>Anotado em</th><th></th></tr></thead>
         <tbody>
           {rows.map((o) => (
-            <tr key={o.id} style={!fila && !o.served_at ? { background: 'var(--hl, rgba(255, 200, 0, .18))', fontWeight: 600 } : (!fila ? { opacity: .55 } : undefined)}>
+            <tr key={o.id} style={!fila && !o.served_at ? { background: 'color-mix(in srgb, var(--primary-soft) 45%, transparent)', boxShadow: 'inset 3px 0 0 var(--primary)' } : (!fila ? { opacity: .6 } : undefined)}>
               <CelulaLinha s={sel} id={o.id} />
               <td>{nomeDe(o)}</td><td>{o.song}</td><td>{o.dedication || <span className="muted">—</span>}</td>
               <td>{o.level_name || <span className="muted">—</span>}</td>

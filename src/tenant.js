@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { pool, schemaOf } from './db.js';
-import { PEDIDOS_SQL, CORTESIA_SQL, ATENDIDO_SQL, SUGESTOES_SQL } from './pedidos.js';
+import { PEDIDOS_SQL, CORTESIA_SQL, ATENDIDO_SQL, SUGESTOES_SQL, ATENDIDO_FIX_SQL } from './pedidos.js';
 import { EVENTOS_SQL } from './eventos.js';
 import { FINANCEIRO_SQL } from './financeiro.js';
 
@@ -125,6 +125,7 @@ export const TENANT_STEPS = [
   { version: 14, sql: VENDA_SQL },
   // 15: pedido atendido (marcação de um clique) e lista de músicas sugeridas da live
   { version: 15, sql: ATENDIDO_SQL + SUGESTOES_SQL },
+  { version: 16, sql: ATENDIDO_FIX_SQL },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 

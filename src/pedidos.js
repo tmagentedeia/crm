@@ -45,9 +45,15 @@ export const ATENDIDO_SQL = `
         ALTER TABLE song_orders ADD COLUMN served_at TIMESTAMPTZ;
         UPDATE song_orders o SET served_at = o.created_at
          WHERE o.live_id IS NOT NULL AND EXISTS (SELECT 1 FROM lives l WHERE l.id = o.live_id
-               AND (l.closed_at IS NOT NULL OR COALESCE(l.ends_at, l.starts_at + interval '1 day') < now()));
+               AND COALESCE(l.closed_at, l.ends_at, l.starts_at + interval '1 day') < now() - interval '1 day');
       END IF;
     END $$;`;
+// Corrige a carga inicial da versão anterior, que marcou como atendidos também os pedidos de lives recém-encerradas.
+export const ATENDIDO_FIX_SQL = `
+    UPDATE song_orders o SET served_at = NULL
+     WHERE o.served_at = o.created_at AND o.live_id IS NOT NULL
+       AND EXISTS (SELECT 1 FROM lives l WHERE l.id = o.live_id
+             AND COALESCE(l.closed_at, l.ends_at, l.starts_at + interval '1 day') >= now() - interval '1 day');`;
 // Músicas sugeridas para a live do dia: o dono alimenta a lista e a agente oferece uma a uma a quem pedir sugestão.
 export const SUGESTOES_SQL = `
     CREATE TABLE IF NOT EXISTS song_suggestions (
