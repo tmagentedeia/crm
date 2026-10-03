@@ -8,6 +8,10 @@ const SITUACAO = {
   accepted: ['Aceito', 'var(--ok)'], review: ['Em análise', '#c27c0e'], duplicate: ['Duplicado', 'var(--bad)'], old: ['Data antiga', 'var(--bad)'],
   wrong_key: ['Chave diferente', 'var(--bad)'], low_amount: ['Valor menor', 'var(--bad)'], rejected: ['Recusado', 'var(--bad)'],
 };
+// chave em caixinha de 12 caracteres (o texto inteiro aparece ao tocar/passar o mouse)
+const CAIXA = { display: 'inline-block', maxWidth: '12ch', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'bottom', border: '1px solid var(--line)', borderRadius: 6, padding: '1px 6px', fontSize: 12, background: 'var(--primary-soft)' };
+// e-mail aparece só no início; CPF, CNPJ e telefone aparecem inteiros
+const Chave = ({ v }) => <span style={String(v).includes('@') ? CAIXA : { ...CAIXA, maxWidth: 'none' }} title={v}>{v}</span>;
 const CATEGORIAS = { pedido: 'Pedido', contribuicao: 'Contribuição', outro: 'Outro' };
 const TIPOS = { email: 'E-mail', phone: 'Telefone', cpf: 'CPF', cnpj: 'CNPJ', random: 'Chave aleatória' };
 
@@ -85,8 +89,8 @@ function Recebimentos() {
       </div>
       {resumo && (
         <div className="card" style={{ marginBottom: 12 }}>
-          <div className="row" style={{ gap: 22, flexWrap: 'wrap' }}>
-            <div><div className="muted" style={{ fontSize: 12 }}>Recebido no mês</div><strong style={{ fontSize: 20 }}>{money(resumo.total)}</strong></div>
+          <div className="row" style={{ gap: '10px 18px', flexWrap: 'wrap', fontSize: 13 }}>
+            <div><div className="muted" style={{ fontSize: 12 }}>Recebido no mês</div><strong style={{ fontSize: 17 }}>{money(resumo.total)}</strong></div>
             <div><div className="muted" style={{ fontSize: 12 }}>Aceitos</div><strong>{resumo.aceitos}</strong></div>
             <div><div className="muted" style={{ fontSize: 12 }}>Em análise</div><strong style={{ color: resumo.em_analise ? '#c27c0e' : undefined }}>{resumo.em_analise}</strong></div>
             <div><div className="muted" style={{ fontSize: 12 }}>Recusados</div><strong>{resumo.recusados}</strong></div>
@@ -97,14 +101,16 @@ function Recebimentos() {
             <div><div className="muted" style={{ fontSize: 12 }}>Sem chave Pix</div><strong style={{ color: resumo.sem_chave ? '#c27c0e' : undefined }}>{resumo.sem_chave}</strong></div>
           </div>
           {resumo.keys.length > 0 && (
-            <table style={{ marginTop: 10 }}>
-              <thead><tr><th>Chave</th><th>Beneficiário</th><th>Recebimentos</th><th>Total</th></tr></thead>
-              <tbody>
-                {resumo.keys.map((k) => (
-                  <tr key={k.id}><td>{k.key}{!k.active && <span className="muted"> (desativada)</span>}</td><td>{k.beneficiary || <span className="muted">—</span>}</td><td>{k.qtd}</td><td>{money(k.total)}</td></tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="table-wrap" style={{ marginTop: 10 }}>
+              <table style={{ fontSize: 12 }}>
+                <thead><tr><th>Chave</th><th>Beneficiário</th><th>Qtd</th><th>Total</th></tr></thead>
+                <tbody>
+                  {resumo.keys.map((k) => (
+                    <tr key={k.id}><td><Chave v={k.key} />{!k.active && <span className="muted" style={{ fontSize: 11 }}> off</span>}</td><td>{k.beneficiary ? <span style={{ ...CAIXA, border: 'none', background: 'none', padding: 0, maxWidth: '9ch', fontSize: 13 }} title={k.beneficiary}>{k.beneficiary}</span> : <span className="muted">—</span>}</td><td>{k.qtd}</td><td>{money(k.total)}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       )}
@@ -125,7 +131,7 @@ function Recebimentos() {
                   <td>{p.payer_name || <span className="muted">—</span>}</td>
                   <td>{money(p.amount)}</td>
                   <td>{CATEGORIAS[p.category] || p.category}</td>
-                  <td>{p.key_registered || p.key_text || (p.source === 'pedido' ? <span style={{ color: '#c27c0e' }}>sem chave: indicar</span> : <span className="muted">—</span>)}{p.source === 'pedido' && <div className="muted" style={{ fontSize: 12 }}>lançado no pedido</div>}{p.beneficiary ? <div className="muted" style={{ fontSize: 12 }}>{p.beneficiary}</div> : null}</td>
+                  <td>{(p.key_registered || p.key_text) ? <Chave v={p.key_registered || p.key_text} /> : (p.source === 'pedido' ? <span style={{ color: '#c27c0e' }}>sem chave: indicar</span> : <span className="muted">—</span>)}{p.source === 'pedido' && <div className="muted" style={{ fontSize: 12 }}>lançado no pedido</div>}{p.beneficiary ? <div className="muted" style={{ fontSize: 12 }}>{p.beneficiary}</div> : null}</td>
                   <td>{[p.customer_name, p.customer_last_name].filter(Boolean).join(' ') || <span className="muted">—</span>}{p.order_song ? <div className="muted" style={{ fontSize: 12 }}>{p.order_song}</div> : null}</td>
                   <td><span style={{ color: cor, fontWeight: 600 }}>{rot}</span>{p.reason && <div className="muted" style={{ fontSize: 12 }}>{p.reason}</div>}</td>
                   <td className="row">
