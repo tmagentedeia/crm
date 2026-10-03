@@ -27,8 +27,8 @@ app.post('/api/auth/login', async (req, res) => {
   const u = rows[0];
   if (!u || !(await bcrypt.compare(password || '', u.password_hash)))
     return res.status(401).json({ error: 'E-mail ou senha incorretos' });
-  const company = (await qg('SELECT id,name,inactive_days,logo,modules,menu_custom,module_labels FROM companies WHERE id=$1', [u.company_id])).rows[0];
-  res.json({ token: signToken(u), user: { id: u.id, name: u.name, role: u.role }, company });
+  const company = (await qg('SELECT id,name,inactive_days,logo,modules,locked_modules,menu_custom,module_labels FROM companies WHERE id=$1', [u.company_id])).rows[0];
+  res.json({ token: signToken(u), user: { id: u.id, name: u.name, role: u.role }, company: await comUpgrade(company) });
 });
 
 // Cria empresa + dono. Deixe ALLOW_SIGNUP=false depois de criar a sua (ou proteja com sua própria regra).
@@ -46,10 +46,18 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
+
+// Contato e texto do aviso de "função de outro plano" (definidos pelo administrador, valem para todas as empresas)
+async function upgradeInfo() {
+  const v = (await qg("SELECT value FROM platform_settings WHERE key='upgrade'")).rows[0]?.value || {};
+  return { phone: String(v.phone || ''), text: String(v.text || '') };
+}
+const comUpgrade = async (c) => (c ? { ...c, upgrade: await upgradeInfo() } : c);
+
 // ---------- Configurações da empresa ----------
 app.get('/api/company', requireUser, async (req, res) => {
-  const { rows } = await qg('SELECT id,name,phone,inactive_days,logo,max_professionals,reminder_minutes,modules,menu_custom,module_labels FROM companies WHERE id=$1', [req.user.companyId]);
-  res.json(rows[0]);
+  const { rows } = await qg('SELECT id,name,phone,inactive_days,logo,max_professionals,reminder_minutes,modules,locked_modules,menu_custom,module_labels FROM companies WHERE id=$1', [req.user.companyId]);
+  res.json(await comUpgrade(rows[0]));
 });
 
 app.put('/api/company', requireUser, async (req, res) => {
@@ -67,11 +75,11 @@ app.put('/api/company', requireUser, async (req, res) => {
      logo = CASE WHEN $5::boolean THEN NULLIF($6,'') ELSE logo END,
      reminder_minutes = CASE WHEN $7::boolean THEN $8::int ELSE reminder_minutes END,
      menu_custom = CASE WHEN $9::boolean THEN $10::jsonb ELSE menu_custom END
-     WHERE id=$1 RETURNING id,name,phone,inactive_days,logo,max_professionals,reminder_minutes,modules,menu_custom,module_labels`,
+     WHERE id=$1 RETURNING id,name,phone,inactive_days,logo,max_professionals,reminder_minutes,modules,locked_modules,menu_custom,module_labels`,
     [req.user.companyId, name, phone, inactive_days, logo !== undefined, logo ?? null,
      reminder_minutes !== undefined, reminder_minutes == null ? null : Number(reminder_minutes),
      menu !== undefined, JSON.stringify(menu ?? {})]);
-  res.json(rows[0]);
+  res.json(await comUpgrade(rows[0]));
 });
 
 // ---------- Contatos bloqueados (painel <-> atendente) ----------
@@ -167,7 +175,7 @@ app.get('/api/admin/access-log', requireUser, requireAdmin, async (req, res) => 
 
 app.get('/api/admin/companies', requireUser, requireAdmin, async (req, res) => {
   const { rows } = await qg(
-    `SELECT c.id, c.name, c.max_professionals, c.created_at, c.modules, c.module_labels, c.whatsapp_instance, c.redis_prefix, c.campaign_webhook_url, c.booking_mode, c.api_key_hint, c.api_key_created_at,
+    `SELECT c.id, c.name, c.max_professionals, c.created_at, c.modules, c.locked_modules, c.module_labels, c.whatsapp_instance, c.redis_prefix, c.campaign_webhook_url, c.booking_mode, c.api_key_hint, c.api_key_created_at,
             (SELECT u.email FROM users u WHERE u.company_id = c.id ORDER BY (u.role = 'owner') DESC, u.id LIMIT 1) AS owner_email
      FROM companies c ORDER BY c.id`);
   // profissionais ativos: contados dentro do schema de cada empresa
@@ -216,12 +224,12 @@ app.post('/api/admin/companies/:id/impersonate', requireUser, requireAdmin, asyn
   if (req.user.imp) return res.status(403).json({ error: 'Volte à administração antes de abrir outra empresa' });
   const id = Number(req.params.id);
   if (!Number.isSafeInteger(id) || id <= 0) return res.status(404).json({ error: 'Empresa não encontrada' });
-  const company = (await qg('SELECT id,name,inactive_days,logo,modules,menu_custom,module_labels FROM companies WHERE id=$1', [id])).rows[0];
+  const company = (await qg('SELECT id,name,inactive_days,logo,modules,locked_modules,menu_custom,module_labels FROM companies WHERE id=$1', [id])).rows[0];
   if (!company) return res.status(404).json({ error: 'Empresa não encontrada' });
   const u = (await qg('SELECT * FROM users WHERE company_id=$1 ORDER BY (role = \'owner\') DESC, id LIMIT 1', [id])).rows[0];
   if (!u) return res.status(404).json({ error: 'Essa empresa não tem usuário' });
   await qg('INSERT INTO admin_access_log (admin_user_id, company_id, target_user_id) VALUES ($1,$2,$3)', [req.user.id, id, u.id]);
-  res.json({ token: signImpersonationToken(u, req.user.id), user: { id: u.id, name: u.name, role: u.role }, company });
+  res.json({ token: signImpersonationToken(u, req.user.id), user: { id: u.id, name: u.name, role: u.role }, company: await comUpgrade(company) });
 });
 
 // Gera (ou regenera) a chave de integração da empresa. A chave em texto só aparece nesta resposta;
@@ -321,6 +329,28 @@ app.put('/api/admin/companies/:id/modules', requireUser, requireAdmin, async (re
   if (!modules) return res.status(400).json({ error: 'Módulos inválidos' });
   const { rows } = await qg('UPDATE companies SET modules = modules || $2::jsonb WHERE id=$1 RETURNING id, name, modules', [id, JSON.stringify(modules)]);
   rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Empresa não encontrada' });
+});
+
+// Funções desligadas que continuam aparecendo apagadas (com cadeado) no painel da empresa, convidando ao upgrade.
+app.put('/api/admin/companies/:id/locks', requireUser, requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id <= 0) return res.status(404).json({ error: 'Empresa não encontrada' });
+  const locks = cleanModules(req.body.locks);
+  if (!locks) return res.status(400).json({ error: 'Funções inválidas' });
+  const { rows } = await qg('UPDATE companies SET locked_modules = locked_modules || $2::jsonb WHERE id=$1 RETURNING id, name, locked_modules', [id, JSON.stringify(locks)]);
+  rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Empresa não encontrada' });
+});
+
+// Contato (WhatsApp) e texto do aviso de upgrade
+app.get('/api/admin/upgrade', requireUser, requireAdmin, async (req, res) => res.json(await upgradeInfo()));
+app.put('/api/admin/upgrade', requireUser, requireAdmin, async (req, res) => {
+  const phone = String(req.body.phone ?? '').replace(/\D/g, '');
+  const text = String(req.body.text ?? '').trim();
+  if (phone.length > 15) return res.status(400).json({ error: 'Telefone inválido' });
+  if (text.length > 300 || /[<>]/.test(text)) return res.status(400).json({ error: 'Texto inválido (até 300 letras, sem < ou >)' });
+  await qg(`INSERT INTO platform_settings (key, value) VALUES ('upgrade', $1::jsonb)
+            ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=now()`, [JSON.stringify({ phone, text })]);
+  res.json({ phone, text });
 });
 
 // Nomes que a empresa dá às coisas de um módulo (ex.: "Live" vira "Loja"). Só muda o texto das telas.

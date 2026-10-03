@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react';
+import UpgradeModal from '../UpgradeModal.jsx';
+import { IconeCadeado } from '../icones.jsx';
 import { Nome } from '../menu.jsx';
 import { api } from '../api.js';
 import { lerSecoes, juntarSecoes, sugerirSecoes, temSecoes, rotulo } from '../manualSecoes.js';
@@ -459,6 +461,9 @@ export default function Atendente({ company }) {
   // O assistente é opcional: só aparece quando o administrador liga para a empresa
   const temAssistente = company?.modules?.assistente === true;
   const [quem, setQuem] = useState('agent');
+  const [upg, setUpg] = useState(false);
+  // sem o assistente no plano, a aba aparece sempre apagada, com cadeado e convite de upgrade (serve a qualquer negócio)
+  const assistenteBloqueado = !temAssistente;
   const P = temAssistente ? quem : 'agent';
   const papel = P === 'assistant' ? 'assistente' : 'atendente';
   return (
@@ -470,6 +475,13 @@ export default function Atendente({ company }) {
           <button className={'btn' + (P === 'assistant' ? ' primary' : '')} onClick={() => setQuem('assistant')}>Assistente</button>
         </div>
       )}
+      {assistenteBloqueado && (
+        <div style={{ display: 'flex', gap: 8, margin: '12px 0 0' }}>
+          <button className="btn primary">Atendente</button>
+          <button className="btn" style={{ opacity: .55, display: 'inline-flex', alignItems: 'center', gap: 6 }} title="Disponível em outro plano" onClick={() => setUpg(true)}>Assistente <IconeCadeado size={13} /></button>
+        </div>
+      )}
+      {upg && <UpgradeModal company={company} nome="Assistente" onClose={() => setUpg(false)} />}
       {P === 'agent' && <NomeAgente />}
       <div style={{ display: 'flex', gap: 8, margin: '12px 0 16px' }}>
         <button className={'btn' + (aba === 'manual' ? ' primary' : '')} onClick={() => setAba('manual')}>Manual</button>

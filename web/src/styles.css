@@ -56,6 +56,7 @@ h1 { font-size: 22px; margin: 0 0 4px; } h2 { font-size: 16px; margin: 0 0 12px;
 .nav-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px; border: 0; background: none; color: var(--muted); cursor: pointer; text-align: left; white-space: nowrap; overflow: hidden; }
 a.nav-item { text-decoration: none; }
 .nav-item:hover { background: var(--bg); color: var(--text); }
+.nav-item.bloqueado { opacity: .5; }
 .nav-item.active { background: var(--primary-soft); color: var(--primary); font-weight: 600; }
 .nav-icon { width: 22px; text-align: center; flex: none; font-size: 17px; }
 .spacer { flex: 1; }
@@ -129,5 +130,6 @@ tr.click { cursor: pointer; } tr.click:hover td { background: var(--bg); }
 /* campo de senha com botão de mostrar/ocultar */
 .senha-wrap { position: relative; }
 .senha-wrap input { padding-right: 42px; }
-.senha-olho { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); background: none; border: 0; cursor: pointer; font-size: 18px; line-height: 1; padding: 4px 6px; opacity: .75; }
-.senha-olho:hover { opacity: 1; }
+/* ícone fino, na cor do texto esmaecida: discreto, realça ao passar o mouse */
+.senha-olho { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); background: none; border: 0; cursor: pointer; line-height: 0; padding: 6px; color: var(--muted); opacity: .7; display: inline-flex; }
+.senha-olho:hover { opacity: 1; color: var(--text); }

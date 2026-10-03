@@ -36,6 +36,7 @@ R=0
 BASE=http://localhost:3999 node test/isolamento.mjs || R=1
 BASE=http://localhost:3999 node test/atendente.mjs || R=1
 BASE=http://localhost:3999 node test/assistente.mjs || R=1
+BASE=http://localhost:3999 node test/bloqueado.mjs || R=1
 BASE=http://localhost:3999 node test/modelos.mjs || R=1
 BASE=http://localhost:3999 node test/acesso_admin.mjs || R=1
 BASE=http://localhost:3999 node test/sessao.mjs || R=1

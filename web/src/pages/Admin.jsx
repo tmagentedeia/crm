@@ -2,6 +2,7 @@ import CampoSenha from '../senha.jsx';
 import React, { useEffect, useState } from 'react';
 import { api, fmtDate, getToken, setToken, ADMIN_KEY } from '../api.js';
 import { MODULES, moduleOn } from '../modules.js';
+import { IconeCadeado, IconeOlho } from '../icones.jsx';
 import { ROTULOS } from '../rotulos.js';
 
 const FORM_VAZIO = () => ({
@@ -34,7 +35,7 @@ export default function Admin() {
   const [modelos, setModelos] = useState([]);
   const [salvarModelo, setSalvarModelo] = useState(null); // { company_id, empresa, name, description }
   const loadModelos = () => api('/admin/templates').then(setModelos).catch((e) => setErr(e.message));
-  useEffect(() => { api('/admin/version').then(setVersao).catch(() => {}); api('/admin/default-menu').then(setMenuPadrao).catch(() => {}); }, []);
+  useEffect(() => { api('/admin/version').then(setVersao).catch(() => {}); api('/admin/default-menu').then(setMenuPadrao).catch(() => {}); api('/admin/upgrade').then(setUp).catch(() => {}); }, []);
   const definirMenuPadrao = (body, ok) => { setErr(''); setMsg(''); api('/admin/default-menu', { method: 'PUT', body }).then((r) => { setMenuPadrao(r); setMsg(ok); }).catch((e) => setErr(e.message)); };
   const verAcessos = () => (acessos ? setAcessos(null) : api('/admin/access-log').then(setAcessos).catch((e) => setErr(e.message)));
   const salvarCx = async (s) => {
@@ -44,6 +45,7 @@ export default function Admin() {
       const { [s.id]: _, ...resto } = cx; setCx(resto); setMsg('Bloqueios de ' + s.name + ' atualizados.'); load();
     } catch (e) { setErr(e.message); }
   };
+  const [up, setUp] = useState({ phone: '', text: '' }); // contato e texto do aviso de upgrade
   const [opcoes, setOpcoes] = useState(null); // id da empresa cujas opções do Atendente estão abertas
   const [nomes, setNomes] = useState(null); // { id, empresa, modulo, valores } — nomes do módulo em edição
   const [em, setEm] = useState({}); // id -> e-mail do responsável em edição
@@ -141,6 +143,18 @@ export default function Admin() {
       setNovaChave({ id: s.id, empresa: s.name, chave: r.api_key });
       load();
     } catch (e) { setErr(e.message); }
+  }
+
+  async function alternarVitrine(s, key) {
+    setErr(''); setMsg('');
+    try {
+      await api(`/admin/companies/${s.id}/locks`, { method: 'PUT', body: { locks: { [key]: !(s.locked_modules?.[key] === true) } } });
+      load();
+    } catch (e) { setErr(e.message); }
+  }
+  async function salvarUpgrade() {
+    setErr(''); setMsg('');
+    try { setUp(await api('/admin/upgrade', { method: 'PUT', body: up })); setMsg('Aviso de upgrade salvo.'); } catch (e) { setErr(e.message); }
   }
 
   async function alternarModulo(s, key) {
@@ -251,7 +265,7 @@ export default function Admin() {
               <h2>Opções do Atendente — {emp.name}</h2>
               <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontWeight: 'normal' }}>
                 <input type="checkbox" style={{ width: 'auto', marginTop: 3 }} checked={moduleOn(emp.modules, 'assistente')} onChange={() => alternarModulo(emp, 'assistente')} />
-                <span><strong>Assistente</strong><br /><span className="muted">Um segundo agente, com manual e atualizações provisórias próprios, ao lado do atendente. Desligado, a empresa não tem assistente.</span></span>
+                <span><strong>Assistente</strong><br /><span className="muted">Um segundo agente, com manual e atualizações provisórias próprios, ao lado do atendente. Desligado, a empresa vê a aba apagada, com convite de upgrade.</span></span>
               </label>
               {err && <div className="error">{err}</div>}
               <div className="row"><button className="btn primary" onClick={() => setOpcoes(null)}>Fechar</button></div>
@@ -365,6 +379,11 @@ export default function Admin() {
                   <label key={m.key} title={m.desc} style={{ display: 'flex', gap: 6, alignItems: 'center', fontWeight: 'normal', whiteSpace: 'nowrap' }}>
                     <input type="checkbox" style={{ width: 'auto' }} checked={moduleOn(s.modules, m.key)} onChange={() => alternarModulo(s, m.key)} />
                     {m.label}
+                    {!moduleOn(s.modules, m.key) && (
+                      <button type="button" className="btn sm" style={{ padding: '0 6px', lineHeight: 0, opacity: s.locked_modules?.[m.key] === true ? .9 : .5 }}
+                        title={s.locked_modules?.[m.key] === true ? 'Aparece apagada para a empresa (convite de upgrade). Toque para esconder.' : 'Escondida da empresa. Toque para mostrar apagada, com convite de upgrade.'}
+                        onClick={(e) => { e.preventDefault(); alternarVitrine(s, m.key); }}>{s.locked_modules?.[m.key] === true ? <IconeCadeado size={13} /> : <IconeOlho cortado size={13} />}</button>
+                    )}
                     {(ROTULOS[m.key] || m.key === 'atendente') && moduleOn(s.modules, m.key) && (
                       <button type="button" className="btn sm" style={{ padding: '0 6px' }} title={m.key === 'atendente' ? 'Opções do atendente' : 'Personalizar os nomes deste módulo'}
                         onClick={(e) => {
@@ -399,6 +418,18 @@ export default function Admin() {
             </tbody>
           </table>
         )}
+      </div>
+
+      <div className="card" style={{ marginTop: 16 }}>
+        <h2 style={{ marginBottom: 6 }}>Aviso de upgrade</h2>
+        <p className="muted" style={{ marginBottom: 10 }}>
+          Aparece quando a empresa toca numa função apagada (com cadeado). Vale para todas as empresas. Em cada empresa, use o botão ao lado da função desligada para escolher se ela aparece apagada ou fica escondida.
+        </p>
+        <div className="field"><label>WhatsApp para receber o interesse (com DDI e DDD, só números)</label>
+          <input value={up.phone} placeholder="5532999999999" onChange={(e) => setUp({ ...up, phone: e.target.value })} /></div>
+        <div className="field"><label>Texto do aviso (em branco usa o texto padrão)</label>
+          <textarea rows={2} maxLength={300} value={up.text} placeholder="Esta função não está no seu plano atual. Fale com a gente para liberar." onChange={(e) => setUp({ ...up, text: e.target.value })} /></div>
+        <button className="btn primary" onClick={salvarUpgrade}>Salvar aviso</button>
       </div>
 
       <div className="card" style={{ marginTop: 16 }}>

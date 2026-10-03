@@ -20,6 +20,8 @@ import Pedidos from './pages/Pedidos.jsx';
 import Eventos from './pages/Eventos.jsx';
 import Financeiro from './pages/Financeiro.jsx';
 import { moduleOn } from './modules.js';
+import UpgradeModal from './UpgradeModal.jsx';
+import { IconeCadeado } from './icones.jsx';
 import { MenuCustomContext, nomeDoMenu, iconeDoMenu } from './menu.jsx';
 
 const THEMES = [
@@ -58,6 +60,7 @@ export default function App() {
   const [admin, setAdmin] = useState(false);
   const [logged, setLogged] = useState(!!getToken());
   const [page, setPage] = useState(() => location.hash.slice(1) || 'dashboard');
+  const [upgrade, setUpgrade] = useState(null); // nome da função apagada que a pessoa tocou
   const [collapsed, setCollapsed] = useState(window.innerWidth < 760);
   const [company, setCompany] = useState(() => JSON.parse(localStorage.getItem('crm_company') || '{}'));
   const [theme, setTheme] = useState(() => localStorage.getItem('crm_theme') ||
@@ -91,10 +94,13 @@ export default function App() {
   // nome e ícone que a empresa escolheu para cada item (em Configurações); sem escolha, vale o padrão
   const custom = company.menu_custom || {};
   const personalizado = (m) => ({ ...m, label: nomeDoMenu(custom, m.id, m.label), icon: iconeDoMenu(custom, m.id, m.icon) });
-  const visible = BASE_MENU.filter((m) => !m.module || moduleOn(company.modules, m.module)).map(personalizado);
+  // Função desligada que o administrador deixou à vista aparece apagada, com cadeado, convidando ao upgrade
+  const bloqueada = (m) => !!m.module && !moduleOn(company.modules, m.module) && company.locked_modules?.[m.module] === true;
+  const visible = BASE_MENU.filter((m) => !m.module || moduleOn(company.modules, m.module) || bloqueada(m))
+    .map((m) => ({ ...personalizado(m), locked: bloqueada(m) }));
   const MENU = admin ? [...visible, ADMIN_ITEM] : visible;
   // Sem nenhum módulo ligado, o administrador começa direto na Administração
-  const inicial = admin && !visible.some((m) => m.module) ? ADMIN_ITEM : MENU[0];
+  const inicial = admin && !visible.some((m) => m.module && !m.locked) ? ADMIN_ITEM : (MENU.find((m) => !m.locked) || MENU[0]);
 
   if (!logged) return <Login theme={theme} onLogin={(s) => { setCompany(s); setLogged(true); }} />;
 
@@ -112,7 +118,7 @@ export default function App() {
     location.hash = 'admin';
     location.reload();
   };
-  const atual = MENU.find((m) => m.id === page) || inicial;
+  const atual = MENU.find((m) => m.id === page && !m.locked) || inicial;
   const Current = atual.comp;
 
   return (
@@ -124,14 +130,16 @@ export default function App() {
           <span>{company.name || 'Minha Empresa'}</span>
         </div>
         {MENU.map((m) => (
-          <a key={m.id} href={'#' + m.id} className={'nav-item' + (atual.id === m.id ? ' active' : '')} title={m.label}
+          <a key={m.id} href={'#' + m.id} className={'nav-item' + (atual.id === m.id ? ' active' : '') + (m.locked ? ' bloqueado' : '')} title={m.locked ? m.label + ' — disponível em outro plano' : m.label}
             onClick={(e) => {
+              if (m.locked) { e.preventDefault(); setUpgrade(m.label); return; }
               // Ctrl/Cmd/Shift + clique e clique do meio: deixa o navegador abrir em outra aba
               if (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1) return;
               e.preventDefault(); go(m.id);
             }}>
             <span className="nav-icon">{m.icon}</span>
             <span>{m.label}</span>
+            {m.locked && <span style={{ marginLeft: 'auto', display: 'inline-flex' }}><IconeCadeado size={13} /></span>}
           </a>
         ))}
         <div className="spacer" />
@@ -156,6 +164,7 @@ export default function App() {
         </div>
         <Current company={company} />
       </main>
+      {upgrade && <UpgradeModal company={company} nome={upgrade} onClose={() => setUpgrade(null)} />}
     </div>
     </MenuCustomContext.Provider>
   );
