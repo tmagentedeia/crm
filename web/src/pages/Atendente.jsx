@@ -28,11 +28,45 @@ function achar(texto, busca, exato) {
   return achados;
 }
 
+
+// Caixa de texto que pinta o trecho procurado: uma camada atrás da caixa repete o texto com os achados marcados.
+const ESTILO_TEXTO = { fontFamily: 'inherit', fontSize: 14, lineHeight: '20px', padding: 8, margin: 0, border: '1px solid var(--line, #ccc)', borderRadius: 6, boxSizing: 'border-box', whiteSpace: 'pre-wrap', overflowWrap: 'break-word', wordBreak: 'normal', overflowY: 'scroll', letterSpacing: 'normal' };
+function CaixaTexto({ id, valor, onChange, rows, busca }) {
+  const taRef = React.useRef(null);
+  const fundoRef = React.useRef(null);
+  const achados = achar(valor, busca, false);
+  const sincroniza = () => { if (fundoRef.current && taRef.current) fundoRef.current.scrollTop = taRef.current.scrollTop; };
+  // ao procurar, leva a caixa até o primeiro trecho achado
+  useEffect(() => {
+    if (!busca || !achados.length || !taRef.current) return;
+    const linha = valor.slice(0, achados[0][0]).split('\n').length - 1;
+    taRef.current.scrollTop = Math.max(0, linha * 20 - 40);
+    sincroniza();
+  }, [busca]);
+  const pedacos = [];
+  let pos = 0;
+  achados.forEach(([a, b], k) => {
+    pedacos.push(valor.slice(pos, a));
+    pedacos.push(<mark key={k} style={{ background: '#ffd84d', color: 'transparent', borderRadius: 2 }}>{valor.slice(a, b)}</mark>);
+    pos = b;
+  });
+  pedacos.push(valor.slice(pos) + '\n');
+  return (
+    <div style={{ position: 'relative', width: '100%' }}>
+      <div ref={fundoRef} aria-hidden="true" style={{ ...ESTILO_TEXTO, position: 'absolute', inset: 0, color: 'transparent', pointerEvents: 'none', overflow: 'hidden', overflowY: 'scroll', background: 'var(--card, #fff)' }}>{pedacos}</div>
+      <textarea ref={taRef} id={id} value={valor} onChange={onChange} onScroll={sincroniza} rows={rows}
+        style={{ ...ESTILO_TEXTO, position: 'relative', display: 'block', width: '100%', background: 'transparent', color: 'var(--text, inherit)', resize: 'vertical' }} />
+    </div>
+  );
+}
+
 // Editor do manual em várias caixas de texto: cada caixa é um pedaço do manual; o manual continua sendo um texto só.
 function Secoes({ texto, onChange }) {
   const secs = lerSecoes(texto);
   const [abertas, setAbertas] = useState(() => new Set());
   const [filtro, setFiltro] = useState('');
+  const [arrasta, setArrasta] = useState(null);   // caixa sendo arrastada
+  const [sobre, setSobre] = useState(null);       // caixa sobre a qual ela está
   const aplicar = (novas, abrir) => {
     onChange(juntarSecoes(novas));
     if (abrir !== undefined) setAbertas(new Set(abrir));
@@ -46,6 +80,15 @@ function Secoes({ texto, onChange }) {
     if (j < 0 || j >= novas.length) return;
     [novas[i], novas[j]] = [novas[j], novas[i]];
     aplicar(novas, [j]);
+  };
+  const soltar = (para) => {
+    const de = arrasta;
+    setArrasta(null); setSobre(null);
+    if (de === null || para === null || de === para) return;
+    const novas = [...secs];
+    const [item] = novas.splice(de, 1);
+    novas.splice(para, 0, item);
+    aplicar(novas, [para]);
   };
   const excluir = (i) => {
     if (!window.confirm(`Apagar esta caixa e o texto dela?\n\n${rotulo(secs[i].corpo)}`)) return;
@@ -93,16 +136,21 @@ function Secoes({ texto, onChange }) {
         if (!visivel(s)) return null;
         const aberta = abertas.has(i) || !!f;
         return (
-          <div key={i} style={{ border: '1px solid var(--border, #ddd)', borderRadius: 6, marginBottom: 3 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 10px', cursor: 'pointer' }} onClick={() => alternar(i)}>
+          <div key={i} onDragOver={(e) => { if (arrasta !== null) { e.preventDefault(); if (sobre !== i) setSobre(i); } }} onDrop={(e) => { e.preventDefault(); soltar(i); }}
+            style={{ border: '1px solid var(--border, #ddd)', borderRadius: 6, marginBottom: 3, opacity: arrasta === i ? 0.4 : 1,
+              boxShadow: arrasta !== null && sobre === i && arrasta !== i ? (arrasta < i ? '0 3px 0 0 var(--primary)' : '0 -3px 0 0 var(--primary)') : undefined }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 10px', cursor: 'pointer' }} onClick={() => alternar(i)}
+              draggable={!f} onDragStart={(e) => { setArrasta(i); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(i)); }} onDragEnd={() => { setArrasta(null); setSobre(null); }}
+              title={f ? undefined : 'Arraste para reorganizar'}>
+              {!f && <span className="muted" style={{ cursor: 'grab' }} aria-hidden="true">⠿</span>}
               <span>{aberta ? '▾' : '▸'}</span>
               <strong style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{rotulo(s.corpo)}</strong>
-              <span className="muted">{s.corpo.length} caracteres</span>
+              <span className="muted">{f ? `${achar(s.corpo, filtro, false).length}× · ` : ''}{s.corpo.length} caracteres</span>
             </div>
             {aberta && (
               <div style={{ padding: '0 10px 10px' }}>
-                <textarea id={`sec-ta-${i}`} value={s.corpo} onChange={(e) => editar(i, e.target.value)}
-                  rows={Math.min(30, Math.max(5, s.corpo.split('\n').length + 1))} style={{ width: '100%', fontFamily: 'inherit' }} />
+                <CaixaTexto id={`sec-ta-${i}`} valor={s.corpo} onChange={(e) => editar(i, e.target.value)} busca={filtro}
+                  rows={Math.min(30, Math.max(5, s.corpo.split('\n').length + 1))} />
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
                   <button className="btn sm" onClick={() => maiusculas(i)} title="Selecione um trecho do texto e aperte para deixá-lo em letras maiúsculas">Colocar em MAIÚSCULAS</button>
                   <button className="btn sm" onClick={() => dividir(i)}>Dividir aqui</button>
