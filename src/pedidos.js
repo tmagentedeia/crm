@@ -35,6 +35,28 @@ export const PEDIDOS_SQL = `
 
 // Cortesia do 1º pedido: cliente novo (não assinante) que pediu e não mandou comprovante em CORTESIA_MIN minutos.
 // Vale uma vez por cliente. A marca fica no pedido (tipo "Cortesia") e na ficha (courtesy_used_at).
+// Pedido atendido: o dono marca com um clique quando já tocou; os pendentes ficam no topo e em destaque.
+// Ao criar a coluna, o que é de live já encerrada entra como atendido (histórico), para não aparecer como pendente.
+export const ATENDIDO_SQL = `
+    DO $$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_schema = current_schema() AND table_name = 'song_orders' AND column_name = 'served_at') THEN
+        ALTER TABLE song_orders ADD COLUMN served_at TIMESTAMPTZ;
+        UPDATE song_orders o SET served_at = o.created_at
+         WHERE o.live_id IS NOT NULL AND EXISTS (SELECT 1 FROM lives l WHERE l.id = o.live_id
+               AND (l.closed_at IS NOT NULL OR COALESCE(l.ends_at, l.starts_at + interval '1 day') < now()));
+      END IF;
+    END $$;`;
+// Músicas sugeridas para a live do dia: o dono alimenta a lista e a agente oferece uma a uma a quem pedir sugestão.
+export const SUGESTOES_SQL = `
+    CREATE TABLE IF NOT EXISTS song_suggestions (
+      id         BIGSERIAL PRIMARY KEY,
+      song       TEXT NOT NULL,
+      offered    INT NOT NULL DEFAULT 0,          -- quantas vezes já foi oferecida (a menos oferecida vem primeiro)
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );`;
+
 export const CORTESIA_SQL = `
     ALTER TABLE customers ADD COLUMN IF NOT EXISTS courtesy_used_at TIMESTAMPTZ;
     DO $$
@@ -278,6 +300,7 @@ export function registerOrderRoutes(r, wrap) {
                    SELECT id FROM payments WHERE customer_id=$2 AND status='accepted' AND order_id IS NULL AND amount=$3
                      AND created_at > now() - interval '12 hours' ORDER BY id DESC LIMIT 1)`, [o.id, cli.id, valor]);
       }
+      await t(`DELETE FROM song_suggestions WHERE lower(btrim(song)) = lower(btrim($1))`, [song]);
       const bal = await saldo(t, tz, cli.id, live?.starts_at || null);
       // 1º pedido sem pagamento de cliente novo: a cortesia sai se o comprovante não chegar no prazo
       const elegivel = !escolha && o.kind !== 'franchise' && !(valor > 0)
@@ -302,7 +325,7 @@ export function registerOrderRoutes(r, wrap) {
   // A tela pergunta isso de tempos em tempos e só recarrega as listas quando a assinatura muda.
   r.get('/orders/changes', wrap(async (req, res) => {
     await tx(currentCompany(), converterCortesias);
-    const o = (await q(`SELECT count(*)::int AS n, COALESCE(md5(string_agg(concat_ws('|', id, live_id, song, dedication, kind, amount_paid), ';' ORDER BY id)), '') AS h FROM song_orders`)).rows[0];
+    const o = (await q(`SELECT count(*)::int AS n, COALESCE(md5(string_agg(concat_ws('|', id, live_id, song, dedication, kind, amount_paid, served_at), ';' ORDER BY id)), '') AS h FROM song_orders`)).rows[0];
     const l = (await q(`SELECT count(*)::int AS n, COALESCE(md5(string_agg(concat_ws('|', id, title, starts_at, ends_at, closed_at), ';' ORDER BY id)), '') AS h FROM lives`)).rows[0];
     res.json({ sig: `${o.n}:${o.h}:${l.n}:${l.h}` });
   }));
@@ -355,7 +378,7 @@ export function registerOrderRoutes(r, wrap) {
       `SELECT o.*, c.name AS customer_name, c.last_name AS customer_last_name, c.phone AS customer_phone, c.club_status
        FROM song_orders o JOIN customers c ON c.id=o.customer_id
        WHERE (($1::boolean AND o.live_id IS NULL) OR (NOT $1::boolean AND $2::bigint IS NOT NULL AND o.live_id=$2))
-       ORDER BY o.created_at, o.id`, [fila, live]);
+       ORDER BY (o.served_at IS NOT NULL), o.created_at, o.id`, [fila, live]);
     res.json(rows);
   }));
   r.put('/orders/:id', wrap(async (req, res) => {
@@ -393,9 +416,44 @@ export function registerOrderRoutes(r, wrap) {
     const { rows } = await q(
       `UPDATE song_orders SET song=COALESCE($2,song), dedication=CASE WHEN $3::boolean THEN NULLIF($4,'') ELSE dedication END,
          kind=COALESCE($5::text,kind),
-         amount_paid=CASE WHEN $5::text IN ('franchise','courtesy') THEN 0 WHEN $6::boolean THEN $7 ELSE amount_paid END
-       WHERE id=$1 RETURNING *`, [req.params.id, song, b.dedication !== undefined, ded, b.kind ?? null, b.amount_paid !== undefined, valor]);
+         amount_paid=CASE WHEN $5::text IN ('franchise','courtesy') THEN 0 WHEN $6::boolean THEN $7 ELSE amount_paid END,
+         served_at=CASE WHEN $8::boolean THEN (CASE WHEN $9::boolean THEN COALESCE(served_at, now()) ELSE NULL END) ELSE served_at END
+       WHERE id=$1 RETURNING *`, [req.params.id, song, b.dedication !== undefined, ded, b.kind ?? null, b.amount_paid !== undefined, valor, b.served !== undefined, b.served === true]);
     res.json(rows[0]);
+  }));
+  // marca de uma vez todos os pedidos ainda não atendidos de uma live
+  r.post('/orders/serve-all', wrap(async (req, res) => {
+    const live = String(req.body?.live_id ?? '');
+    if (!/^\d+$/.test(live)) return res.status(400).json({ error: 'Live inválida' });
+    const n = (await q('UPDATE song_orders SET served_at=now() WHERE live_id=$1 AND served_at IS NULL', [live])).rowCount;
+    res.json({ updated: n });
+  }));
+  // ---------- SUGESTÕES DA LIVE ----------
+  // Lista do dia que o apresentador cadastra; a agente oferece uma a uma. Escolhida vira pedido e sai da lista.
+  r.get('/suggestions', wrap(async (req, res) => {
+    res.json((await q('SELECT id, song, offered FROM song_suggestions ORDER BY id')).rows);
+  }));
+  // troca a lista inteira (uma música por linha) — a cada live o apresentador cola a nova
+  r.put('/suggestions', wrap(async (req, res) => {
+    const itens = Array.isArray(req.body?.songs) ? req.body.songs : String(req.body?.text ?? '').split('\n');
+    const songs = [...new Set(itens.map((x) => txt(String(x ?? ''), 200)).filter(Boolean))].slice(0, 300);
+    await run(async (t) => {
+      await t('DELETE FROM song_suggestions');
+      for (const s of songs) await t('INSERT INTO song_suggestions (song) VALUES ($1)', [s]);
+    });
+    res.json((await q('SELECT id, song, offered FROM song_suggestions ORDER BY id')).rows);
+  }));
+  r.delete('/suggestions/:id', wrap(async (req, res) => {
+    const { rowCount } = await q('DELETE FROM song_suggestions WHERE id=$1', [req.params.id]);
+    rowCount ? res.json({ ok: true }) : res.status(404).json({ error: 'Não encontrado' });
+  }));
+  // próxima sugestão a oferecer: a menos oferecida até agora (assim a agente passa por todas, uma a uma)
+  r.get('/suggestions/next', wrap(async (req, res) => {
+    const { rows } = await q(
+      `UPDATE song_suggestions SET offered=offered+1 WHERE id = (SELECT id FROM song_suggestions ORDER BY offered, id LIMIT 1)
+       RETURNING id, song`);
+    const left = (await q('SELECT count(*)::int AS n FROM song_suggestions')).rows[0].n;
+    res.json({ suggestion: rows[0] || null, remaining: left });
   }));
   r.post('/orders/bulk-delete', wrap(async (req, res) => {
     const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(Number).filter((n) => Number.isInteger(n) && n > 0))].slice(0, 2000);

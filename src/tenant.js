@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { pool, schemaOf } from './db.js';
-import { PEDIDOS_SQL, CORTESIA_SQL } from './pedidos.js';
+import { PEDIDOS_SQL, CORTESIA_SQL, ATENDIDO_SQL, SUGESTOES_SQL } from './pedidos.js';
 import { EVENTOS_SQL } from './eventos.js';
 import { FINANCEIRO_SQL } from './financeiro.js';
 
@@ -123,6 +123,8 @@ export const TENANT_STEPS = [
   { version: 13, sql: 'ALTER TABLE customers ALTER COLUMN phone DROP NOT NULL' },
   // 14: venda com valor (pagamento aceito ou pedido pago) vira cliente automaticamente
   { version: 14, sql: VENDA_SQL },
+  // 15: pedido atendido (marcação de um clique) e lista de músicas sugeridas da live
+  { version: 15, sql: ATENDIDO_SQL + SUGESTOES_SQL },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 
@@ -140,6 +142,8 @@ export async function createCompanySchema(cx, companyId) {
   await cx.query(FINANCEIRO_SQL);
   await cx.query(CORTESIA_SQL);
   await cx.query(VENDA_SQL);
+  await cx.query(ATENDIDO_SQL);
+  await cx.query(SUGESTOES_SQL);
   await cx.query('SET LOCAL search_path TO public');
   await cx.query('INSERT INTO tenant_versions (company_id, version) VALUES ($1, 1)', [companyId]);
 }

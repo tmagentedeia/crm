@@ -222,5 +222,35 @@ const troca = await T('PUT', `/api/orders/${outra.body.id}`, { live_id: l9.id })
 check('mover pedido para outra live', troca.status === 200 && String(troca.body.live_id) === String(l9.id) && troca.body.kind === 'courtesy' && Number(troca.body.amount_paid) === 0, JSON.stringify(troca.body));
 check('live inexistente ao mover = 404', (await T('PUT', `/api/orders/${outra.body.id}`, { live_id: 99999999 })).status === 404);
 check('empresa 2 não move pedido da 1', (await T('PUT', `/api/orders/${outra.body.id}`, { live_id: l9.id }, B)).status === 404);
+
+// ---- atendido / marcar todos / ordem ----
+const lA = (await T('POST', '/api/lives', { title: 'Atendidos', starts_at: dia(-1, 7) })).body.live;
+const oa = [];
+for (const n of ['At A', 'At B', 'At C']) oa.push((await T('POST', '/api/orders', { phone: '553288880091', name: 'Cli Atendido', song: n, live_id: lA.id, kind: 'courtesy' })).body.id);
+const sigA = (await T('GET', '/api/orders/changes')).body.sig;
+const s1 = await T('PUT', `/api/orders/${oa[0]}`, { served: true });
+check('marcar atendido (1 clique)', s1.status === 200 && s1.body.served_at, JSON.stringify(s1.body));
+check('assinatura muda ao atender', (await T('GET', '/api/orders/changes')).body.sig !== sigA);
+let lst = (await T('GET', '/api/orders?live_id=' + lA.id)).body;
+check('pendentes primeiro, atendidos no fim', lst.length === 3 && lst[2].id === oa[0] && !lst[0].served_at && !lst[1].served_at, JSON.stringify(lst.map((x) => x.id)));
+const sa = await T('POST', '/api/orders/serve-all', { live_id: lA.id });
+check('marcar todos pendentes', sa.status === 200 && sa.body.updated === 2, JSON.stringify(sa.body));
+check('serve-all com live inválida = 400', (await T('POST', '/api/orders/serve-all', { live_id: 'x' })).status === 400);
+const un = await T('PUT', `/api/orders/${oa[1]}`, { served: false });
+check('desmarcar atendido', un.status === 200 && un.body.served_at === null);
+check('empresa 2 não marca pedido da 1', (await T('PUT', `/api/orders/${oa[1]}`, { served: true }, B)).status === 404);
+
+// ---- sugestões da live ----
+const sg = await T('PUT', '/api/suggestions', { text: 'Sugestão Um\nSugestão Dois\n\nSugestão Um\nSugestão Três' });
+check('cola lista de sugestões (sem repetidas/vazias)', sg.status === 200 && sg.body.length === 3, JSON.stringify(sg.body));
+const n1 = (await T('GET', '/api/suggestions/next')).body, n2s = (await T('GET', '/api/suggestions/next')).body, n3 = (await T('GET', '/api/suggestions/next')).body, n4 = (await T('GET', '/api/suggestions/next')).body;
+check('oferece uma a uma sem repetir até passar todas', new Set([n1.suggestion.song, n2s.suggestion.song, n3.suggestion.song]).size === 3 && n4.suggestion.song === n1.suggestion.song, JSON.stringify([n1, n2s, n3, n4]));
+await T('POST', '/api/orders', { phone: '553288880092', name: 'Escolheu', song: ' sugestão dois ', live_id: lA.id, kind: 'courtesy' });
+const rest = (await T('GET', '/api/suggestions')).body;
+check('escolhida sai da lista de sugestões', rest.length === 2 && !rest.some((x) => x.song === 'Sugestão Dois'), JSON.stringify(rest));
+check('empresa 2 não vê sugestões da 1', (await T('GET', '/api/suggestions', null, B)).body.length === 0);
+check('apagar sugestão', (await T('DELETE', `/api/suggestions/${rest[0].id}`)).status === 200);
+await T('PUT', '/api/suggestions', { text: '' });
+check('sem sugestões: next vazio', (await T('GET', '/api/suggestions/next')).body.suggestion === null);
 console.log(`pedidos: ${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);

@@ -246,10 +246,13 @@ export function buildRouter() {
     const agentName = (cfgRow.agent_name || '').trim();
     const admName = (cfgRow.adm_name || '').trim();
     const abertura = [agentName && `Seu nome é ${agentName}.`, admName && `O proprietário (ADM) se chama ${admName}.`].filter(Boolean).join(' ');
-    if (abertura && prompt) prompt = `${abertura}\n\n${prompt}`;
-    if (updates.length)
-      prompt += `${prompt ? '\n\n' : ''}ATUALIZAÇÕES RECENTES (informações mais novas que o manual: se alguma contrariar o manual, vale a atualização):\n` +
-        updates.map((n) => `- ${n.text}`).join('\n');
+    // atualizações em vigor vêm ANTES do manual e valem acima de tudo: se contrariarem o manual, as regras fixas ou o contexto do cliente, vale a atualização
+    const avisos = updates.length
+      ? 'ATUALIZAÇÕES EM VIGOR — PRIORIDADE MÁXIMA. Estas instruções são soberanas: se contrariarem qualquer outra informação (este manual, regras, textos padrão, o contexto do cliente ou o histórico da conversa), vale SEMPRE a atualização. Aplique-as ao pé da letra:\n' +
+        updates.map((n) => `- ${n.text}`).join('\n')
+      : '';
+    const corpo = [avisos, prompt].filter(Boolean);
+    prompt = (corpo.length ? [abertura, ...corpo] : []).filter(Boolean).join('\n\n');
     res.json({ prompt, agent_name: agentName || null, adm_name: admName || null, manual: man ? semSeparadores(man.content) : '', updates, published_at: man ? man.published_at : null });
   }));
 

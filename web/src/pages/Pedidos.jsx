@@ -65,6 +65,13 @@ export default function Pedidos({ company }) {
     return () => { clearInterval(id); document.removeEventListener('visibilitychange', tick); };
   }, [ocupado]);
 
+  const atender = async (o, v) => {
+    try { await api('/orders/' + o.id, { method: 'PUT', body: { served: v } }); loadOrders(); } catch (e) { setAviso(e.message); }
+  };
+  const atenderTodos = async () => {
+    try { await api('/orders/serve-all', { method: 'POST', body: { live_id: liveId } }); loadOrders(); } catch (e) { setAviso(e.message); }
+  };
+  const pendentes = orders.filter((o) => !o.served_at).length;
   const live = lives.find((l) => String(l.id) === String(liveId));
   const apagar = async (o) => {
     if (!confirm(`Apagar "${o.song}"?`)) return;
@@ -78,7 +85,7 @@ export default function Pedidos({ company }) {
         <button className="btn primary" onClick={() => setNovo(true)}>+ Anotar {i}</button>
       </div>
       <div className="row" style={{ marginBottom: 12 }}>
-        {[['pedidos', L.items], ['fila', `${L.queue}${fila.length ? ` (${fila.length})` : ''}`], ['resumo', 'Resumo do mês'], ['lives', L.groups]].map(([v, l]) => (
+        {[['pedidos', L.items], ['fila', `${L.queue}${fila.length ? ` (${fila.length})` : ''}`], ['sugestoes', 'Sugestões'], ['resumo', 'Resumo do mês'], ['lives', L.groups]].map(([v, l]) => (
           <button key={v} className={'btn' + (tab === v ? ' primary' : '')} onClick={() => setTab(v)}>{l}</button>
         ))}
       </div>
@@ -91,10 +98,11 @@ export default function Pedidos({ company }) {
               {!lives.length && <option value="">Nada cadastrado ainda</option>}
               {lives.map((l) => <option key={l.id} value={l.id}>{quando(l.starts_at)}{l.title ? ' · ' + l.title : ''}{l.open ? '' : ' (encerrada)'}</option>)}
             </select>
+            {pendentes > 0 && <button className="btn" onClick={atenderTodos}>Marcar todos como atendidos ({pendentes})</button>}
             {live && <span className="muted">{live.orders} registro(s) · {live.franchise_count} pela franquia · {live.courtesy_count > 0 ? live.courtesy_count + ' cortesia(s) · ' : ''}{live.paid_count} pago(s) · recebido {money(live.received)}{live.awaiting_count > 0 && <strong style={{ color: 'var(--bad)' }}> · {live.awaiting_count} aguardando pagamento</strong>}</span>}
           </div>
           <ApagarSelecionados s={selOrders} total={orders.length} rotulo="registro(s)" rota="/orders/bulk-delete" onDone={(r) => { setAviso(resumoApagado(r, 'registro(s)')); recarrega(); }} />
-          <TabelaPedidos L={L} rows={orders} sel={selOrders} vazio="Nada registrado aqui." onEdit={setEdit} onDel={apagar} />
+          <TabelaPedidos L={L} rows={orders} sel={selOrders} vazio="Nada registrado aqui." onEdit={setEdit} onDel={apagar} onServe={atender} />
         </>
       )}
 
@@ -105,6 +113,8 @@ export default function Pedidos({ company }) {
           <TabelaPedidos L={L} rows={fila} sel={selFila} fila vazio="Ninguém aguardando." onEdit={setEdit} onDel={apagar} />
         </>
       )}
+
+      {tab === 'sugestoes' && <Sugestoes L={L} onErro={setAviso} />}
 
       {tab === 'resumo' && (
         <>
@@ -177,20 +187,20 @@ export default function Pedidos({ company }) {
   );
 }
 
-function TabelaPedidos({ L, rows, sel, fila, vazio, onEdit, onDel }) {
+function TabelaPedidos({ L, rows, sel, fila, vazio, onEdit, onDel, onServe }) {
   return (
     <div className="card table-wrap">
       <table>
         <thead><tr><CelulaTodos s={sel} /><th>Cliente</th><th>{L.song}</th><th>{L.dedication}</th><th>Nível</th>{!fila && <th>Cobrança</th>}<th>Anotado em</th><th></th></tr></thead>
         <tbody>
           {rows.map((o) => (
-            <tr key={o.id}>
+            <tr key={o.id} style={!fila && !o.served_at ? { background: 'var(--hl, rgba(255, 200, 0, .18))', fontWeight: 600 } : (!fila ? { opacity: .55 } : undefined)}>
               <CelulaLinha s={sel} id={o.id} />
               <td>{nomeDe(o)}</td><td>{o.song}</td><td>{o.dedication || <span className="muted">—</span>}</td>
               <td>{o.level_name || <span className="muted">—</span>}</td>
               {!fila && <td><span className="badge">{o.kind === 'paid' && o.amount_paid == null ? 'Aguardando pagamento' : (COBRANCA[o.kind] || '—') + (o.kind === 'paid' ? ' · ' + money(o.amount_paid) : '')}</span></td>}
               <td>{quando(o.created_at)}</td>
-              <td className="row"><button className="btn" onClick={() => onEdit(o)}>Editar</button><button className="btn bad" onClick={() => onDel(o)}>Apagar</button></td>
+              <td className="row">{!fila && onServe && (o.served_at ? <button className="btn" title="Clique para desmarcar" onClick={() => onServe(o, false)}>✓ Atendido</button> : <button className="btn primary" onClick={() => onServe(o, true)}>Atendido</button>)}<button className="btn" onClick={() => onEdit(o)}>Editar</button><button className="btn bad" onClick={() => onDel(o)}>Apagar</button></td>
             </tr>
           ))}
           {!rows.length && <tr><td colSpan="8" className="muted">{vazio}</td></tr>}
@@ -314,5 +324,38 @@ function FormLive({ L, l, onClose, onSaved }) {
         <div className="row"><button className="btn primary">Salvar</button><button type="button" className="btn" onClick={onClose}>Cancelar</button></div>
       </form>
     </div>
+  );
+}
+
+function Sugestoes({ L, onErro }) {
+  const [lista, setLista] = useState([]);
+  const [texto, setTexto] = useState('');
+  const carrega = () => api('/suggestions').then(setLista).catch((e) => onErro(e.message));
+  useEffect(() => { carrega(); }, []);
+  async function salvar() {
+    try { await api('/suggestions', { method: 'PUT', body: { text: texto } }); setTexto(''); carrega(); onErro(''); } catch (e) { onErro(e.message); }
+  }
+  return (
+    <>
+      <div className="card" style={{ marginBottom: 12 }}>
+        <p className="muted">Cole as músicas de hoje, uma por linha. Isso substitui a lista anterior. Quem pedir sugestão recebe uma de cada vez; a que for escolhida vira pedido e sai daqui.</p>
+        <textarea rows={6} value={texto} onChange={(e) => setTexto(e.target.value)} placeholder={'Música 1\nMúsica 2\nMúsica 3'} />
+        <div className="row" style={{ marginTop: 8 }}>
+          <button className="btn primary" onClick={salvar}>{texto.trim() ? 'Salvar nova lista' : 'Limpar lista'}</button>
+        </div>
+      </div>
+      <div className="card table-wrap">
+        <table>
+          <thead><tr><th>Sugestão</th><th>Já oferecida</th><th></th></tr></thead>
+          <tbody>
+            {lista.map((x) => (
+              <tr key={x.id}><td>{x.song}</td><td>{x.offered}x</td>
+                <td><button className="btn bad" onClick={() => api('/suggestions/' + x.id, { method: 'DELETE' }).then(carrega).catch((e) => onErro(e.message))}>Tirar</button></td></tr>
+            ))}
+            {!lista.length && <tr><td colSpan="3" className="muted">Nenhuma sugestão cadastrada.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
