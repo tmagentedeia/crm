@@ -210,8 +210,21 @@ function TabelaPedidos({ L, rows, sel, fila, vazio, onEdit, onDel, onServe }) {
   );
 }
 
+// Em qual chave Pix o valor entrou (todo lançamento financeiro tem chave)
+function ChavePix({ value, onChange, obrigatoria, vazio }) {
+  const [chaves, setChaves] = useState([]);
+  useEffect(() => { api('/finance/keys').then((k) => setChaves(k.filter((x) => x.active))).catch(() => {}); }, []);
+  return (
+    <div className="field"><label>Chave Pix que recebeu{obrigatoria ? ' *' : ''}</label>
+      <select value={value} onChange={onChange} required={obrigatoria}>
+        <option value="">{vazio || 'Escolha a chave'}</option>
+        {chaves.map((k) => <option key={k.id} value={k.id}>{k.key}{k.beneficiary ? ` · ${k.beneficiary}` : ''}</option>)}
+      </select></div>
+  );
+}
+
 function NovoPedido({ L, lives, onClose, onSaved }) {
-  const [f, setF] = useState({ phone: '', name: '', song: '', dedication: '', amount_paid: '', kind: '', live_id: '' });
+  const [f, setF] = useState({ phone: '', name: '', song: '', dedication: '', amount_paid: '', kind: '', live_id: '', pix_key_id: '' });
   const [err, setErr] = useState('');
   const [ok, setOk] = useState(null);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
@@ -219,7 +232,7 @@ function NovoPedido({ L, lives, onClose, onSaved }) {
     e.preventDefault(); setErr(''); setOk(null);
     try {
       const r = await api('/orders', { method: 'POST', body: { ...f, amount_paid: f.amount_paid === '' || f.kind === 'franchise' || f.kind === 'courtesy' ? null : f.amount_paid } });
-      setOk(r); onSaved(); setF({ ...f, song: '', dedication: '', amount_paid: '' });
+      setOk(r); onSaved(); setF({ ...f, song: '', dedication: '', amount_paid: '', pix_key_id: '' });
     } catch (e2) { setErr(e2.message); }
   }
   return (
@@ -253,6 +266,7 @@ function NovoPedido({ L, lives, onClose, onSaved }) {
         {f.kind !== 'franchise' && f.kind !== 'courtesy' && (
           <div className="field"><label>Valor pago (R$)</label><input inputMode="decimal" value={f.amount_paid} onChange={set('amount_paid')} placeholder="só se for cobrado" /></div>
         )}
+        {f.kind !== 'franchise' && f.kind !== 'courtesy' && Number(String(f.amount_paid).replace(',', '.')) > 0 && <ChavePix value={f.pix_key_id} onChange={set('pix_key_id')} obrigatoria />}
         <div className="row"><button className="btn primary">Anotar</button><button type="button" className="btn" onClick={onClose}>Fechar</button></div>
       </form>
     </div>
@@ -260,7 +274,7 @@ function NovoPedido({ L, lives, onClose, onSaved }) {
 }
 
 function EditarPedido({ L, lives, o, onClose, onSaved }) {
-  const [f, setF] = useState({ song: o.song, dedication: o.dedication || '', amount_paid: o.amount_paid ?? '', kind: o.kind || '', live_id: o.live_id ? String(o.live_id) : '' });
+  const [f, setF] = useState({ song: o.song, dedication: o.dedication || '', amount_paid: o.amount_paid ?? '', kind: o.kind || '', live_id: o.live_id ? String(o.live_id) : '', pix_key_id: '' });
   const [err, setErr] = useState('');
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   async function save(e) {
@@ -269,6 +283,7 @@ function EditarPedido({ L, lives, o, onClose, onSaved }) {
       const body = { song: f.song, dedication: f.dedication, amount_paid: f.amount_paid === '' ? null : f.amount_paid };
       const moveu = f.live_id && String(f.live_id) !== String(o.live_id || '');
       if (moveu) body.live_id = f.live_id;
+      if (f.pix_key_id) body.pix_key_id = f.pix_key_id;
       if (o.live_id && f.kind && f.kind !== o.kind) body.kind = f.kind;
       await api('/orders/' + o.id, { method: 'PUT', body }); onSaved();
     } catch (e2) { setErr(e2.message); }
@@ -295,6 +310,7 @@ function EditarPedido({ L, lives, o, onClose, onSaved }) {
             <div className="field"><label>Valor pago (R$)</label><input inputMode="decimal" value={f.amount_paid} onChange={set('amount_paid')} /></div>
           </div>
         )}
+        {o.live_id && f.kind === 'paid' && Number(String(f.amount_paid).replace(',', '.')) > 0 && <ChavePix value={f.pix_key_id} onChange={set('pix_key_id')} vazio="Manter a atual" />}
         <div className="row"><button className="btn primary">Salvar</button><button type="button" className="btn" onClick={onClose}>Cancelar</button></div>
       </form>
     </div>

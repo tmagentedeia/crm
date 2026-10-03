@@ -37,6 +37,11 @@ export const PEDIDOS_SQL = `
 // Vale uma vez por cliente. A marca fica no pedido (tipo "Cortesia") e na ficha (courtesy_used_at).
 // Pedido atendido: o dono marca com um clique quando já tocou; os pendentes ficam no topo e em destaque.
 // Ao criar a coluna, o que é de live já encerrada entra como atendido (histórico), para não aparecer como pendente.
+// Indica em qual das chaves Pix cadastradas o valor do pedido entrou (todo lançamento financeiro tem chave).
+async function gravaChave(t, orderId, keyId) {
+  if (!/^\d+$/.test(String(keyId ?? ''))) return;
+  await t(`UPDATE payments SET pix_key_id=k.id, key_text=k.key FROM pix_keys k WHERE k.id=$2 AND payments.order_id=$1 AND payments.source='pedido'`, [orderId, keyId]);
+}
 export const ATENDIDO_SQL = `
     DO $$
     BEGIN
@@ -307,6 +312,7 @@ export function registerOrderRoutes(r, wrap) {
                      AND created_at > now() - interval '12 hours' ORDER BY id DESC LIMIT 1)`, [o.id, cli.id, valor]);
       }
       await t('SELECT sync_pagamento_pedido($1)', [o.id]);   // pedido pago vira lançamento no Financeiro
+      await gravaChave(t, o.id, req.body.pix_key_id);
       await t(`DELETE FROM song_suggestions WHERE lower(btrim(song)) = lower(btrim($1))`, [song]);
       const bal = await saldo(t, tz, cli.id, live?.starts_at || null);
       // 1º pedido sem pagamento de cliente novo: a cortesia sai se o comprovante não chegar no prazo
@@ -426,7 +432,7 @@ export function registerOrderRoutes(r, wrap) {
          amount_paid=CASE WHEN $5::text IN ('franchise','courtesy') THEN 0 WHEN $6::boolean THEN $7 ELSE amount_paid END,
          served_at=CASE WHEN $8::boolean THEN (CASE WHEN $9::boolean THEN COALESCE(served_at, now()) ELSE NULL END) ELSE served_at END
        WHERE id=$1 RETURNING *`, [req.params.id, song, b.dedication !== undefined, ded, b.kind ?? null, b.amount_paid !== undefined, valor, b.served !== undefined, b.served === true]);
-    await q('SELECT sync_pagamento_pedido($1)', [req.params.id]);   // mantém o Financeiro igual ao pedido
+    await run(async (t) => { await t('SELECT sync_pagamento_pedido($1)', [req.params.id]); await gravaChave(t, req.params.id, b.pix_key_id); });   // mantém o Financeiro igual ao pedido
     res.json(rows[0]);
   }));
   // marca de uma vez todos os pedidos ainda não atendidos de uma live

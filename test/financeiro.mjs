@@ -82,7 +82,7 @@ const rej = lst.find((x) => x.status === 'wrong_key');
 check('recusa', (await T('POST', `/api/payments/${rej.id}/reject`, { reason: 'não é meu' })).status === 200);
 const sum = (await T('GET', '/api/payments/summary')).body;
 check('resumo por chave', sum.keys.length === 2 && sum.keys.find((x) => x.id === k1.id).total > 0 && sum.aceitos >= 3 && sum.total > 0, JSON.stringify(sum));
-check('outra empresa não vê os recebimentos', (await T('GET', '/api/payments', null, B)).body.length === 0);
+const recB = await T('GET', '/api/payments', null, B); check('outra empresa não vê os recebimentos da primeira', Array.isArray(recB.body) && recB.body.every((x) => x.source === 'pedido'), JSON.stringify(recB).slice(0, 300));
 
 // ---- cliente novo: o comprovante chega antes do cadastro e depois o pedido se liga ao pagamento ----
 const pg = (await T('POST', '/api/payments/check', { phone: '553288880077', payer_name: 'Novo Cliente', name: 'Novo Cliente', amount: 45, key: 'pix.teste@gmail.com', txid: 'ENOVO' + Math.random().toString(36).slice(2).padEnd(26, 'x'), paid_at: sp(2), purpose: 'Pedido de música' })).body;
@@ -134,6 +134,44 @@ const aguard = (await T('POST', '/api/orders', { phone: '553288880077', name: 'C
 const rec = (await T('POST', '/api/payments/check', { phone: '553288880077', payer_name: 'Comprovante Depois', amount: 30, key: 'pix.teste@gmail.com', txid: novoTx(), paid_at: sp(3) })).body;
 const doOrdem = (await pagList()).filter((x) => x.order_id === aguard.id);
 check('comprovante dá baixa e o pedido tem um lançamento só', rec.accepted && doOrdem.length === 1 && doOrdem[0].source === 'comprovante', JSON.stringify(doOrdem));
+
+// ---- sem duplicar e com chave Pix ----
+const sem = (await T('POST', '/api/payments/check', { payer_name: 'Dani Silva', amount: 37, key: 'pix.teste@gmail.com', txid: novoTx(), paid_at: sp(10) })).body;
+check('comprovante aceito sem cliente nem pedido', sem.accepted && !sem.order_id, JSON.stringify(sem));
+const manual = (await T('POST', '/api/orders', { phone: '553288880088', name: 'Dani', song: 'Anotado à mão', live_id: lvF.id, kind: 'paid', amount_paid: 37 })).body;
+const doManual = (await pagList()).filter((x) => x.order_id === manual.id);
+check('pedido à mão casa com o comprovante existente (sem duplicar)', doManual.length === 1 && doManual[0].source === 'comprovante' && doManual[0].id === sem.payment_id, JSON.stringify(doManual));
+const totalNo37 = (await pagList()).filter((x) => Number(x.amount) === 37 && x.status === 'accepted').length;
+check('o valor aparece uma vez só no Financeiro', totalNo37 === 1, String(totalNo37));
+
+const lancado = (await T('POST', '/api/orders', { phone: '553288880089', name: 'Lançado Antes', song: 'Primeiro o pedido', live_id: lvF.id, kind: 'paid', amount_paid: 41 })).body;
+let lp = (await pagList()).filter((x) => x.order_id === lancado.id);
+check('lançamento de pedido sem comprovante não inventa chave Pix', lp.length === 1 && lp[0].source === 'pedido' && lp[0].pix_key_id === null, JSON.stringify(lp));
+const chegou = (await T('POST', '/api/payments/check', { phone: '553288880089', payer_name: 'Lançado Antes', amount: 41, key: 'pix.teste@gmail.com', txid: novoTx(), paid_at: sp(2) })).body;
+lp = (await pagList()).filter((x) => x.order_id === lancado.id);
+check('comprovante que chega depois assume o lançamento do pedido', chegou.accepted && lp.length === 1 && lp[0].source === 'comprovante' && lp[0].id === chegou.payment_id, JSON.stringify(lp));
+
+const solto = (await T('POST', '/api/orders', { phone: '553288880090', name: 'Chave Manual', song: 'Trocar chave', live_id: lvF.id, kind: 'paid', amount_paid: 12 })).body;
+const lps = (await pagList()).find((x) => x.order_id === solto.id);
+const trocaChave = await T('PUT', '/api/payments/' + lps.id, { key: 'pix.teste@gmail.com', amount: 12 });
+check('editar a chave de um lançamento de pedido', trocaChave.status === 200);
+check('mudar o valor do lançamento de pedido continua bloqueado', (await T('PUT', '/api/payments/' + lps.id, { amount: 99 })).status === 409);
+
+// ---- tipo da entrada e chave Pix em todo lançamento ----
+const catPed = (await pagList()).find((x) => x.order_id === solto.id);
+check('lançamento de pedido tem o tipo Pedido', catPed?.category === 'pedido', JSON.stringify(catPed));
+const contrib = (await T('POST', '/api/payments/check', { payer_name: 'Doador', amount: 18, key: 'pix.teste@gmail.com', txid: novoTx(), paid_at: sp(4) })).body;
+check('contribuição avulsa fica como Contribuição', (await pagList()).find((x) => x.id === contrib.payment_id)?.category === 'contribuicao');
+await T('PUT', '/api/payments/' + contrib.payment_id, { category: 'outro' });
+check('mudar o tipo da entrada', (await pagList()).find((x) => x.id === contrib.payment_id)?.category === 'outro');
+check('tipo inválido = 400', (await T('PUT', '/api/payments/' + contrib.payment_id, { category: 'x' })).status === 400);
+check('filtrar por tipo', (await T('GET', '/api/payments?category=outro')).body.every((x) => x.category === 'outro'));
+const semChave = (await T('POST', '/api/orders', { phone: '553288880095', name: 'Sem Chave', song: 'Sem chave', live_id: lvF.id, kind: 'paid', amount_paid: 9 })).body;
+check('resumo conta lançamentos sem chave Pix', (await T('GET', '/api/payments/summary')).body.sem_chave >= 1);
+const comChave = (await T('POST', '/api/orders', { phone: '553288880096', name: 'Com Chave', song: 'Com chave', live_id: lvF.id, kind: 'paid', amount_paid: 9, pix_key_id: k1.id })).body;
+check('pedido anotado com a chave Pix escolhida', (await pagList()).find((x) => x.order_id === comChave.id)?.pix_key_id === k1.id);
+await T('PUT', '/api/orders/' + semChave.id, { pix_key_id: k1.id });
+check('indicar a chave depois, editando o pedido', (await pagList()).find((x) => x.order_id === semChave.id)?.pix_key_id === k1.id);
 
 console.log(`financeiro: ${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);

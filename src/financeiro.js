@@ -40,10 +40,10 @@ export const FINANCEIRO_SQL = `
 
 // Todo valor recebido passa por aqui: comprovantes Pix e pedidos pagos lançados no painel (coluna "source").
 // sync_pagamento_pedido garante UM lançamento por pedido pago, sem contar em dobro quando já existe comprovante aceito ligado ao pedido.
-export const FINANCEIRO_ORIGEM_SQL = `
-  ALTER TABLE payments ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'comprovante';
+export const FINANCEIRO_FUNCS_SQL = `
+  ALTER TABLE payments ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'contribuicao';
   CREATE OR REPLACE FUNCTION sync_pagamento_pedido(oid BIGINT) RETURNS void AS $f$
-  DECLARE o song_orders%ROWTYPE;
+  DECLARE o song_orders%ROWTYPE; cand BIGINT;
   BEGIN
     SELECT * INTO o FROM song_orders WHERE id = oid;
     IF NOT FOUND OR o.kind IS DISTINCT FROM 'paid' OR COALESCE(o.amount_paid, 0) <= 0
@@ -51,14 +51,41 @@ export const FINANCEIRO_ORIGEM_SQL = `
       DELETE FROM payments WHERE order_id = oid AND source = 'pedido';
       RETURN;
     END IF;
+    -- já existe um comprovante aceito, ainda sem pedido, do mesmo cliente e valor: ele é o lançamento deste pedido
+    SELECT id INTO cand FROM payments
+     WHERE source <> 'pedido' AND status = 'accepted' AND order_id IS NULL AND amount = o.amount_paid
+       AND (customer_id = o.customer_id
+            OR (customer_id IS NULL AND created_at BETWEEN o.created_at - interval '1 day' AND o.created_at + interval '1 day'))
+     ORDER BY (customer_id IS NULL), id DESC LIMIT 1;
+    IF cand IS NOT NULL THEN
+      UPDATE payments SET order_id = oid, category = 'pedido', customer_id = COALESCE(customer_id, o.customer_id) WHERE id = cand;
+      DELETE FROM payments WHERE order_id = oid AND source = 'pedido';
+      RETURN;
+    END IF;
     IF EXISTS (SELECT 1 FROM payments WHERE order_id = oid AND source = 'pedido') THEN
       UPDATE payments SET amount = o.amount_paid, customer_id = o.customer_id, status = 'accepted', reason = NULL
        WHERE order_id = oid AND source = 'pedido';
     ELSE
-      INSERT INTO payments (payer_name, amount, paid_at, purpose, customer_id, order_id, status, source, created_at)
-      SELECT NULLIF(btrim(concat_ws(' ', c.name, c.last_name)), ''), o.amount_paid, o.created_at, 'Pedido: ' || o.song, o.customer_id, o.id, 'accepted', 'pedido', o.created_at
+      -- a chave Pix só entra quando há comprovante conferido (ou quando o responsável a indicar na edição)
+      INSERT INTO payments (payer_name, amount, paid_at, purpose, customer_id, order_id, status, source, category, created_at)
+      SELECT NULLIF(btrim(concat_ws(' ', c.name, c.last_name)), ''), o.amount_paid, o.created_at, 'Pedido: ' || o.song, o.customer_id, o.id, 'accepted', 'pedido', 'pedido', o.created_at
         FROM customers c WHERE c.id = o.customer_id;
     END IF;
+  END $f$ LANGUAGE plpgsql;
+  -- comprovante aceito depois do pedido já lançado: vira o lançamento do pedido (sem contar em dobro)
+  CREATE OR REPLACE FUNCTION casar_comprovante(pid BIGINT) RETURNS BIGINT AS $f$
+  DECLARE p payments%ROWTYPE; oid BIGINT;
+  BEGIN
+    SELECT * INTO p FROM payments WHERE id = pid;
+    IF NOT FOUND OR p.source = 'pedido' OR p.status <> 'accepted' OR p.order_id IS NOT NULL THEN RETURN NULL; END IF;
+    SELECT pp.order_id INTO oid FROM payments pp
+     WHERE pp.source = 'pedido' AND pp.amount = p.amount
+       AND (pp.customer_id = p.customer_id OR (p.customer_id IS NULL AND pp.created_at > now() - interval '2 days'))
+     ORDER BY (pp.customer_id IS DISTINCT FROM p.customer_id), pp.id DESC LIMIT 1;
+    IF oid IS NULL THEN RETURN NULL; END IF;
+    UPDATE payments SET order_id = oid, category = 'pedido', customer_id = COALESCE(customer_id, (SELECT customer_id FROM song_orders WHERE id = oid)) WHERE id = pid;
+    DELETE FROM payments WHERE order_id = oid AND source = 'pedido';
+    RETURN oid;
   END $f$ LANGUAGE plpgsql;
   CREATE OR REPLACE FUNCTION trg_pedido_apagado() RETURNS trigger AS $f$
   BEGIN
@@ -66,10 +93,18 @@ export const FINANCEIRO_ORIGEM_SQL = `
     RETURN OLD;
   END $f$ LANGUAGE plpgsql;
   DROP TRIGGER IF EXISTS pedido_apagado ON song_orders;
-  CREATE TRIGGER pedido_apagado BEFORE DELETE ON song_orders FOR EACH ROW EXECUTE FUNCTION trg_pedido_apagado();
-  -- carga inicial: pedidos já pagos entram no financeiro
+  CREATE TRIGGER pedido_apagado BEFORE DELETE ON song_orders FOR EACH ROW EXECUTE FUNCTION trg_pedido_apagado();`;
+export const FINANCEIRO_ORIGEM_SQL = `
+  ALTER TABLE payments ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'comprovante';
+  ${FINANCEIRO_FUNCS_SQL}
   SELECT sync_pagamento_pedido(id) FROM song_orders WHERE kind = 'paid' AND COALESCE(amount_paid, 0) > 0;`;
+// Corrige a carga anterior: lançamentos de pedido que duplicavam um comprovante já registrado.
+export const FINANCEIRO_DEDUP_SQL = `
+  ${FINANCEIRO_FUNCS_SQL}
+  SELECT sync_pagamento_pedido(order_id) FROM payments WHERE source = 'pedido';
+  UPDATE payments SET category = 'pedido' WHERE source = 'pedido' OR order_id IS NOT NULL;`;
 
+export const CATEGORIAS = ['pedido', 'contribuicao', 'outro'];   // para que a entrada serviu
 const TIPOS = ['email', 'phone', 'cpf', 'cnpj', 'random'];
 const txt = (v, max) => { const s = String(v ?? '').trim(); return s.length <= max && !/[\u0000-\u0008\u000b-\u001f<>]/.test(s) ? s : null; };
 const dinheiro = (v) => { if (v === undefined || v === null || v === '') return null; const n = Number(String(v).replace(/[R$\s]/g, '').replace(/\.(?=\d{3}\b)/g, '').replace(',', '.')); return Number.isFinite(n) && n >= 0 && n < 1000000 ? Math.round(n * 100) / 100 : NaN; };
@@ -156,9 +191,9 @@ export function registerFinanceRoutes(r, wrap) {
       const espera = (await t("SELECT id, customer_id FROM song_orders WHERE customer_id=$1 AND kind='paid' AND amount_paid IS NULL ORDER BY created_at, id", [pagamento.customer_id])).rows;
       if (espera.length === 1) alvo = espera[0];
     }
-    if (!alvo) return null;
+    if (!alvo) return (await t('SELECT casar_comprovante($1) AS o', [pagamento.id])).rows[0].o;   // pedido já lançado à mão com esse valor
     await t("UPDATE song_orders SET kind=CASE WHEN live_id IS NOT NULL AND kind IS NULL THEN 'paid' ELSE kind END, amount_paid=$2 WHERE id=$1", [alvo.id, pagamento.amount]);
-    await t('UPDATE payments SET order_id=$2, customer_id=COALESCE(customer_id,$3) WHERE id=$1', [pagamento.id, alvo.id, alvo.customer_id]);
+    await t("UPDATE payments SET order_id=$2, category='pedido', customer_id=COALESCE(customer_id,$3) WHERE id=$1", [pagamento.id, alvo.id, alvo.customer_id]);
     await t('SELECT sync_pagamento_pedido($1)', [alvo.id]);   // o comprovante passa a ser o lançamento do pedido
     return alvo.id;
   }
@@ -214,9 +249,9 @@ export function registerFinanceRoutes(r, wrap) {
       if (status === 'accepted' && !txid) { status = 'review'; reason = 'o comprovante não mostra o ID da transação'; }
 
       const p = (await t(
-        `INSERT INTO payments (txid, payer_name, amount, key_text, pix_key_id, paid_at, purpose, customer_id, status, reason)
-         VALUES ($1,NULLIF($2,''),$3,NULLIF($4,''),$5,$6,NULLIF($7,''),$8,$9,$10) RETURNING *`,
-        [txid, payer, amount, keyText, achada?.id || null, paidAt, purpose, cust?.id || null, status, reason])).rows[0];
+        `INSERT INTO payments (txid, payer_name, amount, key_text, pix_key_id, paid_at, purpose, customer_id, status, reason, category)
+         VALUES ($1,NULLIF($2,''),$3,NULLIF($4,''),$5,$6,NULLIF($7,''),$8,$9,$10,$11) RETURNING *`,
+        [txid, payer, amount, keyText, achada?.id || null, paidAt, purpose, cust?.id || null, status, reason, CATEGORIAS.includes(b.category) ? b.category : 'contribuicao'])).rows[0];
       let ordem = null;
       if (status === 'accepted') ordem = await darBaixa(t, p, b.order_id ? Number(b.order_id) : null);
       return { p, ordem, key: achada };
@@ -232,17 +267,18 @@ export function registerFinanceRoutes(r, wrap) {
     const tz = await fuso();
     const mes = /^\d{4}-(0[1-9]|1[0-2])$/.test(String(req.query.month || '')) ? req.query.month : null;
     const status = ['accepted', 'duplicate', 'old', 'wrong_key', 'low_amount', 'review', 'rejected'].includes(req.query.status) ? req.query.status : null;
+    const cat = CATEGORIAS.includes(req.query.category) ? req.query.category : null;
     const rows = (await q(
       `SELECT p.*, p.amount::float AS amount, k.beneficiary, k.key AS key_registered, c.name AS customer_name, c.last_name AS customer_last_name, c.phone AS customer_phone,
               o.song AS order_song
        FROM payments p LEFT JOIN pix_keys k ON k.id=p.pix_key_id LEFT JOIN customers c ON c.id=p.customer_id LEFT JOIN song_orders o ON o.id=p.order_id
-       WHERE ($2::text IS NULL OR p.status=$2) AND ($3::text IS NULL OR to_char(p.created_at AT TIME ZONE $1,'YYYY-MM')=$3)
-       ORDER BY p.created_at DESC, p.id DESC LIMIT 500`, [tz, status, mes])).rows;
+       WHERE ($2::text IS NULL OR p.status=$2) AND ($3::text IS NULL OR to_char(p.created_at AT TIME ZONE $1,'YYYY-MM')=$3) AND ($4::text IS NULL OR p.category=$4)
+       ORDER BY p.created_at DESC, p.id DESC LIMIT 500`, [tz, status, mes, cat])).rows;
     res.json(rows);
   }));
   // Assinatura dos recebimentos (a tela só recarrega a lista quando ela muda)
   r.get('/payments/changes', wrap(async (req, res) => {
-    const x = (await q(`SELECT count(*)::int AS n, COALESCE(md5(string_agg(concat_ws('|', id, status, amount, order_id, customer_id, reason), ';' ORDER BY id)), '') AS h FROM payments`)).rows[0];
+    const x = (await q(`SELECT count(*)::int AS n, COALESCE(md5(string_agg(concat_ws('|', id, status, amount, order_id, customer_id, reason, pix_key_id, category), ';' ORDER BY id)), '') AS h FROM payments`)).rows[0];
     res.json({ sig: `${x.n}:${x.h}` });
   }));
   r.get('/payments/summary', wrap(async (req, res) => {
@@ -259,7 +295,11 @@ export function registerFinanceRoutes(r, wrap) {
               count(*) FILTER (WHERE status IN ('duplicate','old','wrong_key','low_amount','rejected'))::int AS recusados,
               count(*) FILTER (WHERE status='accepted' AND order_id IS NULL)::int AS sem_pedido,
               COALESCE(sum(amount) FILTER (WHERE status='accepted' AND source='pedido'),0)::float AS via_pedidos,
-              COALESCE(sum(amount) FILTER (WHERE status='accepted' AND source<>'pedido'),0)::float AS via_comprovantes
+              COALESCE(sum(amount) FILTER (WHERE status='accepted' AND source<>'pedido'),0)::float AS via_comprovantes,
+              COALESCE(sum(amount) FILTER (WHERE status='accepted' AND category='pedido'),0)::float AS cat_pedido,
+              COALESCE(sum(amount) FILTER (WHERE status='accepted' AND category='contribuicao'),0)::float AS cat_contribuicao,
+              COALESCE(sum(amount) FILTER (WHERE status='accepted' AND category='outro'),0)::float AS cat_outro,
+              count(*) FILTER (WHERE status='accepted' AND pix_key_id IS NULL)::int AS sem_chave
        FROM payments WHERE to_char(created_at AT TIME ZONE $1,'YYYY-MM')=$2`, [tz, mes])).rows[0];
     res.json({ month: mes, keys: porChave, ...t });
   }));
@@ -270,13 +310,15 @@ export function registerFinanceRoutes(r, wrap) {
     const out = await tx(currentCompany(), async (t) => {
       const p = (await t('SELECT * FROM payments WHERE id=$1 FOR UPDATE', [req.params.id])).rows[0];
       if (!p) return { code: 404, error: 'Não encontrado' };
-      if (p.source === 'pedido') return { code: 409, error: 'Este valor vem de um pedido: corrija o valor na tela de Pedidos.' };
       const keyText = b.key === undefined ? (p.key_text ?? '') : txt(b.key, 120);
       const payer = b.payer_name === undefined ? (p.payer_name ?? '') : txt(b.payer_name, 120);
       const purpose = b.purpose === undefined ? (p.purpose ?? '') : txt(b.purpose, 120);
+      const category = b.category === undefined ? p.category : String(b.category);
+      if (!CATEGORIAS.includes(category)) return { code: 400, error: 'Tipo de entrada inválido' };
       const amount = b.amount === undefined ? Number(p.amount) : dinheiro(b.amount);
       if (keyText === null || payer === null || purpose === null) return { code: 400, error: 'Texto inválido' };
       if (amount === null || Number.isNaN(amount) || amount <= 0) return { code: 400, error: 'Valor inválido' };
+      if (p.source === 'pedido' && amount !== Number(p.amount)) return { code: 409, error: 'Este valor vem de um pedido: corrija o valor na tela de Pedidos.' };
       const chaves = (await t('SELECT * FROM pix_keys')).rows;
       const achada = keyText ? chaves.find((k) => normKey(k.key_type, keyText) === k.key_norm) : null;
       let status = p.status, reason = p.reason;
@@ -287,8 +329,8 @@ export function registerFinanceRoutes(r, wrap) {
         status = 'accepted'; reason = null;
       }
       const u = (await t(
-        `UPDATE payments SET key_text=NULLIF($2,''), pix_key_id=$3, payer_name=NULLIF($4,''), purpose=NULLIF($5,''), amount=$6, status=$7, reason=$8 WHERE id=$1 RETURNING *`,
-        [p.id, keyText, achada?.id || null, payer, purpose, amount, status, reason])).rows[0];
+        `UPDATE payments SET key_text=NULLIF($2,''), pix_key_id=$3, payer_name=NULLIF($4,''), purpose=NULLIF($5,''), amount=$6, status=$7, reason=$8, category=$9 WHERE id=$1 RETURNING *`,
+        [p.id, keyText, achada?.id || null, payer, purpose, amount, status, reason, category])).rows[0];
       let ordem = u.order_id;
       if (u.status === 'accepted' && p.status !== 'accepted') ordem = await darBaixa(t, u, null);
       else if (u.status === 'accepted' && u.order_id && Number(p.amount) !== amount) {
