@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { lerCaixas, juntarCaixas, tituloDe, acharCaixa, temSeparador } from './manualCaixas.js';
 import { q, qg, tx, currentCompany } from './db.js';
 import { runImport } from './importer.js';
 import { registerCampaignRoutes } from './campaigns.js';
@@ -180,6 +181,44 @@ export function buildRouter() {
          ON CONFLICT ((published_at IS NULL)) WHERE published_at IS NULL DO UPDATE SET content=EXCLUDED.content, created_at=now()`, [v.content]);
       res.json({ ok: true });
     }));
+
+    // Leitura e troca de UMA caixa do manual publicado (usado pela Maria a pedido do ADM). Só vale para o atendente.
+    if (!ehAssistente) {
+      const publicado = async () => (await q(`SELECT id, content FROM ${MT} WHERE published_at IS NOT NULL ORDER BY published_at DESC, id DESC LIMIT 1`)).rows[0];
+      r.get(`/${P}-manual/caixas`, wrap(async (req, res) => {
+        const man = await publicado();
+        if (!man) return res.json({ total: 0, caixas: [] });
+        const caixas = lerCaixas(man.content);
+        res.json({ total: caixas.length, caixas: caixas.map((c, i) => ({ n: i + 1, titulo: tituloDe(c) || '(vazia)' })) });
+      }));
+      r.get(`/${P}-manual/caixa`, wrap(async (req, res) => {
+        const man = await publicado();
+        if (!man) return res.status(404).json({ error: 'Ainda não há manual publicado' });
+        const caixas = lerCaixas(man.content);
+        const a = acharCaixa(caixas, { n: req.query.n, titulo: req.query.titulo });
+        if (a.erro) return res.status(a.status).json({ error: a.erro });
+        res.json({ n: a.i + 1, titulo: tituloDe(caixas[a.i]), texto: caixas[a.i] });
+      }));
+      // Troca o texto de uma caixa e publica uma versão nova (a anterior fica no histórico). As outras caixas não mudam.
+      r.put(`/${P}-manual/caixa`, wrap(async (req, res) => {
+        const texto = String(req.body.texto ?? '').replace(/\r\n/g, '\n');
+        if (!texto.trim()) return res.status(400).json({ error: 'Escreva o texto da caixa' });
+        if (temSeparador(texto)) return res.status(400).json({ error: 'O texto de uma caixa não pode ter a linha de separação (=====)' });
+        const man = await publicado();
+        if (!man) return res.status(404).json({ error: 'Ainda não há manual publicado' });
+        const rasc = (await q(`SELECT 1 FROM ${MT} WHERE published_at IS NULL`)).rows[0];
+        if (rasc) return res.status(409).json({ error: 'Há um rascunho não publicado no painel. Publique ou descarte o rascunho antes de alterar por aqui.' });
+        const caixas = lerCaixas(man.content);
+        const a = acharCaixa(caixas, { n: req.body.n, titulo: req.body.titulo });
+        if (a.erro) return res.status(a.status).json({ error: a.erro });
+        const antes = caixas[a.i];
+        caixas[a.i] = texto;
+        const novo = juntarCaixas(caixas);
+        if (novo.length > MANUAL_MAX) return res.status(400).json({ error: `O manual passaria do limite de ${MANUAL_MAX} caracteres` });
+        const ins = await q(`INSERT INTO ${MT} (content, published_at) VALUES ($1, now()) RETURNING id`, [novo]);
+        res.json({ ok: true, n: a.i + 1, antes, depois: texto, versao: ins.rows[0].id });
+      }));
+    }
 
     r.get(`/${P}-updates`, wrap(async (req, res) => {
       const { rows } = await q(
