@@ -44,6 +44,7 @@ export default function Admin() {
       const { [s.id]: _, ...resto } = cx; setCx(resto); setMsg('Bloqueios de ' + s.name + ' atualizados.'); load();
     } catch (e) { setErr(e.message); }
   };
+  const [opcoes, setOpcoes] = useState(null); // id da empresa cujas opções do Atendente estão abertas
   const [nomes, setNomes] = useState(null); // { id, empresa, modulo, valores } — nomes do módulo em edição
   const [em, setEm] = useState({}); // id -> e-mail do responsável em edição
   const [trocaEmail, setTrocaEmail] = useState(null); // { id, empresa, de, para, senha }
@@ -241,6 +242,24 @@ export default function Admin() {
         </div>
       )}
 
+      {opcoes && (() => {
+        const emp = list.find((x) => x.id === opcoes);
+        if (!emp) return null;
+        return (
+          <div className="modal-bg" onClick={() => setOpcoes(null)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <h2>Opções do Atendente — {emp.name}</h2>
+              <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontWeight: 'normal' }}>
+                <input type="checkbox" style={{ width: 'auto', marginTop: 3 }} checked={moduleOn(emp.modules, 'assistente')} onChange={() => alternarModulo(emp, 'assistente')} />
+                <span><strong>Assistente</strong><br /><span className="muted">Um segundo agente, com manual e atualizações provisórias próprios, ao lado do atendente. Desligado, a empresa não tem assistente.</span></span>
+              </label>
+              {err && <div className="error">{err}</div>}
+              <div className="row"><button className="btn primary" onClick={() => setOpcoes(null)}>Fechar</button></div>
+            </div>
+          </div>
+        );
+      })()}
+
       {nomes && (
         <div className="modal-bg" onClick={() => setNomes(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -346,9 +365,13 @@ export default function Admin() {
                   <label key={m.key} title={m.desc} style={{ display: 'flex', gap: 6, alignItems: 'center', fontWeight: 'normal', whiteSpace: 'nowrap' }}>
                     <input type="checkbox" style={{ width: 'auto' }} checked={moduleOn(s.modules, m.key)} onChange={() => alternarModulo(s, m.key)} />
                     {m.label}
-                    {ROTULOS[m.key] && moduleOn(s.modules, m.key) && (
-                      <button type="button" className="btn sm" style={{ padding: '0 6px' }} title="Personalizar os nomes deste módulo"
-                        onClick={(e) => { e.preventDefault(); setNomes({ id: s.id, empresa: s.name, modulo: m.key, valores: { ...(s.module_labels?.[m.key] || {}) } }); }}>✏️</button>
+                    {(ROTULOS[m.key] || m.key === 'atendente') && moduleOn(s.modules, m.key) && (
+                      <button type="button" className="btn sm" style={{ padding: '0 6px' }} title={m.key === 'atendente' ? 'Opções do atendente' : 'Personalizar os nomes deste módulo'}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          if (m.key === 'atendente') setOpcoes(s.id);
+                          else setNomes({ id: s.id, empresa: s.name, modulo: m.key, valores: { ...(s.module_labels?.[m.key] || {}) } });
+                        }}>✏️</button>
                     )}
                   </label>
                 ))}

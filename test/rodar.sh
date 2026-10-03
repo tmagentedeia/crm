@@ -20,9 +20,9 @@ node src/migrate.js   # rodar de novo não pode quebrar nem duplicar
 # empresa criada antes do módulo Atendente: tira as tabelas e volta a versão; o migrate tem que recriar
 psql "$DB" -qc "select 1" >/dev/null
 node src/seed_demo.js
-psql "$DB" -qc "drop table company_1.agent_manual_versions, company_1.agent_updates; update public.tenant_versions set version=1 where company_id=1"
+psql "$DB" -qc "drop table company_1.agent_manual_versions, company_1.agent_updates, company_1.assistant_manual_versions, company_1.assistant_updates; update public.tenant_versions set version=1 where company_id=1"
 node src/migrate.js
-psql "$DB" -tc "select count(*) from company_1.agent_updates" | grep -q 0 || { echo "FALHOU: migração do Atendente"; exit 1; }
+psql "$DB" -tc "select count(*) from company_1.agent_updates, company_1.assistant_updates" | grep -q 0 || { echo "FALHOU: migração do Atendente"; exit 1; }
 node test/seed_extra.mjs
 # Redis de teste (bloqueios)
 redis-server --port 56379 --save '' --appendonly no --daemonize yes >/dev/null
@@ -35,6 +35,7 @@ sleep 2
 R=0
 BASE=http://localhost:3999 node test/isolamento.mjs || R=1
 BASE=http://localhost:3999 node test/atendente.mjs || R=1
+BASE=http://localhost:3999 node test/assistente.mjs || R=1
 BASE=http://localhost:3999 node test/modelos.mjs || R=1
 BASE=http://localhost:3999 node test/acesso_admin.mjs || R=1
 BASE=http://localhost:3999 node test/sessao.mjs || R=1

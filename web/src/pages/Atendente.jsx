@@ -127,7 +127,7 @@ function Secoes({ texto, onChange }) {
   return (
     <div>
       <p className="muted" style={{ margin: '0 0 10px' }}>
-        Cada caixa é um pedaço do manual; o atendente lê tudo como um texto só, na ordem. Escreva o título em maiúsculas na primeira linha da caixa: ele aparece na lista.
+        Cada caixa é um pedaço do manual; quem lê o manual vê tudo como um texto só, na ordem. Escreva o título em maiúsculas na primeira linha da caixa: ele aparece na lista.
       </p>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
         <input value={filtro} onChange={(e) => setFiltro(e.target.value)} placeholder="🔎 Procurar nas caixas" style={{ flex: 1, minWidth: 220 }} />
@@ -171,7 +171,7 @@ function Secoes({ texto, onChange }) {
   );
 }
 
-function Manual() {
+function Manual({ P, papel }) {
   const [info, setInfo] = useState(null);
   const [texto, setTexto] = useState('');
   const [sujo, setSujo] = useState(false);
@@ -186,7 +186,7 @@ function Manual() {
   const [visao, setVisao] = useState(null);             // 'secoes' | 'texto' (null = escolhe sozinho ao abrir)
   const [antesDeOrganizar, setAntesDeOrganizar] = useState(null);
 
-  const load = (preencher = true) => api('/agent-manual').then((i) => {
+  const load = (preencher = true) => api(`/${P}-manual`).then((i) => {
     setInfo(i);
     if (preencher) {
       const t = i.draft ? i.draft.content : i.current ? i.current.content : '';
@@ -198,14 +198,14 @@ function Manual() {
   if (!info) return <p className="muted">Carregando…</p>;
 
   const run = async (fn, ok) => { setErr(''); setMsg(''); try { await fn(); await load(); setMsg(ok); } catch (e) { setErr(e.message); } };
-  const salvar = () => run(() => api('/agent-manual', { method: 'PUT', body: { content: texto } }), 'Rascunho salvo. O atendente ainda usa a versão publicada.');
+  const salvar = () => run(() => api(`/${P}-manual`, { method: 'PUT', body: { content: texto } }), `Rascunho salvo. O ${papel} ainda usa a versão publicada.`);
   const publicar = () => run(async () => {
-    await api('/agent-manual', { method: 'PUT', body: { content: texto } });
-    await api('/agent-manual/publish', { method: 'POST' });
-  }, 'Publicado! O atendente já passa a usar este manual.');
+    await api(`/${P}-manual`, { method: 'PUT', body: { content: texto } });
+    await api(`/${P}-manual/publish`, { method: 'POST' });
+  }, `Publicado! O ${papel} já passa a usar este manual.`);
   const restaurar = (v) => {
     if (sujo && !window.confirm('Você tem alterações não salvas. Trocar pelo texto desta versão?')) return;
-    run(() => api(`/agent-manual/restore/${v.id}`, { method: 'POST' }), 'Versão carregada no rascunho. Confira e publique se quiser usá-la.');
+    run(() => api(`/${P}-manual/restore/${v.id}`, { method: 'POST' }), 'Versão carregada no rascunho. Confira e publique se quiser usá-la.');
   };
 
   const igualAoPublicado = info.current && texto === info.current.content;
@@ -218,7 +218,7 @@ function Manual() {
     setTexto(novo);
     setSujo(true);
     setErr('');
-    setMsg(`${achados.length} ${achados.length === 1 ? 'troca feita' : 'trocas feitas'} no texto. Confira e publique para o atendente passar a usar.`);
+    setMsg(`${achados.length} ${achados.length === 1 ? 'troca feita' : 'trocas feitas'} no texto. Confira e publique para o ${papel} passar a usar.`);
   };
   const organizar = () => {
     const r = sugerirSecoes(texto);
@@ -232,7 +232,7 @@ function Manual() {
   return (
     <>
       <p className="muted" style={{ marginBottom: 10 }}>
-        Escreva aqui, em linguagem comum, como o atendente deve falar e agir: o jeito de tratar o cliente, regras da casa, o que pode e o que não pode prometer.
+        Escreva aqui, em linguagem comum, {P === 'assistant' ? 'como o assistente deve trabalhar: o que ele faz, as regras da casa, o jeito de falar e o que pode e o que não pode fazer.' : 'como o atendente deve falar e agir: o jeito de tratar o cliente, regras da casa, o que pode e o que não pode prometer.'}
         Serviços, preços e horários dos profissionais já vêm do cadastro, não precisa repetir.
       </p>
       {msg && <div className="card" style={{ marginBottom: 12, color: 'var(--ok)' }}>{msg}</div>}
@@ -263,7 +263,7 @@ function Manual() {
         {visao === 'secoes'
           ? <Secoes texto={texto} onChange={(t) => { setTexto(t); setSujo(true); setAntesDaTroca(null); setAntesDeOrganizar(null); }} />
           : <textarea value={texto} onChange={(e) => { setTexto(e.target.value); setSujo(true); setAntesDaTroca(null); }} rows={18}
-              style={{ width: '100%', fontFamily: 'inherit' }} placeholder="Ex.: Você é a atendente da empresa… Seja simpática e objetiva…" />}
+              style={{ width: '100%', fontFamily: 'inherit' }} placeholder={P === 'assistant' ? 'Ex.: Você é o assistente do proprietário… Seja direto e objetivo…' : 'Ex.: Você é a atendente da empresa… Seja simpática e objetiva…'} />}
         <div className="muted" style={{ margin: '6px 0 10px' }}>
           {texto.length} caracteres ·{' '}
           {info.current ? <>publicado em {fmtDataHora(info.current.published_at)}{igualAoPublicado ? '' : ' (você tem alterações ainda não publicadas)'}</> : 'nada publicado ainda'}
@@ -295,7 +295,7 @@ function Manual() {
   );
 }
 
-function Atualizacoes() {
+function Atualizacoes({ P, papel }) {
   const [data, setData] = useState(null);
   const vazio = { text: '', starts_at: '', ends_at: '' };
   const [form, setForm] = useState(vazio);
@@ -303,7 +303,7 @@ function Atualizacoes() {
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
   const [verEnc, setVerEnc] = useState(false);
-  const load = () => api('/agent-updates').then(setData).catch((e) => setErr(e.message));
+  const load = () => api(`/${P}-updates`).then(setData).catch((e) => setErr(e.message));
   useEffect(() => { load(); }, []);
   if (!data) return <p className="muted">Carregando…</p>;
 
@@ -313,26 +313,26 @@ function Atualizacoes() {
   const criar = (e) => {
     e.preventDefault();
     run(async () => {
-      await api('/agent-updates', { method: 'POST', body: form });
+      await api(`/${P}-updates`, { method: 'POST', body: form });
       setForm(vazio);
     }, 'Atualização criada.');
   };
   const confirmarReativar = () => run(async () => {
-    await api('/agent-updates/' + reativando.id, { method: 'PUT', body: { active: true, ends_at: reativando.ends_at || null } });
+    await api(`/${P}-updates/` + reativando.id, { method: 'PUT', body: { active: true, ends_at: reativando.ends_at || null } });
     setReativando(null);
   }, 'Atualização reativada.');
 
   return (
     <>
       <p className="muted" style={{ marginBottom: 10 }}>
-        Atualizações provisórias são informações passageiras que o atendente passa a saber na hora (ex.: "amanhã fechamos às 15h").
+        Atualizações provisórias são informações passageiras que o {papel} passa a saber na hora (ex.: "amanhã fechamos às 15h").
         Você escolhe o dia e a hora em que deixam de valer; depois disso saem sozinhas. Elas têm prioridade sobre o manual.
       </p>
       {msg && <div className="card" style={{ marginBottom: 12, color: 'var(--ok)' }}>{msg}</div>}
       {err && <div className="error">{err}</div>}
       {emVigor.length >= 5 && (
         <div className="card" style={{ marginBottom: 12, color: 'var(--warn, #b45309)' }}>
-          Você tem {emVigor.length} atualizações em vigor (o máximo é {data.max}). Muitas atualizações deixam o atendente confuso: encerre as que já não servem e, se algo virou regra fixa, passe para o manual.
+          Você tem {emVigor.length} atualizações em vigor (o máximo é {data.max}). Muitas atualizações deixam o {papel} confuso: encerre as que já não servem e, se algo virou regra fixa, passe para o manual.
         </div>
       )}
 
@@ -362,7 +362,7 @@ function Atualizacoes() {
                   {n.ends_at ? ` · até ${fmtMomento(n.ends_at)}` : ' · sem data final'}
                 </td>
                 <td style={{ textAlign: 'right' }}>
-                  <button className="btn sm" onClick={() => run(() => api('/agent-updates/' + n.id, { method: 'PUT', body: { active: false } }), 'Atualização encerrada.')}>Encerrar</button>
+                  <button className="btn sm" onClick={() => run(() => api(`/${P}-updates/` + n.id, { method: 'PUT', body: { active: false } }), 'Atualização encerrada.')}>Encerrar</button>
                 </td>
               </tr>
             ))}
@@ -390,7 +390,7 @@ function Atualizacoes() {
                     ) : (
                       <>
                         <button className="btn sm" onClick={() => setReativando({ id: n.id, ends_at: '' })}>Reativar</button>{' '}
-                        <button className="btn sm" onClick={() => window.confirm('Apagar esta atualização de vez?') && run(() => api('/agent-updates/' + n.id, { method: 'DELETE' }))}>Apagar</button>
+                        <button className="btn sm" onClick={() => window.confirm('Apagar esta atualização de vez?') && run(() => api(`/${P}-updates/` + n.id, { method: 'DELETE' }))}>Apagar</button>
                       </>
                     )}
                   </td>
@@ -454,17 +454,28 @@ function NomeAgente() {
   );
 }
 
-export default function Atendente() {
+export default function Atendente({ company }) {
   const [aba, setAba] = useState('manual');
+  // O assistente é opcional: só aparece quando o administrador liga para a empresa
+  const temAssistente = company?.modules?.assistente === true;
+  const [quem, setQuem] = useState('agent');
+  const P = temAssistente ? quem : 'agent';
+  const papel = P === 'assistant' ? 'assistente' : 'atendente';
   return (
     <>
       <h1><Nome id="atendente">Atendente</Nome></h1>
-      <NomeAgente />
+      {temAssistente && (
+        <div style={{ display: 'flex', gap: 8, margin: '12px 0 0' }}>
+          <button className={'btn' + (P === 'agent' ? ' primary' : '')} onClick={() => setQuem('agent')}>Atendente</button>
+          <button className={'btn' + (P === 'assistant' ? ' primary' : '')} onClick={() => setQuem('assistant')}>Assistente</button>
+        </div>
+      )}
+      {P === 'agent' && <NomeAgente />}
       <div style={{ display: 'flex', gap: 8, margin: '12px 0 16px' }}>
         <button className={'btn' + (aba === 'manual' ? ' primary' : '')} onClick={() => setAba('manual')}>Manual</button>
         <button className={'btn' + (aba === 'atualizacoes' ? ' primary' : '')} onClick={() => setAba('atualizacoes')}>Atualizações provisórias</button>
       </div>
-      {aba === 'manual' ? <Manual /> : <Atualizacoes />}
+      {aba === 'manual' ? <Manual key={P} P={P} papel={papel} /> : <Atualizacoes key={P} P={P} papel={papel} />}
     </>
   );
 }

@@ -139,6 +139,8 @@ export default function App() {
           <span className="nav-icon">🚪</span><span>Sair</span>
         </button>
       </aside>
+      {/* No celular, tocar fora do menu aberto (na área da página) fecha o menu e volta pra onde estava */}
+      {!collapsed && <div className="menu-fundo" onClick={() => setCollapsed(true)} />}
       <main className="main">
         {modoAdmin && (
           <div className="admin-banner">

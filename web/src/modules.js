@@ -26,5 +26,5 @@ const PAI = { fila: 'agenda', profissionais: 'agenda', servicos: 'agenda', inati
 // Um módulo só está desligado quando vale explicitamente false: empresas que nunca tiveram módulos configurados veem tudo.
 // O programa de benefícios e os Pedidos são opcionais: só aparece quando o administrador liga.
 export const moduleOn = (modules, key) =>
-  key === 'clube' || key === 'pedidos' || key === 'eventos' || key === 'financeiro' ? modules?.[key] === true :
+  key === 'clube' || key === 'pedidos' || key === 'eventos' || key === 'financeiro' || key === 'assistente' ? modules?.[key] === true :
   modules?.[key] !== undefined ? modules[key] !== false : PAI[key] ? modules?.[PAI[key]] !== false : true;
