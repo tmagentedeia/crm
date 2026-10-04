@@ -5,6 +5,7 @@ import { pool, schemaOf } from './db.js';
 import { PEDIDOS_SQL, CORTESIA_SQL, ATENDIDO_SQL, SUGESTOES_SQL, ATENDIDO_FIX_SQL } from './pedidos.js';
 import { EVENTOS_SQL } from './eventos.js';
 import { ASSISTENTE_SQL } from './assistente.js';
+import { PRODUTOS_SQL } from './produtos.js';
 import { FINANCEIRO_SQL, FINANCEIRO_ORIGEM_SQL, FINANCEIRO_DEDUP_SQL } from './financeiro.js';
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
@@ -133,6 +134,8 @@ export const TENANT_STEPS = [
   { version: 18, sql: FINANCEIRO_DEDUP_SQL },
   // 19: manual e atualizações do assistente (opcional por empresa)
   { version: 19, sql: ASSISTENTE_SQL },
+  // 20: catálogo de produtos e serviços (tipo do item)
+  { version: 20, sql: PRODUTOS_SQL },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 
@@ -155,6 +158,7 @@ export async function createCompanySchema(cx, companyId) {
   await cx.query(FINANCEIRO_ORIGEM_SQL);
   await cx.query(FINANCEIRO_DEDUP_SQL);
   await cx.query(ASSISTENTE_SQL);
+  await cx.query(PRODUTOS_SQL);
   await cx.query('SET LOCAL search_path TO public');
   await cx.query('INSERT INTO tenant_versions (company_id, version) VALUES ($1, 1)', [companyId]);
 }

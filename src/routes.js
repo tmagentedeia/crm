@@ -8,6 +8,7 @@ import { parseBirthday } from './ficha.js';
 import { registerOrderRoutes, historicoDoCliente } from './pedidos.js';
 import { registerEventRoutes } from './eventos.js';
 import { registerFinanceRoutes } from './financeiro.js';
+import { TIPOS_ITEM } from './produtos.js';
 
 const digits = (s) => String(s || '').replace(/\D/g, '');
 const custPhone = normPhone;
@@ -102,7 +103,7 @@ async function setProfessionalServices(professionalId, ids) {
   await q('DELETE FROM professional_services WHERE professional_id=$1', [professionalId]);
   if (!ids.length) return;
   await q(`INSERT INTO professional_services (professional_id, service_id)
-           SELECT $1, id FROM services WHERE id = ANY($2::bigint[])`,
+           SELECT $1, id FROM services WHERE kind='service' AND id = ANY($2::bigint[])`,
     [professionalId, ids.map(Number)]);
 }
 // Um profissional faz um serviço se: (a) o serviço é de uma categoria que ele atende
@@ -312,11 +313,11 @@ export function buildRouter() {
     const { rows } = await q(
       `SELECT c.id, c.name,
          COALESCE((SELECT json_agg(json_build_object('id',sv.id,'name',sv.name) ORDER BY sv.name)
-                   FROM services sv WHERE sv.category_id=c.id AND sv.active), '[]') AS services,
+                   FROM services sv WHERE sv.category_id=c.id AND sv.active AND sv.kind='service'), '[]') AS services,
          COALESCE((SELECT json_agg(DISTINCT b.name)
                    FROM professionals b WHERE b.active
                      AND EXISTS (SELECT 1 FROM professional_categories x WHERE x.professional_id=b.id AND x.category_id=c.id)
-                     AND EXISTS (SELECT 1 FROM services sv WHERE sv.category_id=c.id AND sv.active
+                     AND EXISTS (SELECT 1 FROM services sv WHERE sv.category_id=c.id AND sv.active AND sv.kind='service'
                                  AND (NOT EXISTS (SELECT 1 FROM professional_services bs WHERE bs.professional_id=b.id)
                                       OR EXISTS (SELECT 1 FROM professional_services bs WHERE bs.professional_id=b.id AND bs.service_id=sv.id)))), '[]') AS professionals
        FROM categories c ORDER BY c.name`);
@@ -344,23 +345,28 @@ export function buildRouter() {
   // ---------- SERVIÇOS ----------
   const validCat = async (id) =>
     !id || (await q('SELECT 1 FROM categories WHERE id=$1', [id])).rows[0];
+  // Sem filtro devolve só serviços (é o que a Agenda e o atendente usam). ?kind=product = só produtos; ?kind=all = tudo (tela do cadastro).
   r.get('/services', wrap(async (req, res) => {
+    const kind = req.query.kind === 'all' ? null : (TIPOS_ITEM.includes(req.query.kind) ? req.query.kind : 'service');
     const { rows } = await q(
       `SELECT s.*, c.name AS category FROM services s LEFT JOIN categories c ON c.id=s.category_id
-       ORDER BY c.name NULLS LAST, s.name`);
+       WHERE ($1::text IS NULL OR s.kind=$1)
+       ORDER BY s.kind DESC, c.name NULLS LAST, s.name`, [kind]);
     res.json(rows);
   }));
   r.post('/services', wrap(async (req, res) => {
-    const { name, price = 0, duration_min = 30, category_id } = req.body;
+    const { name, price = 0, duration_min = 30, category_id, kind = 'service' } = req.body;
+    if (!TIPOS_ITEM.includes(kind)) return res.status(400).json({ error: 'Tipo inválido' });
     if (!(await validCat(category_id))) return res.status(400).json({ error: 'Categoria inválida' });
     const { rows } = await q(
-      'INSERT INTO services (name,price,duration_min,category_id) VALUES ($1,$2,$3,$4) RETURNING *',
-      [name, price, duration_min, category_id || null]);
+      'INSERT INTO services (name,price,duration_min,category_id,kind) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+      [name, price, duration_min, kind === 'product' ? null : (category_id || null), kind]);
     res.status(201).json(rows[0]);
   }));
   r.put('/services/:id', wrap(async (req, res) => {
     const { name, price, duration_min, active, category_id } = req.body;
     if (!(await validCat(category_id))) return res.status(400).json({ error: 'Categoria inválida' });
+    // o tipo não muda depois de criado (um serviço com agendamentos não pode virar produto)
     // category_id: undefined = não mexe; null/'' = remove
     const { rows } = await q(
       `UPDATE services SET name=COALESCE($2,name), price=COALESCE($3,price),
@@ -432,7 +438,7 @@ export function buildRouter() {
           COALESCE((SELECT json_agg(bs.service_id ORDER BY bs.service_id) FROM professional_services bs WHERE bs.professional_id=b.id), '[]') AS service_ids,
           COALESCE((SELECT json_agg(bc.category_id ORDER BY bc.category_id) FROM professional_categories bc WHERE bc.professional_id=b.id), '[]') AS category_ids,
           COALESCE((SELECT json_agg(sv.id ORDER BY sv.id) FROM services sv
-                    WHERE sv.active AND ${doesSql('b.id', 'sv.id')}), '[]') AS does_service_ids
+                    WHERE sv.active AND sv.kind='service' AND ${doesSql('b.id', 'sv.id')}), '[]') AS does_service_ids
        FROM professionals b LEFT JOIN professional_schedules s ON s.professional_id=b.id
        GROUP BY b.id ORDER BY b.name`);
     res.json(rows);
@@ -769,7 +775,7 @@ export function buildRouter() {
   }));
   r.post('/appointments', wrap(async (req, res) => {
     const { professional_id, customer_id, service_id, starts_at, source = 'manual' } = req.body;
-    const sv = await q('SELECT price,duration_min FROM services WHERE id=$1 AND active',
+    const sv = await q("SELECT price,duration_min FROM services WHERE id=$1 AND active AND kind='service'",
       [service_id]);
     if (!sv.rows[0]) return res.status(400).json({ error: 'Serviço inválido' });
     const ok = await q(
@@ -979,7 +985,7 @@ export function buildRouter() {
   // GET /availability?date=2026-10-01&service_id=1[&professional_id=2]
   r.get('/availability', wrap(async (req, res) => {
     const { date, service_id, professional_id } = req.query;
-    const sv = await q('SELECT duration_min FROM services WHERE id=$1',
+    const sv = await q("SELECT duration_min FROM services WHERE id=$1 AND kind='service'",
       [service_id]);
     if (!sv.rows[0]) return res.status(400).json({ error: 'Serviço inválido' });
     const dur = sv.rows[0].duration_min;

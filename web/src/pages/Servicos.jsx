@@ -9,15 +9,19 @@ export default function Servicos() {
   const [err, setErr] = useState('');
   const [cats, setCats] = useState([]);
   const [catEdit, setCatEdit] = useState(null);
-  const sel = useSelecao(list);
-  const [aviso, setAviso] = useState('');
-  const load = () => Promise.all([api('/services'), api('/categories')]).then(([sv, c]) => { setList(sv); setCats(c); });
+    const [aviso, setAviso] = useState('');
+  const [filtro, setFiltro] = useState('all');
+  const vistos = list.filter((x) => filtro === 'all' || x.kind === filtro);
+  const sel = useSelecao(vistos);
+  const load = () => Promise.all([api('/services?kind=all'), api('/categories')]).then(([sv, c]) => { setList(sv); setCats(c); });
   useEffect(() => { load(); }, []);
 
   async function save(e) {
     e.preventDefault(); setErr('');
     try {
-      const body = { name: edit.name, price: Number(edit.price), duration_min: Number(edit.duration_min), category_id: edit.category_id ? Number(edit.category_id) : null };
+      const produto = edit.kind === 'product';
+      const body = { name: edit.name, price: Number(edit.price), duration_min: produto ? 30 : Number(edit.duration_min), category_id: !produto && edit.category_id ? Number(edit.category_id) : null };
+      if (!edit.id) body.kind = edit.kind || 'service';
       if (edit.id) await api('/services/' + edit.id, { method: 'PUT', body });
       else await api('/services', { method: 'POST', body });
       setEdit(null); load();
@@ -36,7 +40,7 @@ export default function Servicos() {
     await api('/categories/' + c.id, { method: 'DELETE' }); load();
   }
   const excluir = async (s) => {
-    if (!confirm(`Excluir o serviço "${s.name}" de vez? Não dá para desfazer.`)) return;
+    if (!confirm(`Excluir ${s.kind === 'product' ? 'o produto' : 'o serviço'} "${s.name}" de vez? Não dá para desfazer.`)) return;
     try { await api('/services/' + s.id + '/permanent', { method: 'DELETE' }); load(); } catch (e) {
       if (!e.data?.tem_historico) return alert(e.message);
       if (!confirm(`"${s.name}" tem agendamentos no histórico.\n\nExcluir mesmo assim APAGA também todos esses agendamentos, de forma definitiva.\n\nQuer apagar o serviço e o histórico dele?`)) return;
@@ -48,10 +52,11 @@ export default function Servicos() {
   return (
     <>
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: 16 }}>
-        <div><h1><Nome id="servicos">Serviços</Nome></h1><p className="muted">Alterações valem na hora para o agente de IA</p></div>
+        <div><h1><Nome id="servicos">Produtos e Serviços</Nome></h1><p className="muted">Alterações valem na hora para o agente de IA. A agenda oferece só os serviços; os produtos servem para as vendas.</p></div>
         <div className="row">
           <button className="btn" onClick={() => { setErr(''); setCatEdit({ name: '' }); }}>+ Nova categoria</button>
-          <button className="btn primary" onClick={() => { setErr(''); setEdit({ name: '', price: '', duration_min: 30, category_id: '' }); }}>+ Novo serviço</button>
+          <button className="btn" onClick={() => { setErr(''); setEdit({ kind: 'product', name: '', price: '', duration_min: 30, category_id: '' }); }}>+ Novo produto</button>
+          <button className="btn primary" onClick={() => { setErr(''); setEdit({ kind: 'service', name: '', price: '', duration_min: 30, category_id: '' }); }}>+ Novo serviço</button>
         </div>
       </div>
       <div className="card" style={{ marginBottom: 16 }}>
@@ -67,18 +72,23 @@ export default function Servicos() {
           {!cats.length && <span className="muted">Nenhuma categoria. Crie uma (ex.: Cabelo, Manicure) para organizar os serviços.</span>}
         </div>
       </div>
+      <div className="row" style={{ marginBottom: 8 }}>
+        {[['all', 'Todos'], ['service', 'Serviços'], ['product', 'Produtos']].map(([v, l]) => (
+          <button key={v} className={'btn sm' + (filtro === v ? ' primary' : '')} onClick={() => setFiltro(v)}>{l}</button>
+        ))}
+      </div>
       {aviso && <p className="muted" style={{ marginBottom: 8 }}>{aviso}</p>}
-      <ApagarSelecionados s={sel} total={list.length} rotulo="serviço(s)" rota="/services/bulk-delete" onDone={(r) => { setAviso(resumoApagado(r, 'serviço(s)')); load(); }}
+      <ApagarSelecionados s={sel} total={vistos.length} rotulo="item(ns)" rota="/services/bulk-delete" onDone={(r) => { setAviso(resumoApagado(r, 'item(ns)')); load(); }}
         descreve={(i) => i.com_historico > 0 ? <p>{i.com_historico} deles têm {i.agendamentos} agendamento(s) no histórico. Sem marcar a opção abaixo, esses serviços são mantidos.</p> : <p>Nenhum deles tem agendamentos no histórico.</p>}
         opcao={{ chave: 'com_historico', texto: 'Apagar também os agendamentos desses serviços (definitivo)', mostrarSe: (i) => i.com_historico > 0 }} />
       <div className="card table-wrap">
         <table>
-          <thead><tr><CelulaTodos s={sel} /><th>Nome</th><th>Categoria</th><th>Preço</th><th>Duração</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><CelulaTodos s={sel} /><th>Nome</th><th>Tipo</th><th>Categoria</th><th>Preço</th><th>Duração</th><th>Status</th><th></th></tr></thead>
           <tbody>
-            {list.map((s) => (
+            {vistos.map((s) => (
               <tr key={s.id} style={{ opacity: s.active ? 1 : 0.5 }}>
                 <CelulaLinha s={sel} id={s.id} />
-                <td>{s.name}</td><td>{s.category || <span className="muted">—</span>}</td><td>{money(s.price)}</td><td>{s.duration_min} min</td>
+                <td>{s.name}</td><td>{s.kind === 'product' ? 'Produto' : 'Serviço'}</td><td>{s.category || <span className="muted">—</span>}</td><td>{money(s.price)}</td><td>{s.kind === 'product' ? <span className="muted">—</span> : s.duration_min + ' min'}</td>
                 <td>{s.active ? 'Ativo' : 'Inativo'}</td>
                 <td style={{ textAlign: 'right' }}>
                   <button className="btn sm" onClick={() => setEdit(s)}>Editar</button>{' '}
@@ -87,7 +97,7 @@ export default function Servicos() {
                 </td>
               </tr>
             ))}
-            {!list.length && <tr><td colSpan="7" className="muted">Nenhum serviço cadastrado.</td></tr>}
+            {!vistos.length && <tr><td colSpan="8" className="muted">Nada cadastrado aqui ainda.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -104,17 +114,17 @@ export default function Servicos() {
       {edit && (
         <div className="modal-bg" onClick={() => setEdit(null)}>
           <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={save}>
-            <h2>{edit.id ? 'Editar serviço' : 'Novo serviço'}</h2>
+            <h2>{edit.id ? (edit.kind === 'product' ? 'Editar produto' : 'Editar serviço') : (edit.kind === 'product' ? 'Novo produto' : 'Novo serviço')}</h2>
             {err && <div className="error">{err}</div>}
             <div className="field"><label>Nome</label><input value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} required /></div>
-            <div className="field"><label>Categoria (opcional)</label>
+            {edit.kind !== 'product' && <div className="field"><label>Categoria (opcional)</label>
               <select value={edit.category_id || ''} onChange={(e) => setEdit({ ...edit, category_id: e.target.value })}>
                 <option value="">Sem categoria</option>
                 {cats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select></div>
+              </select></div>}
             <div className="row">
               <div className="field"><label>Preço (R$)</label><input type="number" step="0.01" min="0" value={edit.price} onChange={(e) => setEdit({ ...edit, price: e.target.value })} required /></div>
-              <div className="field"><label>Duração (min)</label><input type="number" min="5" step="5" value={edit.duration_min} onChange={(e) => setEdit({ ...edit, duration_min: e.target.value })} required /></div>
+              {edit.kind !== 'product' && <div className="field"><label>Duração (min)</label><input type="number" min="5" step="5" value={edit.duration_min} onChange={(e) => setEdit({ ...edit, duration_min: e.target.value })} required /></div>}
             </div>
             <div className="row"><button className="btn primary">Salvar</button><button type="button" className="btn" onClick={() => setEdit(null)}>Cancelar</button></div>
           </form>

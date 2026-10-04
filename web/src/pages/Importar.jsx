@@ -6,9 +6,9 @@ import { api } from '../api.js';
 const TYPES = { services: 'Serviços', professionals: 'Profissionais', customers: 'Clientes' };
 const SAMPLE = {
   Serviços: [
-    { Serviço: 'Corte feminino', Categoria: 'Cabelo', Preço: 80, 'Duração (min)': 45 },
-    { Serviço: 'Escova', Categoria: 'Cabelo', Preço: 50, 'Duração (min)': 40 },
-    { Serviço: 'Esmaltação', Categoria: 'Manicure', Preço: 40, 'Duração (min)': 40 },
+    { Serviço: 'Corte feminino', Tipo: 'Serviço', Categoria: 'Cabelo', Preço: 80, 'Duração (min)': 45 },
+    { Serviço: 'Escova', Tipo: 'Serviço', Categoria: 'Cabelo', Preço: 50, 'Duração (min)': 40 },
+    { Serviço: 'Shampoo hidratante', Tipo: 'Produto', Categoria: '', Preço: 45, 'Duração (min)': '' },
   ],
   Profissionais: [
     { Nome: 'Mariana', Telefone: '(32) 99999-0000', Categorias: 'Cabelo, Manicure', Serviços: 'Corte feminino, Escova, Esmaltação', Dias: 'Seg-Sáb', Horário: '09:00-18:00', Pausa: '12:00-13:00', 'ID Google Agenda': '' },

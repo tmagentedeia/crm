@@ -11,7 +11,7 @@ export async function snapshotCompany(companyId, cx) {
   try {
     const categories = (await cx.query('SELECT name FROM categories ORDER BY name')).rows.map((r) => r.name);
     const services = (await cx.query(
-      `SELECT sv.name, sv.price::float AS price, sv.duration_min, sv.active, c.name AS category
+      `SELECT sv.name, sv.price::float AS price, sv.duration_min, sv.active, sv.kind, c.name AS category
        FROM services sv LEFT JOIN categories c ON c.id = sv.category_id ORDER BY sv.name`)).rows;
     const man = (await cx.query('SELECT content FROM agent_manual_versions WHERE published_at IS NOT NULL ORDER BY published_at DESC, id DESC LIMIT 1')).rows[0];
     return {
@@ -45,8 +45,8 @@ export async function applyTemplate(cx, companyId, data) {
   for (const sv of data.services || []) {
     if (sv.category && !(sv.category in catId))
       catId[sv.category] = (await cx.query('INSERT INTO categories (name) VALUES ($1) ON CONFLICT (name) DO UPDATE SET name=EXCLUDED.name RETURNING id', [sv.category])).rows[0].id;
-    await cx.query('INSERT INTO services (name, price, duration_min, category_id, active) VALUES ($1,$2,$3,$4,$5)',
-      [sv.name, sv.price ?? 0, sv.duration_min ?? 30, sv.category ? catId[sv.category] : null, sv.active !== false]);
+    await cx.query('INSERT INTO services (name, price, duration_min, category_id, active, kind) VALUES ($1,$2,$3,$4,$5,$6)',
+      [sv.name, sv.price ?? 0, sv.duration_min ?? 30, sv.category ? catId[sv.category] : null, sv.active !== false, sv.kind === 'product' ? 'product' : 'service']);
   }
   if (data.manual && data.manual.trim())
     await cx.query('INSERT INTO agent_manual_versions (content, published_at) VALUES ($1, now())', [data.manual]);

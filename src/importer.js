@@ -111,15 +111,17 @@ export async function runImport(companyId, data, dryRun) {
       const dur = rowGet(row, 'duracao', 'tempo') === '' ? 30 : Math.round(num(rowGet(row, 'duracao', 'tempo')));
       if (isNaN(price) || price < 0) { rep.errors.push(`${line} (${name}): preço inválido`); continue; }
       if (isNaN(dur) || dur < 5) { rep.errors.push(`${line} (${name}): duração inválida`); continue; }
-      const catId = await getCat(rowGet(row, 'categoria'));
+      const tipo = norm(rowGet(row, 'tipo'));
+      const kind = ['produto', 'produtos'].includes(tipo) ? 'product' : 'service';
+      const catId = kind === 'product' ? null : await getCat(rowGet(row, 'categoria'));
       const k = norm(name);
       if (svcs.has(k)) {
         await q(`UPDATE services SET price=$2, duration_min=$3, active=true,
                  category_id=COALESCE($4, category_id) WHERE id=$1`, [svcs.get(k), price, dur, catId]);
         rep.services.updated++;
       } else {
-        svcs.set(k, (await q('INSERT INTO services (name,price,duration_min,category_id) VALUES ($1,$2,$3,$4) RETURNING id',
-          [name, price, dur, catId])).rows[0].id);
+        svcs.set(k, (await q('INSERT INTO services (name,price,duration_min,category_id,kind) VALUES ($1,$2,$3,$4,$5) RETURNING id',
+          [name, price, dur, catId, kind])).rows[0].id);
         rep.services.created++;
       }
     }

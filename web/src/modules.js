@@ -10,7 +10,7 @@ export const MODULES = [
   { key: 'eventos', label: 'Eventos', desc: 'Compromissos avulsos (lives, reuniões, shows), sem profissional nem serviço' },
   { key: 'agenda', label: 'Agenda', desc: 'Agenda de horários' },
   { key: 'profissionais', label: 'Profissionais', desc: 'Cadastro e horários dos profissionais' },
-  { key: 'servicos', label: 'Serviços', desc: 'Serviços, preços e categorias' },
+  { key: 'servicos', label: 'Produtos e Serviços', desc: 'Serviços, produtos, preços e categorias' },
   { key: 'inativos', label: 'Retorno de inativos', desc: 'Clientes que sumiram e podem voltar' },
   { key: 'campanhas', label: 'Campanhas', desc: 'Envio de mensagens em lote para clientes e leads, com ritmo seguro' },
   { key: 'fila', label: 'Fila de espera', desc: 'Clientes aguardando um horário' },

@@ -42,7 +42,7 @@ const BASE_MENU = [
   { id: 'clientes', module: 'clientes', label: 'Clientes e Leads', icon: '👥', comp: Clientes },
   { id: 'agenda', module: 'agenda', label: 'Agenda', icon: '📅', comp: Agenda },
   { id: 'profissionais', module: 'profissionais', label: 'Profissionais', icon: '✂️', comp: Profissionais },
-  { id: 'servicos', module: 'servicos', label: 'Serviços', icon: '🏢', comp: Servicos },
+  { id: 'servicos', module: 'servicos', label: 'Produtos e Serviços', icon: '🏢', comp: Servicos },
   { id: 'inativos', module: 'inativos', label: 'Retorno de inativos', icon: '🔁', comp: Inativos },
   { id: 'campanhas', module: 'campanhas', label: 'Campanhas', icon: '📣', comp: Campanhas },
   { id: 'clube', module: 'clube', label: 'Programa de benefícios', icon: '⭐', comp: Clube },

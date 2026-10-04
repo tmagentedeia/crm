@@ -23,7 +23,7 @@ export const MENU_PADRAO = [
   { id: 'clientes', label: 'Clientes e Leads', icon: '👥' },
   { id: 'agenda', label: 'Agenda', icon: '📅' },
   { id: 'profissionais', label: 'Profissionais', icon: '✂️' },
-  { id: 'servicos', label: 'Serviços', icon: '🏢' },
+  { id: 'servicos', label: 'Produtos e Serviços', icon: '🏢' },
   { id: 'inativos', label: 'Retorno de inativos', icon: '🔁' },
   { id: 'campanhas', label: 'Campanhas', icon: '📣' },
   { id: 'clube', label: 'Programa de benefícios', icon: '⭐' },
