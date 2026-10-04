@@ -12,6 +12,7 @@ import { SCENARIUM_SQL } from './scenarium.js';
 import { ANIVERSARIO_SQL } from './aniversario.js';
 import { DOCUMENTOS_SQL } from './documentos.js';
 import { DELIVERY_SQL } from './delivery.js';
+import { RESTAURANTE_SQL } from './restaurante.js';
 import { CONTRATACOES_SQL } from './contratacoes.js';
 import { FINANCEIRO_SQL, FINANCEIRO_ORIGEM_SQL, FINANCEIRO_DEDUP_SQL } from './financeiro.js';
 
@@ -159,6 +160,8 @@ export const TENANT_STEPS = [
   { version: 27, sql: DOCUMENTOS_SQL },
   // 28: módulo Delivery (cardápio, pedidos, entregadores, cupons)
   { version: 28, sql: DELIVERY_SQL },
+  // 29: módulo Restaurante (mesas, comandas, fila da cozinha, caixa)
+  { version: 29, sql: RESTAURANTE_SQL },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 
@@ -189,6 +192,7 @@ export async function createCompanySchema(cx, companyId) {
   await cx.query(CONTRATACOES_SQL);
   await cx.query(DOCUMENTOS_SQL);
   await cx.query(DELIVERY_SQL);
+  await cx.query(RESTAURANTE_SQL);
   await cx.query('SET LOCAL search_path TO public');
   await cx.query('INSERT INTO tenant_versions (company_id, version) VALUES ($1, 1)', [companyId]);
 }

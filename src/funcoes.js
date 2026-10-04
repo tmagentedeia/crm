@@ -26,6 +26,7 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT true;
 export const TELAS = [
   'dashboard', 'agenda', 'fila', 'clientes', 'inativos', 'profissionais', 'servicos', 'importar', 'atendente', 'comandos', 'bloqueios', 'campanhas',
   'clube', 'pedidos', 'eventos', 'financeiro', 'comissoes', 'scenarium', 'documentos', 'delivery',
+  'rst_salao', 'rst_cozinha', 'rst_caixa', 'rst_gestao',
 ];
 export const registrarTelas = (...novas) => { for (const t of novas) if (!TELAS.includes(t)) TELAS.push(t); };
 
@@ -51,6 +52,10 @@ export const ROTAS_DA_TELA = {
   scenarium: ['scenarium'],
   documentos: ['documents'],
   delivery: ['delivery'],
+  rst_salao: ['restaurant'],
+  rst_cozinha: ['restaurant'],
+  rst_caixa: ['restaurant'],
+  rst_gestao: ['restaurant', 'delivery'],   // o cardápio do restaurante é o mesmo do delivery
 };
 // Leituras que uma tela precisa de dados de outras (só consulta, nunca alteração)
 export const LEITURAS_DA_TELA = {
@@ -133,7 +138,20 @@ async function garantirPadrao(companyId) {
   }
 }
 const extrasPadrao = [];
-export const funcaoPadraoExtra = (f) => extrasPadrao.push(f);
+// Quem tem o restaurante ligado ganha as funções de garçom, cozinha e caixa prontas (uma vez, enquanto não houver nenhuma função do restaurante)
+const FUNCOES_RESTAURANTE = [
+  { name: 'Garçom', telas: ['rst_salao'], inicio: 'rst_salao' },
+  { name: 'Cozinha', telas: ['rst_cozinha'], inicio: 'rst_cozinha' },
+  { name: 'Caixa do restaurante', telas: ['rst_salao', 'rst_caixa'], inicio: 'rst_caixa' },
+];
+async function garantirRestaurante(companyId) {
+  const c = (await qg("SELECT modules->>'restaurante' AS on FROM companies WHERE id=$1", [companyId])).rows[0];
+  if (c?.on !== 'true') return;
+  const tem = (await qg(`SELECT 1 FROM company_funcoes WHERE company_id=$1 AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(telas) t WHERE t LIKE 'rst\_%') LIMIT 1`, [companyId])).rows[0];
+  if (tem) return;
+  for (const f of FUNCOES_RESTAURANTE)
+    await qg('INSERT INTO company_funcoes (company_id,name,telas,inicio) VALUES ($1,$2,$3::jsonb,$4) ON CONFLICT DO NOTHING', [companyId, f.name, JSON.stringify(f.telas), f.inicio]);
+}
 
 const limparTelas = (v) => (Array.isArray(v) ? [...new Set(v.filter((t) => TELAS.includes(t)))] : null);
 const nomeOk = (s) => typeof s === 'string' && s.trim().length > 0 && s.trim().length <= 40 && !/[\u0000-\u001f<>]/.test(s);
@@ -155,6 +173,7 @@ export function registerEquipeRoutes(app, requireUser) {
 
   app.get('/api/equipe', ...pre, w(async (req, res) => {
     await garantirPadrao(cid(req));
+    await garantirRestaurante(cid(req));
     const usuarios = (await qg(
       `SELECT id, name, email, role, active, funcao_id, telas_proprias FROM users WHERE company_id=$1 ORDER BY (role='owner') DESC, lower(name)`, [cid(req)])).rows;
     const funcoes = (await qg('SELECT id, name, telas, inicio FROM company_funcoes WHERE company_id=$1 ORDER BY id', [cid(req)])).rows;

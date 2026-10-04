@@ -6,6 +6,7 @@ import { registerCampaignRoutes } from './campaigns.js';
 import { registerBirthdayRoutes } from './aniversario.js';
 import { registerDocumentRoutes } from './documentos.js';
 import { registerDeliveryRoutes } from './delivery.js';
+import { registerRestauranteRoutes } from './restaurante.js';
 import { registerHiringRoutes, historicoContratacoes } from './contratacoes.js';
 import { registerBeneficiosCliente } from './indicacoes.js';
 import { normPhone } from './phone.js';
@@ -1235,6 +1236,7 @@ export function buildRouter() {
   registerHiringRoutes(r, wrap);
   registerDocumentRoutes(r, wrap);
   registerDeliveryRoutes(r, wrap);
+  registerRestauranteRoutes(r, wrap);
   registerBeneficiosCliente(r, wrap);
   return r;
 }

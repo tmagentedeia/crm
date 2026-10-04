@@ -53,6 +53,9 @@ psql "$DB" -tc "select count(*) from company_1.commission_settings" | grep -q 1 
 psql "$DB" -tc "select count(*) from company_1.product_sales" | grep -q 0 || { echo "FALHOU: migração das vendas"; exit 1; }
 psql "$DB" -tc "select count(*) from company_1.services where kind='service'" | grep -qv '^ *0$' || { echo "FALHOU: migração do catálogo"; exit 1; }
 psql "$DB" -tc "select count(*) from company_1.agent_updates, company_1.assistant_updates" | grep -q 0 || { echo "FALHOU: migração do Atendente"; exit 1; }
+psql "$DB" -qc "drop table company_1.rst_payments, company_1.rst_tab_items, company_1.rst_tabs, company_1.rst_tables, company_1.rst_settings; alter table company_1.dlv_items drop column station; update public.tenant_versions set version=28 where company_id=1"
+node src/migrate.js
+psql "$DB" -tc "select count(*) from company_1.rst_settings" | grep -q 1 || { echo "FALHOU: migração do restaurante"; exit 1; }
 node test/seed_extra.mjs
 # Redis de teste (bloqueios)
 redis-server --port 56379 --save '' --appendonly no --daemonize yes >/dev/null
@@ -82,6 +85,7 @@ BASE=http://localhost:3999 node test/indicacoes.mjs || R=1
 BASE=http://localhost:3999 node test/documentos.mjs || R=1
 BASE=http://localhost:3999 node test/delivery.mjs || R=1
 BASE=http://localhost:3999 node test/equipe.mjs || R=1
+BASE=http://localhost:3999 node test/restaurante.mjs || R=1
 BASE=http://localhost:3999 node test/modelos.mjs || R=1
 BASE=http://localhost:3999 node test/acesso_admin.mjs || R=1
 BASE=http://localhost:3999 node test/sessao.mjs || R=1

@@ -2,7 +2,7 @@
 // Um módulo só está desligado quando vale explicitamente false: empresas que nunca tiveram módulos configurados
 // (modules = {}) continuam vendo tudo. Desligar um módulo esconde o item do menu do painel; as rotas continuam respondendo.
 // A mesma lista existe no painel (web/src/modules.js): mantenha as duas iguais.
-export const MODULE_KEYS = ['dashboard', 'agenda', 'fila', 'profissionais', 'servicos', 'clientes', 'inativos', 'importar', 'atendente', 'comandos', 'bloqueios', 'campanhas', 'clube', 'pedidos', 'eventos', 'financeiro', 'assistente', 'comissoes', 'lembrete_cliente', 'scenarium', 'beneficios', 'documentos', 'delivery'];
+export const MODULE_KEYS = ['dashboard', 'agenda', 'fila', 'profissionais', 'servicos', 'clientes', 'inativos', 'importar', 'atendente', 'comandos', 'bloqueios', 'campanhas', 'clube', 'pedidos', 'eventos', 'financeiro', 'assistente', 'comissoes', 'lembrete_cliente', 'scenarium', 'beneficios', 'documentos', 'delivery', 'restaurante'];
 
 // Aceita só módulos conhecidos com valor true/false. Devolve o objeto limpo, ou null se algo estiver errado.
 export function cleanModules(input) {

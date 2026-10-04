@@ -243,28 +243,8 @@ async function cardapioDe(ids) {
   return { itens, grupos, opcoes };
 }
 
-// Confere e calcula tudo. `forcar` (pedido feito pela equipe no painel) deixa passar loja fechada e item esgotado.
-export async function calcular(b, { forcar = false } = {}) {
-  const s = numeros(await configuracao());
-  const tipo = b.kind === 'pickup' ? 'pickup' : 'delivery';
-  if (!['delivery', 'pickup'].includes(b.kind || 'delivery')) throw new ErroPedido('Tipo de pedido inválido (entrega ou retirada)');
-  if (tipo === 'delivery' && !s.delivery_enabled) throw new ErroPedido('No momento não fazemos entregas, apenas retirada');
-  if (tipo === 'pickup' && !s.pickup_enabled) throw new ErroPedido('No momento não temos retirada no local, apenas entrega');
-  const itensReq = Array.isArray(b.items) ? b.items : [];
-  if (!itensReq.length) throw new ErroPedido('O pedido está vazio');
-  if (itensReq.length > 60) throw new ErroPedido('Itens demais no pedido (máximo 60 linhas)');
-
-  const loja = await estadoDaLoja(s);
-  let agendado = null;
-  if (b.scheduled_for) {
-    agendado = new Date(b.scheduled_for);
-    if (isNaN(agendado) || agendado.getTime() < Date.now() - 60000) throw new ErroPedido('O horário agendado já passou');
-    if (agendado.getTime() > Date.now() + 14 * 86400000) throw new ErroPedido('Só aceitamos agendamento para os próximos 14 dias');
-    if (!s.accept_scheduled && !forcar) throw new ErroPedido('No momento não aceitamos pedidos agendados');
-  } else if (!loja.open_now && !forcar) {
-    throw new ErroPedido(s.closed_message || 'Estamos fechados no momento', 409);
-  }
-
+// Confere os itens escolhidos contra o cardápio e calcula os preços (o servidor é quem manda no valor). Também usado pelo restaurante.
+export async function montarLinhas(itensReq, forcar = false) {
   const ids = [...new Set(itensReq.map((i) => idOk(i.item_id)).filter(Boolean))];
   if (ids.length !== new Set(itensReq.map((i) => String(i.item_id))).size) throw new ErroPedido('Item inválido no pedido');
   const { itens, grupos, opcoes } = await cardapioDe(ids);
@@ -297,6 +277,32 @@ export async function calcular(b, { forcar = false } = {}) {
     linhas.push({ item_id: item.id, name: item.name, qty, unit_price: unit, total, note: nota || null,
       options: usadas.map((o) => ({ group: doItem.find((g) => g.id === o.group_id).name, name: o.name, price: Number(o.price_delta) })) });
   }
+  return { linhas, subtotal };
+}
+
+// Confere e calcula tudo. `forcar` (pedido feito pela equipe no painel) deixa passar loja fechada e item esgotado.
+export async function calcular(b, { forcar = false } = {}) {
+  const s = numeros(await configuracao());
+  const tipo = b.kind === 'pickup' ? 'pickup' : 'delivery';
+  if (!['delivery', 'pickup'].includes(b.kind || 'delivery')) throw new ErroPedido('Tipo de pedido inválido (entrega ou retirada)');
+  if (tipo === 'delivery' && !s.delivery_enabled) throw new ErroPedido('No momento não fazemos entregas, apenas retirada');
+  if (tipo === 'pickup' && !s.pickup_enabled) throw new ErroPedido('No momento não temos retirada no local, apenas entrega');
+  const itensReq = Array.isArray(b.items) ? b.items : [];
+  if (!itensReq.length) throw new ErroPedido('O pedido está vazio');
+  if (itensReq.length > 60) throw new ErroPedido('Itens demais no pedido (máximo 60 linhas)');
+
+  const loja = await estadoDaLoja(s);
+  let agendado = null;
+  if (b.scheduled_for) {
+    agendado = new Date(b.scheduled_for);
+    if (isNaN(agendado) || agendado.getTime() < Date.now() - 60000) throw new ErroPedido('O horário agendado já passou');
+    if (agendado.getTime() > Date.now() + 14 * 86400000) throw new ErroPedido('Só aceitamos agendamento para os próximos 14 dias');
+    if (!s.accept_scheduled && !forcar) throw new ErroPedido('No momento não aceitamos pedidos agendados');
+  } else if (!loja.open_now && !forcar) {
+    throw new ErroPedido(s.closed_message || 'Estamos fechados no momento', 409);
+  }
+
+  const { linhas, subtotal } = await montarLinhas(itensReq, forcar);
 
   // endereço, bairro e taxa
   let fee = 0, zona = null, minimo = s.min_order, extraMin = 0;
@@ -433,7 +439,7 @@ export function registerDeliveryRoutes(r, wrap) {
   r.get('/delivery/menu', wrap(async (req, res) => {
     const tudo = req.query.all === '1' && !(req.baseUrl || '').includes('n8n');
     const cats = (await q(`SELECT id::text AS id, name, position, active FROM dlv_categories ${tudo ? '' : 'WHERE active'} ORDER BY position, id`)).rows;
-    const itens = (await q(`SELECT id::text AS id, category_id::text AS category_id, name, description, price::float AS price, active, sold_out, position FROM dlv_items ${tudo ? '' : 'WHERE active'} ORDER BY position, name`)).rows;
+    const itens = (await q(`SELECT id::text AS id, category_id::text AS category_id, name, description, price::float AS price, active, sold_out, position, station FROM dlv_items ${tudo ? '' : 'WHERE active'} ORDER BY position, name`)).rows;
     const grupos = (await q('SELECT id::text AS id, item_id::text AS item_id, name, min_select, max_select, position FROM dlv_option_groups ORDER BY position, id')).rows;
     const opcoes = (await q(`SELECT id::text AS id, group_id::text AS group_id, name, price_delta::float AS price_delta, active, position FROM dlv_options ${tudo ? '' : 'WHERE active'} ORDER BY position, id`)).rows;
     const monta = (i) => ({ ...i, option_groups: grupos.filter((g) => g.item_id === i.id).map((g) => ({ ...g, options: opcoes.filter((o) => o.group_id === g.id) })) });
@@ -481,6 +487,7 @@ export function registerDeliveryRoutes(r, wrap) {
     if (b.description !== undefined) { const v = txt(b.description, 400); if (v === null) return { erro: 'Descrição inválida (até 400 letras)' }; o.description = v || null; }
     if (b.category_id !== undefined) { if (b.category_id === null || b.category_id === '') o.category_id = null; else { o.category_id = idOk(b.category_id); if (!o.category_id) return { erro: 'Categoria inválida' }; } }
     if (b.sold_out !== undefined) o.sold_out = !!b.sold_out;
+    if (b.station !== undefined) { if (!['cozinha', 'bar', 'direto'].includes(b.station)) return { erro: 'Local de preparo inválido' }; o.station = b.station; }
     const e = comum(b, p, o); return e ? { erro: e } : { o };
   });
   r.post('/delivery/items/:id/groups', wrap(async (req, res) => {
