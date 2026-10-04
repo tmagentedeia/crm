@@ -22,12 +22,11 @@ export const MODULES = [
   { key: 'fila', label: 'Fila de espera', desc: 'Clientes aguardando um horário' },
   { key: 'comandos', label: 'Comandos', desc: 'Comandos para pausar e liberar o atendente' },
   { key: 'bloqueios', label: 'Atendimentos bloqueados', desc: 'Bloquear e liberar contatos que o atendente não deve atender' },
-  { key: 'importar', label: 'Importar planilha', desc: 'Trazer clientes de uma planilha' },
 ];
 
 // Antes, alguns módulos eram um só (ex.: "agenda" ligava também Fila, Profissionais e Serviços).
 // Enquanto uma empresa não tiver o módulo novo definido, ele segue o módulo antigo.
-const PAI = { fila: 'agenda', profissionais: 'agenda', servicos: 'agenda', inativos: 'clientes', campanhas: 'clientes', clube: 'clientes', importar: 'clientes', comandos: 'atendente', bloqueios: 'atendente' };
+const PAI = { fila: 'agenda', profissionais: 'agenda', servicos: 'agenda', inativos: 'clientes', campanhas: 'clientes', clube: 'clientes', comandos: 'atendente', bloqueios: 'atendente' };
 
 // Um módulo só está desligado quando vale explicitamente false: empresas que nunca tiveram módulos configurados veem tudo.
 // O programa de assinaturas e os Pedidos são opcionais: só aparece quando o administrador liga.

@@ -1,3 +1,4 @@
+import ImportarAqui from '../ImportarAqui.jsx';
 import React, { useEffect, useState } from 'react';
 import { Nome } from '../menu.jsx';
 import { api, WEEKDAYS } from '../api.js';
@@ -90,7 +91,7 @@ export default function Profissionais() {
     <>
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: 16 }}>
         <div><h1><Nome id="profissionais">Profissionais</Nome></h1><p className="muted">Cada profissional cadastrado ganha sua própria agenda{max !== null && ` · ${ativos} de ${max} profissionais ativos`}</p></div>
-        <button className="btn primary" onClick={openNew} disabled={cheio} title={cheio ? 'Limite do plano atingido' : ''} style={cheio ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}>+ Novo profissional</button>
+        <div className="row"><ImportarAqui tipo="professionals" onFeito={load} /><button className="btn primary" onClick={openNew} disabled={cheio} title={cheio ? 'Limite do plano atingido' : ''} style={cheio ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}>+ Novo profissional</button></div>
       </div>
       <div className="grid cols-4">
         {list.map((b) => (

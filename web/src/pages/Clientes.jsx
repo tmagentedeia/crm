@@ -1,3 +1,4 @@
+import ImportarAqui from '../ImportarAqui.jsx';
 import { rotulosDe } from '../rotulos.js';
 import React, { useEffect, useState } from 'react';
 import { Nome } from '../menu.jsx';
@@ -74,7 +75,7 @@ export default function Clientes({ company }) {
     <>
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: 16 }}>
         <div><h1><Nome id="clientes">Clientes e Leads</Nome></h1><p className="muted">Lead = só conversou · Cliente = já comprou / contratou / compareceu</p></div>
-        <button className="btn primary" onClick={() => setAdding(true)}>+ Cadastrar cliente ou lead</button>
+        <div className="row"><ImportarAqui tipo="customers" onFeito={load} /><button className="btn primary" onClick={() => setAdding(true)}>+ Cadastrar cliente ou lead</button></div>
       </div>
       <div className="row" style={{ marginBottom: 12 }}>
         {[['', 'Todos'], ['lead', 'Leads'], ['client', 'Clientes']].map(([v, l]) => (

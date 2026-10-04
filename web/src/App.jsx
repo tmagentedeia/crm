@@ -7,7 +7,6 @@ import Profissionais from './pages/Profissionais.jsx';
 import Agenda from './pages/Agenda.jsx';
 import Clientes from './pages/Clientes.jsx';
 import Fila from './pages/Fila.jsx';
-import Importar from './pages/Importar.jsx';
 import Inativos from './pages/Inativos.jsx';
 import Config from './pages/Config.jsx';
 import Delivery from './pages/Delivery.jsx';
@@ -61,12 +60,11 @@ const BASE_MENU = [
   { id: 'fila', module: 'fila', label: 'Fila de espera', icon: '⏳', comp: Fila },
   { id: 'comandos', module: 'comandos', label: 'Comandos', icon: '🎛️', comp: Comandos },
   { id: 'bloqueios', module: 'bloqueios', label: 'Atendimentos bloqueados', icon: '🚫', comp: Bloqueios },
-  { id: 'importar', module: 'importar', label: 'Importar planilha', icon: '📥', comp: Importar },
   { id: 'delivery', module: 'delivery', label: 'Delivery', icon: '⛟', comp: Delivery },
   { id: 'rst_salao', module: 'restaurante', label: 'Salão', icon: '◫', comp: RstSalao },
   { id: 'rst_cozinha', module: 'restaurante', label: 'Cozinha', icon: '♨', comp: RstCozinha },
   { id: 'rst_caixa', module: 'restaurante', label: 'Caixa', icon: '◎', comp: RstCaixa },
-  { id: 'rst_gestao', module: 'restaurante', label: 'Restaurante', icon: '▣', comp: RstGestao },
+  { id: 'rst_gestao', module: 'restaurante', label: 'Gestão', icon: '▣', comp: RstGestao },
   { id: 'documentos', module: 'documentos', label: 'Documentos', icon: '▤', comp: Documentos },
   { id: 'beneficios', module: 'beneficios', label: 'Programa de benefícios M2', icon: '◈', comp: Beneficios },
   { id: 'equipe', label: 'Equipe e acessos', icon: '☷', comp: Equipe, soDono: true },

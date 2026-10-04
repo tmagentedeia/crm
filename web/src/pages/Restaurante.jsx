@@ -384,7 +384,7 @@ export function RstGestao() {
   const abas = [['cardapio', 'Cardápio'], ['mesas', 'Mesas'], ['config', 'Taxa e comissão'], ['relatorio', 'Relatório']];
   return (
     <>
-      <Titulo t="Restaurante" sub="Cardápio, mesas, taxa de serviço, comissão dos garçons e relatório. O cardápio é o mesmo do Delivery." />
+      <Titulo t="Gestão" sub="Cardápio, mesas, taxa de serviço, comissão dos garçons e relatório. O cardápio é o mesmo do Delivery." />
       <div className="row" style={{ gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
         {abas.map(([k, t]) => <button key={k} className={'btn sm' + (aba === k ? ' primary' : '')} onClick={() => setAba(k)}>{t}</button>)}
       </div>

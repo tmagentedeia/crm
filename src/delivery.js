@@ -447,6 +447,60 @@ export function registerDeliveryRoutes(r, wrap) {
     res.json({ categories: [...cats.map((c) => ({ ...c, items: itens.filter((i) => i.category_id === c.id).map(monta) })), ...(sem.length ? [{ id: null, name: 'Outros', position: 9999, active: true, items: sem.map(monta) }] : [])] });
   }));
 
+  // Importar o cardápio de uma planilha: Categoria, Item, Descrição, Preço, Local de preparo, Esgotado.
+  // Quem já existe (mesma categoria e mesmo nome) é atualizado, sem duplicar. Com dry_run só simula.
+  r.post('/delivery/import', wrap(async (req, res) => {
+    const linhas = (Array.isArray(req.body?.rows) ? req.body.rows : []).slice(0, 2000);
+    const dry = !!req.body?.dry_run;
+    const chaveCol = (k) => semAcento(k).replace(/\(.*?\)/g, '').replace(/[^a-z0-9 ]/g, '').trim();
+    const pega = (row, ...nomes) => { const m = {}; for (const [k, v] of Object.entries(row || {})) m[chaveCol(k)] = v; for (const n of nomes) if (m[n] !== undefined && String(m[n]).trim() !== '') return String(m[n]).trim(); return ''; };
+    const sim = (v) => ['sim', 's', 'x', '1', 'true', 'esgotado'].includes(semAcento(v));
+    const nao = (v) => ['nao', 'n', '0', 'false', 'inativo'].includes(semAcento(v));
+    const rep = { items: { created: 0, updated: 0 }, categories: { created: 0 }, errors: [], dry_run: dry };
+    class Desfazer extends Error {}
+    try {
+      await tx(currentCompany(), async (t) => {
+        const cats = new Map((await t('SELECT id, name FROM dlv_categories')).rows.map((c) => [semAcento(c.name), c.id]));
+        for (let i = 0; i < linhas.length; i++) {
+          const row = linhas[i];
+          const nome = txt(pega(row, 'item', 'nome', 'prato', 'produto'), 100, { vazio: false });
+          const linha = `Linha ${i + 2}${nome ? ` (${nome})` : ''}`;
+          if (!nome) { rep.errors.push(`${linha}: falta o nome do item`); continue; }
+          const preco = dinheiro(pega(row, 'preco', 'valor'));
+          if (preco === undefined || preco === null) { rep.errors.push(`${linha}: preço inválido`); continue; }
+          const desc = txt(pega(row, 'descricao', 'descr'), 400);
+          if (desc === null) { rep.errors.push(`${linha}: descrição longa demais (até 400 letras)`); continue; }
+          const est = semAcento(pega(row, 'local de preparo', 'preparo', 'local', 'estacao'));
+          const station = !est || est.startsWith('coz') ? 'cozinha' : est.startsWith('bar') ? 'bar' : /direto|sem preparo|nenhum/.test(est) ? 'direto' : null;
+          if (!station) { rep.errors.push(`${linha}: local de preparo "${est}" não entendido (use Cozinha, Bar ou Sai direto)`); continue; }
+          const nomeCat = txt(pega(row, 'categoria', 'grupo'), 60);
+          let catId = null;
+          if (nomeCat) {
+            catId = cats.get(semAcento(nomeCat)) || null;
+            if (!catId) {
+              catId = (await t('INSERT INTO dlv_categories (name, position) VALUES ($1,(SELECT COALESCE(max(position),0)+1 FROM dlv_categories)) RETURNING id', [nomeCat])).rows[0].id;
+              cats.set(semAcento(nomeCat), catId); rep.categories.created++;
+            }
+          }
+          const esg = pega(row, 'esgotado'), ativo = pega(row, 'ativo');
+          const ex = (await t('SELECT id FROM dlv_items WHERE lower(name)=lower($1) AND category_id IS NOT DISTINCT FROM $2', [nome, catId])).rows[0];
+          if (ex) {
+            await t(`UPDATE dlv_items SET price=$2, description=COALESCE($3,description), station=$4,
+                sold_out=CASE WHEN $5::text='' THEN sold_out ELSE $5::text='sim' END, active=CASE WHEN $6::text='' THEN active ELSE $6::text<>'nao' END WHERE id=$1`,
+              [ex.id, preco, desc || null, station, esg ? (sim(esg) ? 'sim' : 'nao') : '', ativo ? (nao(ativo) ? 'nao' : 'sim') : '']);
+            rep.items.updated++;
+          } else {
+            await t('INSERT INTO dlv_items (category_id, name, description, price, station, sold_out, active) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+              [catId, nome, desc || null, preco, station, sim(esg), !nao(ativo)]);
+            rep.items.created++;
+          }
+        }
+        if (dry) throw new Desfazer();
+      });
+    } catch (e) { if (!(e instanceof Desfazer)) throw e; }
+    res.json(rep);
+  }));
+
   const crud = (base, tabela, ler, { depois } = {}) => {
     r.post(base, wrap(async (req, res) => {
       const { o, erro: e } = ler(req.body || {}, false);

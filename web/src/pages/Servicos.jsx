@@ -1,3 +1,4 @@
+import ImportarAqui from '../ImportarAqui.jsx';
 import React, { useEffect, useState } from 'react';
 import { Nome } from '../menu.jsx';
 import { api, money } from '../api.js';
@@ -80,6 +81,7 @@ function Catalogo({ abas, onMudou }) {
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: 16 }}>
         <div><h1><Nome id="servicos">Produtos e Serviços</Nome></h1><p className="muted">Alterações valem na hora para o agente de IA. A agenda oferece só os serviços; os produtos servem para as vendas.</p></div>
         <div className="row">
+          <ImportarAqui tipo="services" onFeito={load} />
           <button className="btn" onClick={() => { setErr(''); setCatEdit({ name: '' }); }}>+ Nova categoria</button>
           <button className="btn" onClick={() => { setErr(''); setEdit({ kind: 'product', name: '', price: '', duration_min: 30, category_id: '' }); }}>+ Novo produto</button>
           <button className="btn primary" onClick={() => { setErr(''); setEdit({ kind: 'service', name: '', price: '', duration_min: 30, category_id: '' }); }}>+ Novo serviço</button>

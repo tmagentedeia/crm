@@ -202,5 +202,30 @@ check('item sem categoria cai em "Outros"', !!sem && sem.items.some((i) => i.nam
 
 psql('delete from company_1.dlv_orders; delete from company_1.dlv_items; delete from company_1.dlv_categories; delete from company_1.dlv_zones; delete from company_1.dlv_couriers; delete from company_1.dlv_coupons; delete from company_1.dlv_settings; delete from agendamentos_mensagens');
 psql("update public.companies set whatsapp_instance=NULL where id=1");
+// ---- importar cardápio de planilha ----
+const imp = (rows, dry) => api('POST', '/delivery/import', { rows, dry_run: dry });
+const planilha = [
+  { Categoria: 'Importados', Item: 'Pizza Imp', 'Descrição': 'Grande', 'Preço': '45,50', 'Local de preparo': 'Cozinha' },
+  { Categoria: 'Importados', Item: 'Suco Imp', 'Preço': '9', 'Local de preparo': 'Bar', Esgotado: 'sim' },
+  { Categoria: 'Importados', Item: 'Água Imp', 'Preço': '5', 'Local de preparo': 'Sai direto' },
+  { Categoria: 'Importados', Item: '', 'Preço': '5' },
+  { Categoria: 'Importados', Item: 'Sem preço', 'Preço': 'abc' },
+  { Categoria: 'Importados', Item: 'Local ruim', 'Preço': '5', 'Local de preparo': 'lua' },
+];
+const sim1 = (await imp(planilha, true)).body;
+check('importar cardápio: simulação conta e aponta erros', sim1.dry_run && sim1.items.created === 3 && sim1.categories.created === 1 && sim1.errors.length === 3, JSON.stringify(sim1));
+check('simulação não grava nada', (await api('GET', '/delivery/menu?all=1')).body.categories.every((c) => c.name !== 'Importados'));
+const real1 = (await imp(planilha, false)).body;
+check('importar cardápio de verdade', real1.items.created === 3 && real1.dry_run === false);
+const mImp = (await api('GET', '/delivery/menu?all=1')).body.categories.find((c) => c.name === 'Importados');
+const porNome = (n) => mImp.items.find((i) => i.name === n);
+check('itens importados com preço, local de preparo e esgotado', mImp.items.length === 3 && porNome('Pizza Imp').price === 45.5 && porNome('Pizza Imp').station === 'cozinha' && porNome('Suco Imp').station === 'bar' && porNome('Suco Imp').sold_out === true && porNome('Água Imp').station === 'direto');
+const real2 = (await imp([{ Categoria: 'importados', Item: 'pizza imp', 'Preço': '50', 'Local de preparo': 'Bar' }], false)).body;
+check('reimportar atualiza sem duplicar (ignora maiúsculas)', real2.items.updated === 1 && real2.items.created === 0 && real2.categories.created === 0);
+const mImp2 = (await api('GET', '/delivery/menu?all=1')).body.categories.find((c) => c.name === 'Importados');
+check('preço e local atualizados', mImp2.items.length === 3 && mImp2.items.find((i) => i.name === 'Pizza Imp').price === 50 && mImp2.items.find((i) => i.name === 'Pizza Imp').station === 'bar');
+check('importar cardápio sem linhas não quebra', (await imp([], false)).body.items.created === 0);
+check('cardápio importado: isolado por empresa', !(await call('GET', '/api/delivery/menu?all=1', { token: B.token })).body.categories.some((c) => c.name === 'Importados'));
+
 console.log(`delivery: ${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);

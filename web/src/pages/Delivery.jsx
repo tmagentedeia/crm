@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api.js';
+import ImportarAqui from '../ImportarAqui.jsx';
 
 const brl = (n) => 'R$ ' + Number(n || 0).toFixed(2).replace('.', ',');
 const hora = (iso) => new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
@@ -356,6 +357,7 @@ export function Cardapio() {
       <form className="card row" onSubmit={nova} style={{ marginBottom: 12, alignItems: 'flex-end' }}>
         <div className="field" style={{ flex: 1 }}><label>Nova categoria</label><input value={nomeCat} onChange={(e) => setNomeCat(e.target.value)} placeholder="Ex.: Pizzas, Bebidas, Sobremesas" required /></div>
         <button className="btn">Adicionar categoria</button>
+        <ImportarAqui tipo="menu" onFeito={carregar} />
         <button type="button" className="btn primary" onClick={() => setEditando({})}>Novo item</button>
       </form>
       {menu.categories.length === 0 && <div className="card muted">Cardápio vazio. Crie uma categoria e cadastre os itens.</div>}

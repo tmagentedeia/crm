@@ -24,7 +24,7 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT true;
 
 // Telas que podem ser dadas à equipe. "config" e "equipe" ficam só com o dono.
 export const TELAS = [
-  'dashboard', 'agenda', 'fila', 'clientes', 'inativos', 'profissionais', 'servicos', 'importar', 'atendente', 'comandos', 'bloqueios', 'campanhas',
+  'dashboard', 'agenda', 'fila', 'clientes', 'inativos', 'profissionais', 'servicos', 'atendente', 'comandos', 'bloqueios', 'campanhas',
   'clube', 'pedidos', 'eventos', 'financeiro', 'comissoes', 'scenarium', 'documentos', 'delivery',
   'rst_salao', 'rst_cozinha', 'rst_caixa', 'rst_gestao',
 ];
@@ -35,11 +35,10 @@ export const ROTAS_DA_TELA = {
   dashboard: ['dashboard'],
   agenda: ['appointments', 'availability', 'booking-mode'],
   fila: ['waitlist'],
-  clientes: ['customers'],
-  importar: ['import', 'customers'],
+  clientes: ['customers', 'import'],
   inativos: ['customers-inactive'],
-  profissionais: ['professionals'],
-  servicos: ['services', 'categories'],
+  profissionais: ['professionals', 'import'],
+  servicos: ['services', 'categories', 'import'],
   atendente: ['agent-manual', 'agent-updates', 'agent-config', 'agent-attendants', 'assistant-manual', 'assistant-updates', 'assistant'],
   comandos: ['agent-commands'],
   bloqueios: ['blocks'],
