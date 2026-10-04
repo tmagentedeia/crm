@@ -234,7 +234,7 @@ function Manual({ P, papel }) {
   return (
     <>
       <p className="muted" style={{ marginBottom: 10 }}>
-        Escreva aqui, em linguagem comum, {P === 'assistant' ? 'como o assistente deve trabalhar: o que ele faz, as regras da casa, o jeito de falar e o que pode e o que não pode fazer.' : 'como o atendente deve falar e agir: o jeito de tratar o cliente, regras da casa, o que pode e o que não pode prometer.'}
+        Escreva aqui, em linguagem comum, {P === 'assistant' ? 'como o assistente pessoal deve trabalhar: o que ele faz, as regras da casa, o jeito de falar e o que pode e o que não pode fazer.' : 'como o atendente deve falar e agir: o jeito de tratar o cliente, regras da casa, o que pode e o que não pode prometer.'}
         Serviços, preços e horários dos profissionais já vêm do cadastro, não precisa repetir.
       </p>
       {msg && <div className="card" style={{ marginBottom: 12, color: 'var(--ok)' }}>{msg}</div>}
@@ -265,7 +265,7 @@ function Manual({ P, papel }) {
         {visao === 'secoes'
           ? <Secoes texto={texto} onChange={(t) => { setTexto(t); setSujo(true); setAntesDaTroca(null); setAntesDeOrganizar(null); }} />
           : <textarea value={texto} onChange={(e) => { setTexto(e.target.value); setSujo(true); setAntesDaTroca(null); }} rows={18}
-              style={{ width: '100%', fontFamily: 'inherit' }} placeholder={P === 'assistant' ? 'Ex.: Você é o assistente do proprietário… Seja direto e objetivo…' : 'Ex.: Você é a atendente da empresa… Seja simpática e objetiva…'} />}
+              style={{ width: '100%', fontFamily: 'inherit' }} placeholder={P === 'assistant' ? 'Ex.: Você é o assistente pessoal do proprietário… Seja direto e objetivo…' : 'Ex.: Você é a atendente da empresa… Seja simpática e objetiva…'} />}
         <div className="muted" style={{ margin: '6px 0 10px' }}>
           {texto.length} caracteres ·{' '}
           {info.current ? <>publicado em {fmtDataHora(info.current.published_at)}{igualAoPublicado ? '' : ' (você tem alterações ainda não publicadas)'}</> : 'nada publicado ainda'}
@@ -465,23 +465,23 @@ export default function Atendente({ company }) {
   // sem o assistente no plano, a aba aparece sempre apagada, com cadeado e convite de upgrade (serve a qualquer negócio)
   const assistenteBloqueado = !temAssistente;
   const P = temAssistente ? quem : 'agent';
-  const papel = P === 'assistant' ? 'assistente' : 'atendente';
+  const papel = P === 'assistant' ? 'assistente pessoal' : 'atendente';
   return (
     <>
       <h1><Nome id="atendente">Atendente</Nome></h1>
       {temAssistente && (
         <div style={{ display: 'flex', gap: 8, margin: '12px 0 0' }}>
           <button className={'btn' + (P === 'agent' ? ' primary' : '')} onClick={() => setQuem('agent')}>Atendente</button>
-          <button className={'btn' + (P === 'assistant' ? ' primary' : '')} onClick={() => setQuem('assistant')}>Assistente</button>
+          <button className={'btn' + (P === 'assistant' ? ' primary' : '')} onClick={() => setQuem('assistant')}>Assistente pessoal</button>
         </div>
       )}
       {assistenteBloqueado && (
         <div style={{ display: 'flex', gap: 8, margin: '12px 0 0' }}>
           <button className="btn primary">Atendente</button>
-          <button className="btn" style={{ opacity: .55, display: 'inline-flex', alignItems: 'center', gap: 6 }} title="Disponível em outro plano" onClick={() => setUpg(true)}>Assistente <IconeCadeado size={13} /></button>
+          <button className="btn" style={{ opacity: .55, display: 'inline-flex', alignItems: 'center', gap: 6 }} title="Disponível em outro plano" onClick={() => setUpg(true)}>Assistente pessoal <IconeCadeado size={13} /></button>
         </div>
       )}
-      {upg && <UpgradeModal company={company} nome="Assistente" onClose={() => setUpg(false)} />}
+      {upg && <UpgradeModal company={company} nome="Assistente pessoal" onClose={() => setUpg(false)} />}
       {P === 'agent' && <NomeAgente />}
       <div style={{ display: 'flex', gap: 8, margin: '12px 0 16px' }}>
         <button className={'btn' + (aba === 'manual' ? ' primary' : '')} onClick={() => setAba('manual')}>Manual</button>

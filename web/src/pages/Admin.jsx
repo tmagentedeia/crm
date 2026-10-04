@@ -265,7 +265,7 @@ export default function Admin() {
               <h2>Opções do Atendente — {emp.name}</h2>
               <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontWeight: 'normal' }}>
                 <input type="checkbox" style={{ width: 'auto', marginTop: 3 }} checked={moduleOn(emp.modules, 'assistente')} onChange={() => alternarModulo(emp, 'assistente')} />
-                <span><strong>Assistente</strong><br /><span className="muted">Um segundo agente, com manual e atualizações provisórias próprios, ao lado do atendente. Desligado, a empresa vê a aba apagada, com convite de upgrade.</span></span>
+                <span><strong>Assistente pessoal</strong><br /><span className="muted">Um segundo agente, o assistente pessoal do proprietário, com manual e atualizações provisórias próprios, ao lado do atendente. Desligado, a empresa vê a aba apagada, com convite de upgrade.</span></span>
               </label>
               {err && <div className="error">{err}</div>}
               <div className="row"><button className="btn primary" onClick={() => setOpcoes(null)}>Fechar</button></div>
