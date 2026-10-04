@@ -19,17 +19,20 @@ import { birthdayTickAll } from './aniversario.js';
 import { registerDocumentoPublico } from './documentos.js';
 import { registerIndicacoesAdmin, sincronizarTodas, usarCodigo, acharPorCodigo } from './indicacoes.js';
 import { startCortesias } from './pedidos.js';
+import { bloqueioPorFuncao, registerEquipeRoutes, acessoDe } from './funcoes.js';
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '4mb' }));
+// Equipe: quem tem uma função só usa as telas dela (vale para todas as rotas do painel)
+app.use('/api', bloqueioPorFuncao);
 
 // ---------- Login / cadastro ----------
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
   const { rows } = await qg('SELECT * FROM users WHERE lower(email)=lower($1)', [email || '']);
   const u = rows[0];
-  if (!u || !(await bcrypt.compare(password || '', u.password_hash)))
+  if (!u || !u.active || !(await bcrypt.compare(password || '', u.password_hash)))
     return res.status(401).json({ error: 'E-mail ou senha incorretos' });
   const company = (await qg('SELECT id,name,inactive_days,logo,modules,locked_modules,menu_custom,module_labels FROM companies WHERE id=$1', [u.company_id])).rows[0];
   res.json({ token: signToken(u), user: { id: u.id, name: u.name, role: u.role }, company: await comUpgrade(company) });
@@ -156,7 +159,8 @@ app.put('/api/admin/companies/:id/campaign-webhook', requireUser, requireAdmin, 
 
 // ---------- Administração da plataforma (só e-mails em ADMIN_EMAILS) ----------
 app.get('/api/me', requireUser, async (req, res) => {
-  res.json({ admin: await isAdmin(req.user.id), impersonating: !!req.user.imp });
+  const acc = req.user.role === 'staff' && !req.user.imp ? await acessoDe(req.user.id) : null;
+  res.json({ admin: await isAdmin(req.user.id), impersonating: !!req.user.imp, equipe: acc ? { telas: acc.telas, inicio: acc.inicio, funcao: acc.funcao } : null });
 });
 
 // Versão no ar: início do servidor (= hora do deploy) e, se a hospedagem informar, o código da versão.
@@ -178,6 +182,7 @@ app.get('/api/admin/access-log', requireUser, requireAdmin, async (req, res) => 
 });
 
 registerIndicacoesAdmin(app, requireUser, requireAdmin);
+registerEquipeRoutes(app, requireUser);
 app.get('/api/admin/companies', requireUser, requireAdmin, async (req, res) => {
   const { rows } = await qg(
     `SELECT c.id, c.name, c.max_professionals, c.billing_due_day, c.billing_exempt, (SELECT count(*) FROM partner_referrals pr WHERE pr.company_id=c.id)::int AS referrals_total, c.created_at, c.modules, c.locked_modules, c.module_labels, c.whatsapp_instance, c.redis_prefix, c.campaign_webhook_url, c.booking_mode, c.api_key_hint, c.api_key_created_at,

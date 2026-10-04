@@ -11,6 +11,7 @@ import Importar from './pages/Importar.jsx';
 import Inativos from './pages/Inativos.jsx';
 import Config from './pages/Config.jsx';
 import Delivery from './pages/Delivery.jsx';
+import Equipe from './pages/Equipe.jsx';
 import Admin from './pages/Admin.jsx';
 import Atendente from './pages/Atendente.jsx';
 import Comandos from './pages/Comandos.jsx';
@@ -63,11 +64,13 @@ const BASE_MENU = [
   { id: 'delivery', module: 'delivery', label: 'Delivery', icon: '⛟', comp: Delivery },
   { id: 'documentos', module: 'documentos', label: 'Documentos', icon: '▤', comp: Documentos },
   { id: 'beneficios', module: 'beneficios', label: 'Programa de benefícios M2', icon: '◈', comp: Beneficios },
-  { id: 'config', label: 'Configurações', icon: '⚙️', comp: Config },
+  { id: 'equipe', label: 'Equipe e acessos', icon: '☷', comp: Equipe, soDono: true },
+  { id: 'config', label: 'Configurações', icon: '⚙️', comp: Config, soDono: true },
 ];
 
 export default function App() {
   const [admin, setAdmin] = useState(false);
+  const [equipe, setEquipe] = useState(null); // telas da pessoa da equipe (null = administrador da empresa, vê tudo)
   const [logged, setLogged] = useState(!!getToken());
   const [page, setPage] = useState(() => location.hash.slice(1) || 'dashboard');
   const [nomeProg, setNomeProg] = useState('');
@@ -84,7 +87,7 @@ export default function App() {
   }, [theme]);
 
   useEffect(() => {
-    if (logged) api('/me').then((m) => setAdmin(!!m.admin)).catch(() => setAdmin(false));
+    if (logged) api('/me').then((m) => { setAdmin(!!m.admin); setEquipe(m.equipe || null); }).catch(() => setAdmin(false));
     else setAdmin(false);
   }, [logged]);
   // O nome do programa de benefícios pode ter sido trocado pelo administrador: confere a cada tela aberta
@@ -111,11 +114,12 @@ export default function App() {
   const personalizado = (m) => ({ ...m, label: m.id === 'beneficios' ? (nomeProg || m.label) : nomeDoMenu(custom, m.id, m.label), icon: iconeDoMenu(custom, m.id, m.icon) });
   // Função desligada que o administrador deixou à vista aparece apagada, com cadeado, convidando ao upgrade
   const bloqueada = (m) => !!m.module && !moduleOn(company.modules, m.module) && company.locked_modules?.[m.module] === true;
-  const visible = BASE_MENU.filter((m) => !m.module || moduleOn(company.modules, m.module) || bloqueada(m))
+  const liberada = (m) => !equipe || (!m.soDono && equipe.telas.includes(m.id));
+  const visible = BASE_MENU.filter(liberada).filter((m) => !m.module || moduleOn(company.modules, m.module) || bloqueada(m))
     .map((m) => ({ ...personalizado(m), locked: bloqueada(m) }));
   const MENU = admin ? [...visible, ADMIN_ITEM] : visible;
   // Sem nenhum módulo ligado, o administrador começa direto na Administração
-  const inicial = admin && !visible.some((m) => m.module && !m.locked) ? ADMIN_ITEM : (MENU.find((m) => !m.locked) || MENU[0]);
+  const inicial = admin && !visible.some((m) => m.module && !m.locked) ? ADMIN_ITEM : (equipe?.inicio && MENU.find((m) => m.id === equipe.inicio && !m.locked)) || MENU.find((m) => !m.locked) || MENU[0];
 
   if (!logged) return <Login theme={theme} onLogin={(s) => { setCompany(s); setLogged(true); }} />;
 
@@ -177,7 +181,7 @@ export default function App() {
             {THEMES.map((t) => <option key={t.id} value={t.id}>🎨 {t.label}</option>)}
           </select>
         </div>
-        <Current company={company} />
+        <Current company={company} menu={visible} />
       </main>
       {upgrade && <UpgradeModal company={company} nome={upgrade} onClose={() => setUpgrade(null)} />}
     </div>
