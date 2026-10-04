@@ -61,5 +61,23 @@ check('nenhum serviço foi criado', (await call('GET', '/api/services', T)).body
 const svcOk = (await call('POST', '/api/import', T, { services: [{ Serviço: 'Corte Teste Import', Preço: 50, 'Duração (min)': 30 }], dry_run: true })).body;
 check('serviço de verdade continua passando', svcOk.services.created === 1 && svcOk.errors.length === 0, JSON.stringify(svcOk));
 
+// planilha da JF: Tipo "Comprador" vira cliente com perfil; sem Tipo é só contato (lead); Recados vão para as observações
+const jf = [
+  { Nome: 'Jf', Sobrenome: 'Comprou', Telefone: '553299992001', Tipo: 'Comprador', Recados: 'Gosta de mesa perto do palco' },
+  { Nome: 'Jf', Sobrenome: 'Contato', Telefone: '553299992002', Tipo: '' },
+  { Nome: 'Jf', Sobrenome: 'Contratou', Telefone: '553299992003', Tipo: 'Contratante' },
+];
+await call('POST', '/api/import', T, { customers: jf, dry_run: false });
+const j1 = await por('553299992001'), j2 = await por('553299992002'), j3 = await por('553299992003');
+check('Comprador vira cliente com perfil', j1.status === 'client' && (j1.client_kinds || []).join() === 'buyer', JSON.stringify([j1.status, j1.client_kinds]));
+check('Recados vão para as observações', j1.notes === 'Gosta de mesa perto do palco', String(j1.notes));
+check('sem Tipo fica como lead', j2.status === 'lead' && !(j2.client_kinds || []).length, JSON.stringify([j2.status, j2.client_kinds]));
+check('Contratante vira cliente com perfil', j3.status === 'client' && (j3.client_kinds || []).join() === 'hirer');
+await call('POST', '/api/import', T, { customers: [{ Nome: 'Jf', Sobrenome: 'Contato', Telefone: '553299992002', Tipo: 'Comprador' }, { Nome: 'Jf', Sobrenome: 'Comprou', Telefone: '553299992001', Tipo: 'Contratante' }], dry_run: false });
+const j2b = await por('553299992002'), j1b = await por('553299992001');
+check('reimportar promove o lead a cliente', j2b.status === 'client' && j2b.client_kinds.join() === 'buyer');
+check('reimportar soma perfis sem perder o anterior', [...j1b.client_kinds].sort().join() === 'buyer,hirer', JSON.stringify(j1b.client_kinds));
+check('ignora as colunas que o painel não usa', !(await call('POST', '/api/import', T, { customers: [{ Nome: 'X', Telefone: '553299992009', Assunto: 'a', Recados: 'b' }], dry_run: true })).body.ignored_columns.includes('Recados'));
+
 console.log(`importar_clube: ${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);

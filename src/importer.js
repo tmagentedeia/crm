@@ -205,7 +205,7 @@ export async function runImport(companyId, data, dryRun) {
     if (custRows.length) {
       // colunas que o painel entende (as outras são ignoradas e aparecem no relatório)
       const CONHECIDAS = ['nome', 'cliente', 'sobrenome', 'telefone', 'celular', 'whatsapp', 'tipo', 'situacao', 'programa', 'plano', 'nivel',
-        'aniversario', 'nascimento', 'data de nascimento', 'cidade', 'estado', 'uf', 'genero', 'sexo', 'data do cadastro', 'cadastro', 'observacoes', 'obs'];
+        'aniversario', 'nascimento', 'data de nascimento', 'cidade', 'estado', 'uf', 'genero', 'sexo', 'data do cadastro', 'cadastro', 'observacoes', 'obs', 'recados'];
       const vistas = new Set();
       custRows.forEach((r) => Object.keys(r || {}).forEach((k) => vistas.add(k)));
       rep.ignored_columns = [...vistas].filter((k) => !CONHECIDAS.includes(chave(k)));
@@ -214,6 +214,9 @@ export async function runImport(companyId, data, dryRun) {
       const tipoDe = (row) => norm(rowGet(row, 'tipo', 'situacao', 'programa')).replace(/\s+/g, ' ');
       // se a planilha usa a coluna de situação, quem está sem nada é só um contato (lead)
       const usaPrograma = custRows.some((r) => SIT[tipoDe(r)]);
+      // perfis do cliente (Scenarium): "Comprador" e "Contratante" na coluna Tipo; quem não tem nada é só um contato (lead)
+      const PERFIS_TIPO = { comprador: 'buyer', contratante: 'hirer' };
+      const usaPerfis = custRows.some((r) => PERFIS_TIPO[tipoDe(r)]);
       const nivelAvisado = new Set();
       for (const [i, row] of custRows.entries()) {
         const name = txt(rowGet(row, 'nome', 'cliente'));
@@ -225,7 +228,8 @@ export async function runImport(companyId, data, dryRun) {
 
         const tipo = tipoDe(row);
         let club = SIT[tipo] || null;
-        let status = tipo === 'lead' ? 'lead' : tipo === 'cliente' ? 'client' : club ? 'client' : usaPrograma ? 'lead' : 'client';
+        const perfil = PERFIS_TIPO[tipo] || null;
+        let status = tipo === 'lead' ? 'lead' : tipo === 'cliente' ? 'client' : (club || perfil) ? 'client' : (usaPrograma || usaPerfis) ? 'lead' : 'client';
         let levelId = null;
         const plano = txt(rowGet(row, 'plano', 'nivel'));
         if (plano && club === 'member') {
@@ -243,8 +247,8 @@ export async function runImport(companyId, data, dryRun) {
         const created = parseDateTimeBr(cad);
         if (cad && !created) rep.warnings.push(`${line}: data do cadastro "${cad}" não entendida — usei a data de hoje`);
         const r = await q(
-          `INSERT INTO customers (name,last_name,phone,status,source,city,state,birth_day,birth_month,birth_year,gender,club_status,club_level_id,notes,created_at)
-           VALUES ($1,$2,$3,$4,'manual',$5,$6,$7,$8,$9,$10,$11,$12,$13,COALESCE($14::timestamptz, now()))
+          `INSERT INTO customers (name,last_name,phone,status,source,city,state,birth_day,birth_month,birth_year,gender,club_status,club_level_id,notes,created_at,client_kinds)
+           VALUES ($1,$2,$3,$4,'manual',$5,$6,$7,$8,$9,$10,$11,$12,$13,COALESCE($14::timestamptz, now()),$15::text[])
            ON CONFLICT (phone) DO UPDATE SET
              name=COALESCE(NULLIF(EXCLUDED.name,''),customers.name),
              last_name=COALESCE(EXCLUDED.last_name,customers.last_name),
@@ -254,10 +258,12 @@ export async function runImport(companyId, data, dryRun) {
              club_status=COALESCE(EXCLUDED.club_status,customers.club_status),
              club_level_id=CASE WHEN EXCLUDED.club_status IS NULL THEN customers.club_level_id ELSE EXCLUDED.club_level_id END,
              notes=COALESCE(EXCLUDED.notes,customers.notes),
+             client_kinds=(SELECT COALESCE(array_agg(DISTINCT x), '{}') FROM unnest(customers.client_kinds || EXCLUDED.client_kinds) x),
+             status=CASE WHEN cardinality(EXCLUDED.client_kinds) > 0 THEN 'client' ELSE customers.status END,
              updated_at=now()
            RETURNING (xmax = 0) AS inserted`,
           [name || null, txt(rowGet(row, 'sobrenome')) || null, phone, status, cs.city, cs.state || uf || null,
-           b.birth_day, b.birth_month, b.birth_year ?? null, gender, club, levelId, txt(rowGet(row, 'observacoes', 'obs')) || null, created]);
+           b.birth_day, b.birth_month, b.birth_year ?? null, gender, club, levelId, txt(rowGet(row, 'observacoes', 'obs', 'recados')) || null, created, perfil ? [perfil] : []]);
         r.rows[0].inserted ? rep.customers.created++ : rep.customers.updated++;
       }
     }
