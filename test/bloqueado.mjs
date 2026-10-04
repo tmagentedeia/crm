@@ -16,7 +16,7 @@ const B = await login('dois@x.com', 'senhasenha');
 let c = (await call('GET', '/api/company', { token: A.token })).body;
 check('começa sem nada à vista', JSON.stringify(c.locked_modules) === '{}' && c.upgrade.phone === '' && c.upgrade.text === '');
 
-check('deixa o Financeiro à vista, apagado', (await call('PUT', '/api/admin/companies/1/locks', { token: A.token, body: { locks: { financeiro: true } } })).status === 200);
+check('deixa Recebimentos à vista, apagado', (await call('PUT', '/api/admin/companies/1/locks', { token: A.token, body: { locks: { financeiro: true } } })).status === 200);
 c = (await call('GET', '/api/company', { token: A.token })).body;
 check('empresa recebe as funções à vista', c.locked_modules.financeiro === true);
 check('login também traz', (await login('demo@demo.com', 'demo1234')).company.locked_modules.financeiro === true);

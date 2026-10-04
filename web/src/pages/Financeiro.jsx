@@ -19,7 +19,7 @@ export default function Financeiro() {
   const [aba, setAba] = useState('recebimentos');
   return (
     <>
-      <div style={{ marginBottom: 12 }}><h1>Financeiro</h1><p className="muted">Controle geral de tudo que entra: comprovantes Pix e pedidos pagos.</p></div>
+      <div style={{ marginBottom: 12 }}><h1>Recebimentos</h1><p className="muted">Controle geral de tudo que entra: comprovantes Pix e pedidos pagos.</p></div>
       <div className="row" style={{ marginBottom: 12 }}>
         {[['recebimentos', 'Recebimentos'], ['chaves', 'Chaves Pix'], ['ajustes', 'Ajustes']].map(([v, l]) => (
           <button key={v} className={'btn' + (aba === v ? ' primary' : '')} onClick={() => setAba(v)}>{l}</button>

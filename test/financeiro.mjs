@@ -99,7 +99,7 @@ check('assinatura dos recebimentos muda com pagamento novo', (await T('GET', '/a
 check('apagar em massa', (await T('POST', '/api/payments/bulk-delete', { ids: lst.slice(0, 2).map((x) => x.id) })).body.deleted === 2);
 check('apagar chave não perde os recebimentos', (await T('DELETE', '/api/finance/keys/' + k2.id)).status === 200 && (await T('GET', '/api/payments')).body.length >= 6);
 
-// ---- editar recebimento e controle único (pedidos pagos entram no Financeiro) ----
+// ---- editar recebimento e controle único (pedidos pagos entram em Recebimentos) ----
 const novoTx = () => 'E' + Math.random().toString(36).slice(2).padEnd(30, 'y');
 const errado = (await T('POST', '/api/payments/check', { phone: '553288880055', payer_name: 'Dani', amount: 25, key: 'pix.te.ste@gmail.com', txid: novoTx(), paid_at: sp(5) })).body;
 check('chave com ponto a mais = chave diferente', errado.status === 'wrong_key', JSON.stringify(errado));
@@ -117,11 +117,11 @@ const lvF = (await T('POST', '/api/lives', { title: 'Fin', starts_at: new Date(D
 await T('POST', `/api/lives/${lvF.id}/close`);   // live passada: não puxa a fila de pedidos de outros testes
 const pedFin = (await T('POST', '/api/orders', { phone: '553288880066', name: 'Pagou Pedido', song: 'Direto no pedido', live_id: lvF.id, kind: 'paid', amount_paid: 40 })).body;
 let pagsPed = (await pagList()).filter((x) => x.order_id === pedFin.id);
-check('pedido pago vira lançamento no Financeiro', pagsPed.length === 1 && pagsPed[0].source === 'pedido' && pagsPed[0].status === 'accepted' && Number(pagsPed[0].amount) === 40, JSON.stringify(pagsPed));
+check('pedido pago vira lançamento em Recebimentos', pagsPed.length === 1 && pagsPed[0].source === 'pedido' && pagsPed[0].status === 'accepted' && Number(pagsPed[0].amount) === 40, JSON.stringify(pagsPed));
 await T('PUT', '/api/orders/' + pedFin.id, { amount_paid: 55 });
 pagsPed = (await pagList()).filter((x) => x.order_id === pedFin.id);
 check('mudar o valor do pedido muda o lançamento (sem duplicar)', pagsPed.length === 1 && Number(pagsPed[0].amount) === 55, JSON.stringify(pagsPed));
-check('lançamento vindo de pedido não se edita no Financeiro', (await T('PUT', '/api/payments/' + pagsPed[0].id, { amount: 1 })).status === 409);
+check('lançamento vindo de pedido não se edita em Recebimentos', (await T('PUT', '/api/payments/' + pagsPed[0].id, { amount: 1 })).status === 409);
 await T('PUT', '/api/orders/' + pedFin.id, { kind: 'courtesy' });
 check('pedido deixa de ser pago = lançamento some', (await pagList()).filter((x) => x.order_id === pedFin.id).length === 0);
 await T('PUT', '/api/orders/' + pedFin.id, { kind: 'paid', amount_paid: 40 });
@@ -142,7 +142,7 @@ const manual = (await T('POST', '/api/orders', { phone: '553288880088', name: 'D
 const doManual = (await pagList()).filter((x) => x.order_id === manual.id);
 check('pedido à mão casa com o comprovante existente (sem duplicar)', doManual.length === 1 && doManual[0].source === 'comprovante' && doManual[0].id === sem.payment_id, JSON.stringify(doManual));
 const totalNo37 = (await pagList()).filter((x) => Number(x.amount) === 37 && x.status === 'accepted').length;
-check('o valor aparece uma vez só no Financeiro', totalNo37 === 1, String(totalNo37));
+check('o valor aparece uma vez só em Recebimentos', totalNo37 === 1, String(totalNo37));
 
 const lancado = (await T('POST', '/api/orders', { phone: '553288880089', name: 'Lançado Antes', song: 'Primeiro o pedido', live_id: lvF.id, kind: 'paid', amount_paid: 41 })).body;
 let lp = (await pagList()).filter((x) => x.order_id === lancado.id);
