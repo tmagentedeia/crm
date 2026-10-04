@@ -59,7 +59,7 @@ function MenuPersonalizar({ company, onSaved }) {
       <table>
         <thead><tr><th style={{ width: 90 }}>Ícone</th><th>Nome</th><th></th></tr></thead>
         <tbody>
-          {MENU_PADRAO.filter((m) => m.id === 'config' || moduleOn(company.modules, m.id)).map((m) => {
+          {MENU_PADRAO.filter((m) => m.id !== 'beneficios').filter((m) => m.id === 'config' || moduleOn(company.modules, m.id)).map((m) => {
             const v = valores[m.id] || {};
             return (
               <React.Fragment key={m.id}>

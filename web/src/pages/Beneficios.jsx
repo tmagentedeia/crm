@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
-import { nomeDoMenu } from '../menu.jsx';
 import { Indicacoes, AvisosDesconto } from './AdminIndicacoes.jsx';
 
 const brData = (iso) => new Date(iso + 'T12:00:00').toLocaleDateString('pt-BR');
@@ -10,7 +9,7 @@ const nomeMes = (iso) => new Date(iso + 'T12:00:00').toLocaleDateString('pt-BR',
 export default function Beneficios({ company }) {
   const [padrao, setPadrao] = useState('Programa de benefícios M2');
   useEffect(() => { api('/benefits/name').then((r) => r?.name && setPadrao(r.name)).catch(() => {}); }, []);
-  const titulo = nomeDoMenu(company?.menu_custom || {}, 'beneficios', padrao);
+  const titulo = padrao;   // o nome do programa é um só, definido pelo administrador
   const [eu, setEu] = useState(null);
   useEffect(() => { api('/me').then(setEu).catch(() => setEu({})); }, []);
   if (!eu) return <p className="muted">Carregando…</p>;

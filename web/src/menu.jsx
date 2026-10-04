@@ -36,6 +36,7 @@ export const MENU_PADRAO = [
   { id: 'comandos', label: 'Comandos', icon: '🎛️' },
   { id: 'bloqueios', label: 'Atendimentos bloqueados', icon: '🚫' },
   { id: 'importar', label: 'Importar planilha', icon: '📥' },
+  { id: 'documentos', label: 'Documentos', icon: '▤' },
   { id: 'beneficios', label: 'Programa de benefícios M2', icon: '◈' },
   { id: 'config', label: 'Configurações', icon: '⚙️' },
 ];

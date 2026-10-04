@@ -21,6 +21,7 @@ import Eventos from './pages/Eventos.jsx';
 import Financeiro from './pages/Financeiro.jsx';
 import Comissoes from './pages/Comissoes.jsx';
 import Scenarium from './pages/Scenarium.jsx';
+import Documentos from './pages/Documentos.jsx';
 import Beneficios from './pages/Beneficios.jsx';
 import { moduleOn } from './modules.js';
 import UpgradeModal from './UpgradeModal.jsx';
@@ -58,6 +59,7 @@ const BASE_MENU = [
   { id: 'comandos', module: 'comandos', label: 'Comandos', icon: '🎛️', comp: Comandos },
   { id: 'bloqueios', module: 'bloqueios', label: 'Atendimentos bloqueados', icon: '🚫', comp: Bloqueios },
   { id: 'importar', module: 'importar', label: 'Importar planilha', icon: '📥', comp: Importar },
+  { id: 'documentos', module: 'documentos', label: 'Documentos', icon: '▤', comp: Documentos },
   { id: 'beneficios', module: 'beneficios', label: 'Programa de benefícios M2', icon: '◈', comp: Beneficios },
   { id: 'config', label: 'Configurações', icon: '⚙️', comp: Config },
 ];
@@ -101,7 +103,7 @@ export default function App() {
   // Só aparecem os módulos ligados da empresa; Configurações e Administração (para o administrador) sempre aparecem
   // nome e ícone que a empresa escolheu para cada item (em Configurações); sem escolha, vale o padrão
   const custom = company.menu_custom || {};
-  const personalizado = (m) => ({ ...m, label: nomeDoMenu(custom, m.id, m.id === 'beneficios' && nomeProg ? nomeProg : m.label), icon: iconeDoMenu(custom, m.id, m.icon) });
+  const personalizado = (m) => ({ ...m, label: m.id === 'beneficios' ? (nomeProg || m.label) : nomeDoMenu(custom, m.id, m.label), icon: iconeDoMenu(custom, m.id, m.icon) });
   // Função desligada que o administrador deixou à vista aparece apagada, com cadeado, convidando ao upgrade
   const bloqueada = (m) => !!m.module && !moduleOn(company.modules, m.module) && company.locked_modules?.[m.module] === true;
   const visible = BASE_MENU.filter((m) => !m.module || moduleOn(company.modules, m.module) || bloqueada(m))

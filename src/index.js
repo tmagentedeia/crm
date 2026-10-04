@@ -16,6 +16,7 @@ import { requireUser, requireN8n, requireAdmin, isAdmin, signToken, signImperson
 import { buildRouter } from './routes.js';
 import { startCampaignScheduler } from './campaigns.js';
 import { birthdayTickAll } from './aniversario.js';
+import { registerDocumentoPublico } from './documentos.js';
 import { registerIndicacoesAdmin, sincronizarTodas, usarCodigo, acharPorCodigo } from './indicacoes.js';
 import { startCortesias } from './pedidos.js';
 
@@ -384,6 +385,8 @@ app.put('/api/admin/companies/:id/labels', requireUser, requireAdmin, async (req
   const { rows } = await qg('UPDATE companies SET module_labels=$2::jsonb WHERE id=$1 RETURNING id, name, module_labels', [id, JSON.stringify(labels)]);
   rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Empresa não encontrada' });
 });
+
+registerDocumentoPublico(app);
 
 // ---------- API do painel (JWT) e do N8N (x-api-key + x-company-id) ----------
 app.use('/api', requireUser, buildRouter());

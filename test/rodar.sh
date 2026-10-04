@@ -42,6 +42,9 @@ psql "$DB" -tc "select count(*) from company_1.scn_hirings" | grep -q 0 || { ech
 psql "$DB" -qc "update company_1.loyalty_settings set program_name='Programa de benefícios'; update public.tenant_versions set version=25 where company_id=1"
 node src/migrate.js
 psql "$DB" -tc "select program_name from company_1.loyalty_settings" | grep -q "Programa de assinaturas" || { echo "FALHOU: migração do nome do programa de assinaturas"; exit 1; }
+psql "$DB" -qc "drop table company_1.doc_files, company_1.doc_templates, company_1.doc_settings; update public.tenant_versions set version=26 where company_id=1"
+node src/migrate.js
+psql "$DB" -tc "select count(*) from company_1.doc_templates" | grep -q 0 || { echo "FALHOU: migração dos documentos"; exit 1; }
 psql "$DB" -tc "select count(*) from company_1.scn_reservations" | grep -q 0 || { echo "FALHOU: migração do Scenarium"; exit 1; }
 psql "$DB" -tc "select count(*) from company_1.commission_settings" | grep -q 1 || { echo "FALHOU: migração das comissões"; exit 1; }
 psql "$DB" -tc "select count(*) from company_1.product_sales" | grep -q 0 || { echo "FALHOU: migração das vendas"; exit 1; }
@@ -51,6 +54,9 @@ node test/seed_extra.mjs
 # Redis de teste (bloqueios)
 redis-server --port 56379 --save '' --appendonly no --daemonize yes >/dev/null
 export REDIS_URL=redis://127.0.0.1:56379
+FAKE_GOTENBERG_PORT=53000 node test/fake_gotenberg.mjs &
+PIDG=$!
+export GOTENBERG_URL=http://127.0.0.1:53000
 PORT=3999 node src/index.js > /tmp/crm-test.log 2>&1 &
 PID=$!
 PORT=3998 ALLOW_GLOBAL_KEY=false node src/index.js > /tmp/crm-test2.log 2>&1 &
@@ -70,6 +76,7 @@ BASE=http://localhost:3999 node test/planos.mjs || R=1
 BASE=http://localhost:3999 node test/scenarium.mjs || R=1
 BASE=http://localhost:3999 node test/contratacoes.mjs || R=1
 BASE=http://localhost:3999 node test/indicacoes.mjs || R=1
+BASE=http://localhost:3999 node test/documentos.mjs || R=1
 BASE=http://localhost:3999 node test/modelos.mjs || R=1
 BASE=http://localhost:3999 node test/acesso_admin.mjs || R=1
 BASE=http://localhost:3999 node test/sessao.mjs || R=1
@@ -95,6 +102,6 @@ sleep 2
 BASE=http://localhost:3996 node test/campanhas_push.mjs || R=1
 kill $PID3 2>/dev/null
 BASE=http://localhost:3998 node test/chave_global.mjs || R=1
-kill $PID $PID2
+kill $PID $PID2 $PIDG
 redis-cli -p 56379 shutdown nosave 2>/dev/null || true
 exit $R

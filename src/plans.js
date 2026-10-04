@@ -11,7 +11,7 @@ export const PLANOS = { starter: STARTER, pro: PRO, advanced: ADVANCED };
 // Módulos sem item de menu próprio: não entram na vitrine de upgrade
 const SEM_MENU = ['assistente', 'lembrete_cliente'];
 // Módulos fora dos planos: o administrador liga caso a caso; aplicar um plano não liga, não desliga e não coloca cadeado
-const FORA_DOS_PLANOS = ['scenarium', 'beneficios'];
+const FORA_DOS_PLANOS = ['scenarium', 'beneficios', 'documentos'];
 
 // { modules, locks } completos do plano, ou null se o plano não existe
 export function aplicacaoDoPlano(plano) {
