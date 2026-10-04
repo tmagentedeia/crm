@@ -25,7 +25,7 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT true;
 // Telas que podem ser dadas à equipe. "config" e "equipe" ficam só com o dono.
 export const TELAS = [
   'dashboard', 'agenda', 'fila', 'clientes', 'inativos', 'profissionais', 'servicos', 'atendente', 'comandos', 'bloqueios', 'campanhas',
-  'clube', 'pedidos', 'eventos', 'financeiro', 'comissoes', 'scenarium', 'documentos', 'delivery',
+  'clube', 'pedidos', 'eventos', 'financeiro', 'comissoes', 'casa_de_shows', 'documentos', 'delivery',
   'rst_salao', 'rst_cozinha', 'rst_caixa', 'rst_gestao',
 ];
 export const registrarTelas = (...novas) => { for (const t of novas) if (!TELAS.includes(t)) TELAS.push(t); };
@@ -48,7 +48,7 @@ export const ROTAS_DA_TELA = {
   eventos: ['events'],
   financeiro: ['finance', 'payments'],
   comissoes: ['commissions', 'product-sales'],
-  scenarium: ['scenarium'],
+  casa_de_shows: ['casa-de-shows'],
   documentos: ['documents'],
   delivery: ['delivery'],
   rst_salao: ['restaurant'],
@@ -66,7 +66,7 @@ export const LEITURAS_DA_TELA = {
   eventos: ['customers', 'professionals'],
   comissoes: ['professionals', 'services', 'categories'],
   delivery: ['customers'],
-  scenarium: ['customers'],
+  casa_de_shows: ['customers'],
   campanhas: ['customers', 'services', 'club'],
   financeiro: ['customers'],
 };

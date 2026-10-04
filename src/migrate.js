@@ -9,6 +9,17 @@ import { FUNCOES_SQL } from './funcoes.js';
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const sql = fs.readFileSync(path.join(dir, '..', 'db', 'schema.sql'), 'utf8');
 
+// O módulo ganhou o nome Casa de Shows (chave interna casa_de_shows). Troca a chave onde ela foi guardada; pode rodar quantas vezes for preciso.
+async function trocarNomeAntigoDoModulo() {
+  const alvos = [
+    ['companies', 'modules'], ['companies', 'locked_modules'], ['companies', 'module_labels'], ['companies', 'menu_custom'],
+    ['company_funcoes', 'telas'], ['users', 'telas_proprias'], ['platform_settings', 'value'], ['company_templates', 'data'],
+  ];
+  for (const [t, c] of alvos) {
+    await pool.query(`UPDATE ${t} SET ${c} = replace(${c}::text, '"scenarium"', '"casa_de_shows"')::jsonb WHERE ${c}::text LIKE '%"scenarium"%'`);
+  }
+}
+
 try {
   const has = async (t) => (await pool.query('SELECT to_regclass($1) AS t', [`public.${t}`])).rows[0].t;
   if (await has('companies')) {
@@ -32,6 +43,7 @@ try {
       id BIGSERIAL PRIMARY KEY, admin_user_id BIGINT NOT NULL, company_id BIGINT NOT NULL, target_user_id BIGINT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
     await pool.query(INDICACOES_SQL);
     await pool.query(FUNCOES_SQL);
+    await trocarNomeAntigoDoModulo();
     const n = await upgradeAllCompanies();
     console.log(`Estrutura em dia (${n} empresa(s)).`);
   } else {

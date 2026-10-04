@@ -26,7 +26,7 @@ const STATUS = { pending: 'Aguardando confirmação', scheduled: 'Agendado', att
 
 export default function Clientes({ company }) {
   const clube = moduleOn(company?.modules, 'clube');
-  const scn = moduleOn(company?.modules, 'scenarium');
+  const shows = moduleOn(company?.modules, 'casa_de_shows');
   const [perfil, setPerfil] = useState('');
   const [club, setClub] = useState(null);
   const [sit, setSit] = useState('');
@@ -81,7 +81,7 @@ export default function Clientes({ company }) {
         {[['', 'Todos'], ['lead', 'Leads'], ['client', 'Clientes']].map(([v, l]) => (
           <button key={v} className={'btn' + (tab === v ? ' primary' : '')} onClick={() => setTab(v)}>{l}</button>
         ))}
-        {scn && (
+        {shows && (
           <select value={perfil} onChange={(e) => setPerfil(e.target.value)} style={{ maxWidth: 170 }} title="Perfil do cliente">
             <option value="">Perfil: todos</option>
             {Object.entries(PERFIL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
@@ -135,7 +135,7 @@ export default function Clientes({ company }) {
           </tbody>
         </table>
       </div>
-      {detail && <Detail c={detail} perfis={scn || !!detail.client_kinds?.length} nomePedidos={rotulosDe(company, 'pedidos').items} clube={clube} club={club} onClose={() => setDetail(null)} onSaved={() => { setDetail(null); load(); }} onDeleted={() => { setDetail(null); load(); }} />}
+      {detail && <Detail c={detail} perfis={shows || !!detail.client_kinds?.length} nomePedidos={rotulosDe(company, 'pedidos').items} clube={clube} club={club} onClose={() => setDetail(null)} onSaved={() => { setDetail(null); load(); }} onDeleted={() => { setDetail(null); load(); }} />}
       {adding && <AddCustomer clube={clube} club={club} onClose={() => setAdding(false)} onSaved={() => { setAdding(false); load(); }} />}
     </>
   );
@@ -318,14 +318,14 @@ function Contratacoes({ c }) {
   const [d, setD] = useState(c.hirings || { rows: [], contracts: 0, total: 0, average_value: null });
   const [f, setF] = useState({ show_date: '', venue: '', value: '', status: 'confirmed' });
   const [err, setErr] = useState('');
-  const recarregar = () => api('/scenarium/hirings?customer_id=' + c.id).then((r) => setD(r.hirings));
+  const recarregar = () => api('/casa-de-shows/hirings?customer_id=' + c.id).then((r) => setD(r.hirings));
   async function add(e) {
     e.preventDefault(); setErr('');
-    try { await api('/scenarium/hirings', { method: 'POST', body: { customer_id: c.id, ...f, show_date: f.show_date || null, value: f.value === '' ? null : f.value } }); setF({ show_date: '', venue: '', value: '', status: 'confirmed' }); recarregar(); }
+    try { await api('/casa-de-shows/hirings', { method: 'POST', body: { customer_id: c.id, ...f, show_date: f.show_date || null, value: f.value === '' ? null : f.value } }); setF({ show_date: '', venue: '', value: '', status: 'confirmed' }); recarregar(); }
     catch (e2) { setErr(e2.message); }
   }
-  const mudar = async (h, status) => { try { await api('/scenarium/hirings/' + h.id, { method: 'PUT', body: { status } }); recarregar(); } catch (e2) { setErr(e2.message); } };
-  const apagar = async (h) => { if (!window.confirm('Apagar esta contratação?')) return; try { await api('/scenarium/hirings/' + h.id, { method: 'DELETE' }); recarregar(); } catch (e2) { setErr(e2.message); } };
+  const mudar = async (h, status) => { try { await api('/casa-de-shows/hirings/' + h.id, { method: 'PUT', body: { status } }); recarregar(); } catch (e2) { setErr(e2.message); } };
+  const apagar = async (h) => { if (!window.confirm('Apagar esta contratação?')) return; try { await api('/casa-de-shows/hirings/' + h.id, { method: 'DELETE' }); recarregar(); } catch (e2) { setErr(e2.message); } };
   return (
     <>
       <h2>Contratações</h2>

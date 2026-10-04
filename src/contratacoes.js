@@ -4,7 +4,7 @@ import { q } from './db.js';
 import { normPhone } from './phone.js';
 
 export const CONTRATACOES_SQL = `
-  CREATE TABLE IF NOT EXISTS scn_hirings (
+  CREATE TABLE IF NOT EXISTS shows_hirings (
     id          BIGSERIAL PRIMARY KEY,
     customer_id BIGINT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
     show_date   DATE,
@@ -15,7 +15,7 @@ export const CONTRATACOES_SQL = `
     source      TEXT NOT NULL DEFAULT 'manual',
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
   );
-  CREATE INDEX IF NOT EXISTS idx_scn_hirings_customer ON scn_hirings (customer_id, show_date DESC);`;
+  CREATE INDEX IF NOT EXISTS idx_shows_hirings_customer ON shows_hirings (customer_id, show_date DESC);`;
 
 export const STATUS_CONTRATACAO = ['proposal', 'confirmed', 'done', 'cancelled'];
 const r2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
@@ -24,7 +24,7 @@ const dataOk = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) && !isNaN(new 
 
 export async function historicoContratacoes(customerId) {
   const rows = (await q(
-    `SELECT id, show_date::text AS date, venue, value::float AS value, status, note FROM scn_hirings
+    `SELECT id, show_date::text AS date, venue, value::float AS value, status, note FROM shows_hirings
      WHERE customer_id=$1 ORDER BY show_date DESC NULLS LAST, id DESC LIMIT 200`, [customerId])).rows;
   const contam = rows.filter((x) => ['confirmed', 'done'].includes(x.status) && x.value > 0); // proposta e cancelada não entram na média
   const total = r2(contam.reduce((a, x) => a + x.value, 0));
@@ -50,7 +50,7 @@ export function registerHiringRoutes(r, wrap) {
     `UPDATE customers SET client_kinds = CASE WHEN 'hirer' = ANY(client_kinds) THEN client_kinds ELSE array_append(client_kinds, 'hirer') END,
             status = CASE WHEN $2 IN ('confirmed','done') THEN 'client' ELSE status END WHERE id=$1`, [id, status]);
 
-  r.get('/scenarium/hirings', wrap(async (req, res) => {
+  r.get('/casa-de-shows/hirings', wrap(async (req, res) => {
     const id = /^\d+$/.test(String(req.query.customer_id || '')) ? req.query.customer_id : null;
     const phone = req.query.phone ? normPhone(req.query.phone) : null;
     if (!id && !phone) return res.status(400).json({ error: 'Informe customer_id ou phone' });
@@ -59,7 +59,7 @@ export function registerHiringRoutes(r, wrap) {
     res.json(await historicoContratacoes(c.id));
   }));
 
-  r.post('/scenarium/hirings', wrap(async (req, res) => {
+  r.post('/casa-de-shows/hirings', wrap(async (req, res) => {
     const b = req.body || {};
     let cid = /^\d+$/.test(String(b.customer_id || '')) ? b.customer_id : null;
     if (!cid && b.phone) {
@@ -75,28 +75,28 @@ export function registerHiringRoutes(r, wrap) {
     const { o, erro } = ler(b, false);
     if (erro) return res.status(400).json({ error: erro });
     const status = o.status || 'proposal';
-    const row = (await q(`INSERT INTO scn_hirings (customer_id, show_date, venue, value, status, note, source) VALUES ($1,$2,NULLIF($3,''),$4,$5,$6,$7)
+    const row = (await q(`INSERT INTO shows_hirings (customer_id, show_date, venue, value, status, note, source) VALUES ($1,$2,NULLIF($3,''),$4,$5,$6,$7)
                           RETURNING id, show_date::text AS date, venue, value::float AS value, status, note`,
       [cid, o.show_date ?? null, o.venue ?? '', o.value ?? null, status, o.note ?? null, quem(req)])).rows[0];
     await marcar(cid, status);
     res.status(201).json({ ...row, customer_id: String(cid) });
   }));
 
-  r.put('/scenarium/hirings/:id', wrap(async (req, res) => {
+  r.put('/casa-de-shows/hirings/:id', wrap(async (req, res) => {
     const { o, erro } = ler(req.body || {}, true);
     if (erro) return res.status(400).json({ error: erro });
-    const cur = (await q('SELECT * FROM scn_hirings WHERE id=$1', [req.params.id])).rows[0];
+    const cur = (await q('SELECT * FROM shows_hirings WHERE id=$1', [req.params.id])).rows[0];
     if (!cur) return res.status(404).json({ error: 'Contratação não encontrada' });
     const n = { show_date: cur.show_date, venue: cur.venue, value: cur.value, status: cur.status, note: cur.note };
     for (const k of Object.keys(o)) n[k] = o[k];
-    await q('UPDATE scn_hirings SET show_date=$2, venue=NULLIF($3,\'\'), value=$4, status=$5, note=$6 WHERE id=$1',
+    await q('UPDATE shows_hirings SET show_date=$2, venue=NULLIF($3,\'\'), value=$4, status=$5, note=$6 WHERE id=$1',
       [cur.id, n.show_date, n.venue ?? '', n.value, n.status, n.note]);
     await marcar(cur.customer_id, n.status);
     res.json({ ok: true });
   }));
 
-  r.delete('/scenarium/hirings/:id', wrap(async (req, res) => {
-    const { rowCount } = await q('DELETE FROM scn_hirings WHERE id=$1', [req.params.id]);
+  r.delete('/casa-de-shows/hirings/:id', wrap(async (req, res) => {
+    const { rowCount } = await q('DELETE FROM shows_hirings WHERE id=$1', [req.params.id]);
     if (!rowCount) return res.status(404).json({ error: 'Contratação não encontrada' });
     res.json({ ok: true });
   }));

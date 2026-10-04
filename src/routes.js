@@ -17,7 +17,7 @@ import { registerFinanceRoutes } from './financeiro.js';
 import { TIPOS_ITEM } from './produtos.js';
 import { registerSalesRoutes } from './vendas.js';
 import { registerCommissionRoutes } from './comissoes.js';
-import { registerScenariumRoutes, historicoScenarium, KINDS as PERFIS } from './scenarium.js';
+import { registerCasaDeShowsRoutes, historicoCasaDeShows, KINDS as PERFIS } from './casa_de_shows.js';
 
 const digits = (s) => String(s || '').replace(/\D/g, '');
 const custPhone = normPhone;
@@ -644,7 +644,7 @@ export function buildRouter() {
     const h = await q(
       'SELECT * FROM v_customer_history WHERE customer_id=$1 ORDER BY starts_at DESC',
       [req.params.id]);
-    res.json({ ...c.rows[0], history: h.rows, ...(await historicoDoCliente(req.params.id)), ...(await historicoScenarium(req.params.id)), ...(await historicoContratacoes(req.params.id)) });
+    res.json({ ...c.rows[0], history: h.rows, ...(await historicoDoCliente(req.params.id)), ...(await historicoCasaDeShows(req.params.id)), ...(await historicoContratacoes(req.params.id)) });
   }));
   r.put('/customers/:id', wrap(async (req, res) => {
     const { name, phone, notes, status } = req.body;
@@ -1232,7 +1232,7 @@ export function buildRouter() {
   registerFinanceRoutes(r, wrap);
   registerSalesRoutes(r, wrap);
   registerCommissionRoutes(r, wrap);
-  registerScenariumRoutes(r, wrap);
+  registerCasaDeShowsRoutes(r, wrap);
   registerHiringRoutes(r, wrap);
   registerDocumentRoutes(r, wrap);
   registerDeliveryRoutes(r, wrap);

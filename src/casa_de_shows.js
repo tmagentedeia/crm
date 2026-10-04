@@ -1,4 +1,4 @@
-// Scenarium: reservas de mesa para casas de evento, controladas pelo ESPAÇO de cada setor.
+// Casa de Shows: reservas de mesa para casas de evento, controladas pelo ESPAÇO de cada setor.
 // Ideia: o setor tem um espaço (em pontos) e cada tipo de mesa ocupa uma parte dele. Assim 2 mesas de 10 e 4 mesas de 4
 // podem ocupar o mesmo espaço e render lotações diferentes (20 e 16 pessoas), e o sistema calcula o que ainda cabe.
 //  - a reserva é de um evento (ou, sem evento, de uma data) e de um setor
@@ -10,9 +10,9 @@ import { q, qg, tx, currentCompany, runAs } from './db.js';
 import { normPhone } from './phone.js';
 import { parseBirthday } from './ficha.js';
 
-export const SCENARIUM_SQL = `
+export const CASA_DE_SHOWS_SQL = `
   ALTER TABLE customers ADD COLUMN IF NOT EXISTS client_kinds TEXT[] NOT NULL DEFAULT '{}';   -- perfis do cliente: buyer (comprador), hirer (contratante)
-  CREATE TABLE IF NOT EXISTS scn_sectors (
+  CREATE TABLE IF NOT EXISTS shows_sectors (
     id       BIGSERIAL PRIMARY KEY,
     name     TEXT NOT NULL UNIQUE,
     space    NUMERIC(8,2) NOT NULL CHECK (space >= 0),        -- espaço total, em pontos
@@ -20,33 +20,33 @@ export const SCENARIUM_SQL = `
     position INT NOT NULL DEFAULT 0,
     active   BOOLEAN NOT NULL DEFAULT true
   );
-  CREATE TABLE IF NOT EXISTS scn_table_types (
+  CREATE TABLE IF NOT EXISTS shows_table_types (
     id       BIGSERIAL PRIMARY KEY,
     name     TEXT NOT NULL UNIQUE,
     seats    INT NOT NULL CHECK (seats BETWEEN 1 AND 200),    -- lugares
     space    NUMERIC(8,2) NOT NULL CHECK (space > 0),         -- espaço que uma mesa ocupa, em pontos
     active   BOOLEAN NOT NULL DEFAULT true
   );
-  CREATE TABLE IF NOT EXISTS scn_sector_tables (              -- que mesas o setor aceita (sem linhas = aceita todas) e quantas de cada cabem
-    sector_id     BIGINT NOT NULL REFERENCES scn_sectors(id) ON DELETE CASCADE,
-    table_type_id BIGINT NOT NULL REFERENCES scn_table_types(id) ON DELETE CASCADE,
+  CREATE TABLE IF NOT EXISTS shows_sector_tables (              -- que mesas o setor aceita (sem linhas = aceita todas) e quantas de cada cabem
+    sector_id     BIGINT NOT NULL REFERENCES shows_sectors(id) ON DELETE CASCADE,
+    table_type_id BIGINT NOT NULL REFERENCES shows_table_types(id) ON DELETE CASCADE,
     max_tables    INT CHECK (max_tables BETWEEN 1 AND 100),                   -- vazio = sem limite de quantidade
     PRIMARY KEY (sector_id, table_type_id)
   );
-  CREATE TABLE IF NOT EXISTS scn_event_sectors (              -- espaço do setor ajustado só para um evento
+  CREATE TABLE IF NOT EXISTS shows_event_sectors (              -- espaço do setor ajustado só para um evento
     event_id  BIGINT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
-    sector_id BIGINT NOT NULL REFERENCES scn_sectors(id) ON DELETE CASCADE,
+    sector_id BIGINT NOT NULL REFERENCES shows_sectors(id) ON DELETE CASCADE,
     space     NUMERIC(8,2) NOT NULL CHECK (space >= 0),
     PRIMARY KEY (event_id, sector_id)
   );
-  CREATE TABLE IF NOT EXISTS scn_event_conditions (           -- preço e instruções do evento
+  CREATE TABLE IF NOT EXISTS shows_event_conditions (           -- preço e instruções do evento
     event_id     BIGINT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
     price        NUMERIC(10,2) CHECK (price >= 0),            -- ingresso por pessoa
     door_price   NUMERIC(10,2) CHECK (door_price >= 0),       -- depois do prazo (ex.: na portaria)
     price_until  TIMESTAMPTZ,                                 -- até quando vale o preço normal
     instructions TEXT                                         -- instrução livre para o atendente (descontos excepcionais etc.)
   );
-  CREATE TABLE IF NOT EXISTS scn_event_codes (                -- palavras-chave de desconto do evento
+  CREATE TABLE IF NOT EXISTS shows_event_codes (                -- palavras-chave de desconto do evento
     id          BIGSERIAL PRIMARY KEY,
     event_id    BIGINT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
     word        TEXT NOT NULL,
@@ -59,18 +59,18 @@ export const SCENARIUM_SQL = `
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (event_id, word_norm)
   );
-  CREATE TABLE IF NOT EXISTS scn_event_interest (             -- quem perguntou sobre o evento (vira lead)
+  CREATE TABLE IF NOT EXISTS shows_event_interest (             -- quem perguntou sobre o evento (vira lead)
     event_id    BIGINT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
     customer_id BIGINT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (event_id, customer_id)
   );
-  CREATE TABLE IF NOT EXISTS scn_extras (                     -- mesas extras abertas à mão, fora do que o setor comporta, só para um evento/data
+  CREATE TABLE IF NOT EXISTS shows_extras (                     -- mesas extras abertas à mão, fora do que o setor comporta, só para um evento/data
     id             BIGSERIAL PRIMARY KEY,
     event_id       BIGINT REFERENCES events(id) ON DELETE CASCADE,
     occasion_date  DATE NOT NULL,
-    sector_id      BIGINT NOT NULL REFERENCES scn_sectors(id) ON DELETE CASCADE,
-    table_type_id  BIGINT REFERENCES scn_table_types(id) ON DELETE SET NULL,
+    sector_id      BIGINT NOT NULL REFERENCES shows_sectors(id) ON DELETE CASCADE,
+    table_type_id  BIGINT REFERENCES shows_table_types(id) ON DELETE SET NULL,
     table_name     TEXT NOT NULL,
     seats_each     INT NOT NULL CHECK (seats_each > 0),
     space_each     NUMERIC(8,2) NOT NULL CHECK (space_each > 0),
@@ -78,17 +78,17 @@ export const SCENARIUM_SQL = `
     note           TEXT,
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
   );
-  CREATE INDEX IF NOT EXISTS idx_scn_extras_event ON scn_extras (event_id);
-  CREATE TABLE IF NOT EXISTS scn_reservations (
+  CREATE INDEX IF NOT EXISTS idx_shows_extras_event ON shows_extras (event_id);
+  CREATE TABLE IF NOT EXISTS shows_reservations (
     id             BIGSERIAL PRIMARY KEY,
     event_id       BIGINT REFERENCES events(id) ON DELETE SET NULL,
     occasion_date  DATE NOT NULL,                             -- dia do evento (ou a data escolhida, sem evento)
-    sector_id      BIGINT NOT NULL REFERENCES scn_sectors(id) ON DELETE RESTRICT,
+    sector_id      BIGINT NOT NULL REFERENCES shows_sectors(id) ON DELETE RESTRICT,
     customer_id    BIGINT REFERENCES customers(id) ON DELETE SET NULL,
     name           TEXT NOT NULL,
     phone          TEXT,
     people         INT NOT NULL CHECK (people BETWEEN 1 AND 1000),
-    table_type_id  BIGINT REFERENCES scn_table_types(id) ON DELETE SET NULL,
+    table_type_id  BIGINT REFERENCES shows_table_types(id) ON DELETE SET NULL,
     table_name     TEXT NOT NULL,                             -- tipo de mesa na hora da reserva
     seats_each     INT NOT NULL CHECK (seats_each > 0),
     space_each     NUMERIC(8,2) NOT NULL CHECK (space_each > 0),
@@ -97,21 +97,21 @@ export const SCENARIUM_SQL = `
     note           TEXT,
     guests         TEXT,                                      -- nomes da lista (um por linha)
     unit_price     NUMERIC(10,2),                             -- valor por pessoa na hora da reserva (vazio = sem preço definido)
-    code_id        BIGINT REFERENCES scn_event_codes(id) ON DELETE SET NULL,
+    code_id        BIGINT REFERENCES shows_event_codes(id) ON DELETE SET NULL,
     code_word      TEXT,                                      -- palavra usada (guardada para consulta)
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
   );
-  CREATE INDEX IF NOT EXISTS idx_scn_res_event ON scn_reservations (event_id);
-  CREATE INDEX IF NOT EXISTS idx_scn_res_date ON scn_reservations (occasion_date);`;
+  CREATE INDEX IF NOT EXISTS idx_shows_res_event ON shows_reservations (event_id);
+  CREATE INDEX IF NOT EXISTS idx_shows_res_date ON shows_reservations (occasion_date);`;
 
 // Ingressos e reservas do cliente para a ficha: lista, total pago e ticket médio (por compra e por pessoa).
 // Só contam reservas confirmadas ou com comparecimento e com valor pago; canceladas e cortesias aparecem na lista, mas ficam fora das contas.
-export async function historicoScenarium(customerId) {
+export async function historicoCasaDeShows(customerId) {
   const rows = (await q(
     `SELECT v.id, v.occasion_date::text AS date, e.title AS event_title, s.name AS sector_name, v.people, v.table_name, v.status, v.code_word,
             v.unit_price::float AS unit_price, (v.people * v.unit_price)::float AS total
-     FROM scn_reservations v JOIN scn_sectors s ON s.id = v.sector_id LEFT JOIN events e ON e.id = v.event_id
+     FROM shows_reservations v JOIN shows_sectors s ON s.id = v.sector_id LEFT JOIN events e ON e.id = v.event_id
      WHERE v.customer_id = $1 ORDER BY v.occasion_date DESC, v.id DESC LIMIT 200`, [customerId])).rows;
   const contam = rows.filter((x) => ['confirmed', 'attended'].includes(x.status) && x.total > 0);   // cortesia (valor 0) aparece na lista, mas não entra no ticket médio
   const total = r2(contam.reduce((a, x) => a + x.total, 0));
@@ -151,10 +151,10 @@ export const melhorOpcao = (tipos, people, livre) => opcoes(tipos, people, livre
 
 
 // Mapa do espaço e fotos de cada setor: o atendente envia ao cliente pelo WhatsApp (endereço público e difícil de adivinhar)
-export const SCN_MEDIA_SQL = `
-  CREATE TABLE IF NOT EXISTS scn_media (
+export const SHOWS_MEDIA_SQL = `
+  CREATE TABLE IF NOT EXISTS shows_media (
     id         BIGSERIAL PRIMARY KEY,
-    sector_id  BIGINT REFERENCES scn_sectors(id) ON DELETE CASCADE,   -- vazio = mapa geral do espaço
+    sector_id  BIGINT REFERENCES shows_sectors(id) ON DELETE CASCADE,   -- vazio = mapa geral do espaço
     kind       TEXT NOT NULL CHECK (kind IN ('map','photo')),
     caption    TEXT,
     mime       TEXT NOT NULL,
@@ -163,13 +163,13 @@ export const SCN_MEDIA_SQL = `
     position   INT NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
   );
-  CREATE INDEX IF NOT EXISTS scn_media_sector ON scn_media (sector_id);
+  CREATE INDEX IF NOT EXISTS shows_media_sector ON shows_media (sector_id);
 `;
 // Pagamentos de cada reserva: forma (Pix, dinheiro, cartão, parceiro, cortesia...), chave Pix que recebeu e, se houver, o comprovante já validado em Recebimentos
-export const SCN_PAGAMENTOS_SQL = `
-  CREATE TABLE IF NOT EXISTS scn_res_payments (
+export const SHOWS_PAGAMENTOS_SQL = `
+  CREATE TABLE IF NOT EXISTS shows_res_payments (
     id             BIGSERIAL PRIMARY KEY,
-    reservation_id BIGINT NOT NULL REFERENCES scn_reservations(id) ON DELETE CASCADE,
+    reservation_id BIGINT NOT NULL REFERENCES shows_reservations(id) ON DELETE CASCADE,
     method         TEXT NOT NULL CHECK (method IN ('pix','dinheiro','cartao','parceiro','cortesia','outro')),
     amount         NUMERIC(10,2) NOT NULL DEFAULT 0 CHECK (amount >= 0),
     pix_key_id     BIGINT REFERENCES pix_keys(id) ON DELETE SET NULL,
@@ -177,8 +177,8 @@ export const SCN_PAGAMENTOS_SQL = `
     note           TEXT,
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
   );
-  CREATE INDEX IF NOT EXISTS scn_res_pay_res ON scn_res_payments (reservation_id);
-  CREATE UNIQUE INDEX IF NOT EXISTS scn_res_pay_comprovante ON scn_res_payments (payment_id) WHERE payment_id IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS shows_res_pay_res ON shows_res_payments (reservation_id);
+  CREATE UNIQUE INDEX IF NOT EXISTS shows_res_pay_comprovante ON shows_res_payments (payment_id) WHERE payment_id IS NOT NULL;
 `;
 const FORMAS = ['pix', 'dinheiro', 'cartao', 'parceiro', 'cortesia', 'outro'];
 const MIDIA_MAX_BYTES = 2.5 * 1024 * 1024, FOTOS_POR_SETOR = 8;
@@ -194,14 +194,14 @@ export function registerMidiaPublica(app) {
     const m = String(req.params.token || '').match(/^(\d+)-([0-9a-f]{40})$/);
     if (!m) return res.status(404).end();
     try {
-      const f = await runAs(Number(m[1]), async () => (await q('SELECT mime, data FROM scn_media WHERE token=$1', [req.params.token])).rows[0]);
+      const f = await runAs(Number(m[1]), async () => (await q('SELECT mime, data FROM shows_media WHERE token=$1', [req.params.token])).rows[0]);
       if (!f) return res.status(404).end();
       res.set({ 'content-type': f.mime, 'cache-control': 'public, max-age=3600', 'x-content-type-options': 'nosniff' }).send(f.data);
-    } catch (e) { console.error('scenarium mídia:', e.message); res.status(404).end(); }
+    } catch (e) { console.error('casa de shows mídia:', e.message); res.status(404).end(); }
   });
 }
 
-export function registerScenariumRoutes(r, wrap) {
+export function registerCasaDeShowsRoutes(r, wrap) {
   const fuso = async () => (await qg('SELECT timezone FROM companies WHERE id=$1', [currentCompany()])).rows[0]?.timezone || 'America/Sao_Paulo';
   const comTratamento = (fn) => wrap(async (req, res) => {
     try { await fn(req, res); } catch (e) { if (e.status) return res.status(e.status).json({ error: e.message }); throw e; }
@@ -211,27 +211,27 @@ export function registerScenariumRoutes(r, wrap) {
   // ---------- setores ----------
   const SETOR = `SELECT id, name, space::float AS space, notes, position, active,
     COALESCE((SELECT json_agg(json_build_object('table_type_id', st.table_type_id::text, 'max_tables', st.max_tables) ORDER BY st.table_type_id)
-              FROM scn_sector_tables st WHERE st.sector_id = scn_sectors.id), '[]'::json) AS tables
-    FROM scn_sectors`;
+              FROM shows_sector_tables st WHERE st.sector_id = shows_sectors.id), '[]'::json) AS tables
+    FROM shows_sectors`;
 
   // ---------- mapa e fotos ----------
   const urlBase = (req) => process.env.PUBLIC_URL || `${req.headers['x-forwarded-proto'] || req.protocol}://${req.headers['x-forwarded-host'] || req.get('host')}`;
   const midiaOut = (req, m) => ({ id: String(m.id), sector_id: m.sector_id ? String(m.sector_id) : null, kind: m.kind, caption: m.caption, url: `${urlBase(req)}/m/${m.token}` });
   // Lista (sem os arquivos): o painel mostra e o atendente usa os endereços para enviar ao cliente
-  r.get('/scenarium/media', wrap(async (req, res) => {
+  r.get('/casa-de-shows/media', wrap(async (req, res) => {
     const setorId = req.query.sector_id ? idOk(req.query.sector_id) : null;
     if (req.query.sector_id && !setorId) return res.status(400).json({ error: 'Setor inválido' });
-    const rows = (await q(`SELECT m.id, m.sector_id, m.kind, m.caption, m.token, s.name AS sector_name FROM scn_media m LEFT JOIN scn_sectors s ON s.id = m.sector_id
+    const rows = (await q(`SELECT m.id, m.sector_id, m.kind, m.caption, m.token, s.name AS sector_name FROM shows_media m LEFT JOIN shows_sectors s ON s.id = m.sector_id
       ${setorId ? 'WHERE m.sector_id = $1 OR m.sector_id IS NULL' : ''} ORDER BY m.kind DESC, m.position, m.id`, setorId ? [setorId] : [])).rows;
     const map = rows.find((m) => m.kind === 'map');
-    const setores = (await q('SELECT id, name FROM scn_sectors WHERE active ORDER BY position, id')).rows;
+    const setores = (await q('SELECT id, name FROM shows_sectors WHERE active ORDER BY position, id')).rows;
     res.json({
       map: map ? midiaOut(req, map) : null,
       sectors: setores.filter((s) => !setorId || String(s.id) === setorId).map((s) => ({ sector_id: String(s.id), name: s.name, photos: rows.filter((m) => m.kind === 'photo' && String(m.sector_id) === String(s.id)).map((m) => midiaOut(req, m)) })),
     });
   }));
   // Envio: { kind: 'map' | 'photo', sector_id (fotos), caption, data: "data:image/jpeg;base64,..." }
-  r.post('/scenarium/media', comTratamento(async (req, res) => {
+  r.post('/casa-de-shows/media', comTratamento(async (req, res) => {
     if (quem(req) === 'ia') return res.status(403).json({ error: 'Só pelo painel' });
     const b = req.body || {};
     const kind = b.kind === 'map' ? 'map' : b.kind === 'photo' ? 'photo' : null;
@@ -247,34 +247,34 @@ export function registerScenariumRoutes(r, wrap) {
     let setorId = null;
     if (kind === 'photo') {
       setorId = idOk(b.sector_id);
-      if (!setorId || !(await q('SELECT 1 FROM scn_sectors WHERE id=$1', [setorId])).rowCount) return res.status(400).json({ error: 'Escolha o setor da foto' });
-      if ((await q("SELECT count(*)::int AS n FROM scn_media WHERE kind='photo' AND sector_id=$1", [setorId])).rows[0].n >= FOTOS_POR_SETOR)
+      if (!setorId || !(await q('SELECT 1 FROM shows_sectors WHERE id=$1', [setorId])).rowCount) return res.status(400).json({ error: 'Escolha o setor da foto' });
+      if ((await q("SELECT count(*)::int AS n FROM shows_media WHERE kind='photo' AND sector_id=$1", [setorId])).rows[0].n >= FOTOS_POR_SETOR)
         return res.status(409).json({ error: `Cada setor aceita até ${FOTOS_POR_SETOR} fotos. Apague uma para enviar outra.` });
     }
     const token = `${currentCompany()}-${crypto.randomBytes(20).toString('hex')}`;
     const novo = await tx(currentCompany(), async (t) => {
-      if (kind === 'map') await t("DELETE FROM scn_media WHERE kind='map'");   // só existe um mapa: o novo substitui
-      return (await t(`INSERT INTO scn_media (sector_id, kind, caption, mime, data, token, position)
-        VALUES ($1,$2,$3,$4,$5,$6,(SELECT COALESCE(max(position),0)+1 FROM scn_media)) RETURNING id, sector_id, kind, caption, token`,
+      if (kind === 'map') await t("DELETE FROM shows_media WHERE kind='map'");   // só existe um mapa: o novo substitui
+      return (await t(`INSERT INTO shows_media (sector_id, kind, caption, mime, data, token, position)
+        VALUES ($1,$2,$3,$4,$5,$6,(SELECT COALESCE(max(position),0)+1 FROM shows_media)) RETURNING id, sector_id, kind, caption, token`,
         [setorId, kind, legenda || null, mime, buf, token])).rows[0];
     });
     res.status(201).json(midiaOut(req, novo));
   }));
-  r.put('/scenarium/media/:id', comTratamento(async (req, res) => {
+  r.put('/casa-de-shows/media/:id', comTratamento(async (req, res) => {
     if (quem(req) === 'ia') return res.status(403).json({ error: 'Só pelo painel' });
     const id = idOk(req.params.id); const legenda = txt(req.body?.caption ?? '', 120);
     if (!id || legenda === null) return res.status(400).json({ error: 'Legenda inválida (até 120 letras)' });
-    const { rowCount } = await q('UPDATE scn_media SET caption=$2 WHERE id=$1', [id, legenda || null]);
+    const { rowCount } = await q('UPDATE shows_media SET caption=$2 WHERE id=$1', [id, legenda || null]);
     rowCount ? res.json({ ok: true }) : res.status(404).json({ error: 'Imagem não encontrada' });
   }));
-  r.delete('/scenarium/media/:id', comTratamento(async (req, res) => {
+  r.delete('/casa-de-shows/media/:id', comTratamento(async (req, res) => {
     if (quem(req) === 'ia') return res.status(403).json({ error: 'Só pelo painel' });
     const id = idOk(req.params.id);
-    const { rowCount } = id ? await q('DELETE FROM scn_media WHERE id=$1', [id]) : { rowCount: 0 };
+    const { rowCount } = id ? await q('DELETE FROM shows_media WHERE id=$1', [id]) : { rowCount: 0 };
     rowCount ? res.json({ ok: true }) : res.status(404).json({ error: 'Imagem não encontrada' });
   }));
 
-  r.get('/scenarium/sectors', wrap(async (req, res) => res.json((await q(`${SETOR} ORDER BY position, id`)).rows)));
+  r.get('/casa-de-shows/sectors', wrap(async (req, res) => res.json((await q(`${SETOR} ORDER BY position, id`)).rows)));
   function lerSetor(b, parcial) {
     const o = {};
     if (!parcial || b.name !== undefined) { o.name = txt(b.name, 60); if (!o.name) return { erro: 'Informe o nome do setor (até 60 letras)' }; }
@@ -291,7 +291,7 @@ export function registerScenariumRoutes(r, wrap) {
     const vistos = new Set(), regras = [];
     for (const it of b.tables) {
       const tid = idOk(it?.table_type_id);
-      if (!tid || !(await q('SELECT 1 FROM scn_table_types WHERE id=$1', [tid])).rows[0]) return { erro: 'Mesa não encontrada' };
+      if (!tid || !(await q('SELECT 1 FROM shows_table_types WHERE id=$1', [tid])).rows[0]) return { erro: 'Mesa não encontrada' };
       if (vistos.has(tid)) return { erro: 'Mesa repetida nas regras do setor' };
       vistos.add(tid);
       let mx = null;
@@ -301,17 +301,17 @@ export function registerScenariumRoutes(r, wrap) {
     return { regras };
   }
   const salvarRegras = (sid, regras) => regras === undefined ? null : tx(currentCompany(), async (t) => {
-    await t('DELETE FROM scn_sector_tables WHERE sector_id=$1', [sid]);
-    for (const [tid, mx] of regras) await t('INSERT INTO scn_sector_tables (sector_id, table_type_id, max_tables) VALUES ($1,$2,$3)', [sid, tid, mx]);
+    await t('DELETE FROM shows_sector_tables WHERE sector_id=$1', [sid]);
+    for (const [tid, mx] of regras) await t('INSERT INTO shows_sector_tables (sector_id, table_type_id, max_tables) VALUES ($1,$2,$3)', [sid, tid, mx]);
   });
-  r.post('/scenarium/sectors', wrap(async (req, res) => {
+  r.post('/casa-de-shows/sectors', wrap(async (req, res) => {
     const { o, erro } = lerSetor(req.body || {}, false);
     if (erro) return res.status(400).json({ error: erro });
     const rg = await lerRegras(req.body || {});
     if (rg.erro) return res.status(400).json({ error: rg.erro });
     try {
-      const pos = o.position ?? (await q('SELECT COALESCE(MAX(position), 0) + 1 AS p FROM scn_sectors')).rows[0].p;
-      const id = (await q('INSERT INTO scn_sectors (name, space, notes, position) VALUES ($1,$2,NULLIF($3,\'\'),$4) RETURNING id', [o.name, o.space, o.notes || '', pos])).rows[0].id;
+      const pos = o.position ?? (await q('SELECT COALESCE(MAX(position), 0) + 1 AS p FROM shows_sectors')).rows[0].p;
+      const id = (await q('INSERT INTO shows_sectors (name, space, notes, position) VALUES ($1,$2,NULLIF($3,\'\'),$4) RETURNING id', [o.name, o.space, o.notes || '', pos])).rows[0].id;
       await salvarRegras(id, rg.regras);
       res.status(201).json((await q(`${SETOR} WHERE id=$1`, [id])).rows[0]);
     } catch (e) {
@@ -319,7 +319,7 @@ export function registerScenariumRoutes(r, wrap) {
       throw e;
     }
   }));
-  r.put('/scenarium/sectors/:id', wrap(async (req, res) => {
+  r.put('/casa-de-shows/sectors/:id', wrap(async (req, res) => {
     const { o, erro } = lerSetor(req.body || {}, true);
     if (erro) return res.status(400).json({ error: erro });
     const rg = await lerRegras(req.body || {});
@@ -328,7 +328,7 @@ export function registerScenariumRoutes(r, wrap) {
     if (!atual) return res.status(404).json({ error: 'Setor não encontrado' });
     const n = { ...atual, ...o };
     try {
-      await q('UPDATE scn_sectors SET name=$2, space=$3, notes=NULLIF($4,\'\'), position=$5, active=$6 WHERE id=$1', [req.params.id, n.name, n.space, n.notes || '', n.position, n.active]);
+      await q('UPDATE shows_sectors SET name=$2, space=$3, notes=NULLIF($4,\'\'), position=$5, active=$6 WHERE id=$1', [req.params.id, n.name, n.space, n.notes || '', n.position, n.active]);
     } catch (e) {
       if (e.code === '23505') return res.status(409).json({ error: 'Já existe um setor com esse nome' });
       throw e;
@@ -336,9 +336,9 @@ export function registerScenariumRoutes(r, wrap) {
     await salvarRegras(req.params.id, rg.regras);
     res.json((await q(`${SETOR} WHERE id=$1`, [req.params.id])).rows[0]);
   }));
-  r.delete('/scenarium/sectors/:id', wrap(async (req, res) => {
+  r.delete('/casa-de-shows/sectors/:id', wrap(async (req, res) => {
     try {
-      const { rowCount } = await q('DELETE FROM scn_sectors WHERE id=$1', [req.params.id]);
+      const { rowCount } = await q('DELETE FROM shows_sectors WHERE id=$1', [req.params.id]);
       rowCount ? res.json({ ok: true }) : res.status(404).json({ error: 'Setor não encontrado' });
     } catch (e) {
       if (e.code === '23503') return res.status(409).json({ error: 'Esse setor tem reservas. Desative o setor em vez de apagar.' });
@@ -347,8 +347,8 @@ export function registerScenariumRoutes(r, wrap) {
   }));
 
   // ---------- tipos de mesa ----------
-  const TIPO = 'SELECT id, name, seats, space::float AS space, active FROM scn_table_types';
-  r.get('/scenarium/table-types', wrap(async (req, res) => res.json((await q(`${TIPO} ORDER BY seats, id`)).rows)));
+  const TIPO = 'SELECT id, name, seats, space::float AS space, active FROM shows_table_types';
+  r.get('/casa-de-shows/table-types', wrap(async (req, res) => res.json((await q(`${TIPO} ORDER BY seats, id`)).rows)));
   function lerTipo(b, parcial) {
     const o = {};
     if (!parcial || b.name !== undefined) { o.name = txt(b.name, 60); if (!o.name) return { erro: 'Informe o nome da mesa (até 60 letras)' }; }
@@ -357,33 +357,33 @@ export function registerScenariumRoutes(r, wrap) {
     if (b.active !== undefined) { if (typeof b.active !== 'boolean') return { erro: 'Ativo inválido' }; o.active = b.active; }
     return { o };
   }
-  r.post('/scenarium/table-types', wrap(async (req, res) => {
+  r.post('/casa-de-shows/table-types', wrap(async (req, res) => {
     const { o, erro } = lerTipo(req.body || {}, false);
     if (erro) return res.status(400).json({ error: erro });
     try {
-      const id = (await q('INSERT INTO scn_table_types (name, seats, space) VALUES ($1,$2,$3) RETURNING id', [o.name, o.seats, o.space])).rows[0].id;
+      const id = (await q('INSERT INTO shows_table_types (name, seats, space) VALUES ($1,$2,$3) RETURNING id', [o.name, o.seats, o.space])).rows[0].id;
       res.status(201).json((await q(`${TIPO} WHERE id=$1`, [id])).rows[0]);
     } catch (e) {
       if (e.code === '23505') return res.status(409).json({ error: 'Já existe uma mesa com esse nome' });
       throw e;
     }
   }));
-  r.put('/scenarium/table-types/:id', wrap(async (req, res) => {
+  r.put('/casa-de-shows/table-types/:id', wrap(async (req, res) => {
     const { o, erro } = lerTipo(req.body || {}, true);
     if (erro) return res.status(400).json({ error: erro });
     const atual = (await q(`${TIPO} WHERE id=$1`, [req.params.id])).rows[0];
     if (!atual) return res.status(404).json({ error: 'Mesa não encontrada' });
     const n = { ...atual, ...o };
     try {
-      await q('UPDATE scn_table_types SET name=$2, seats=$3, space=$4, active=$5 WHERE id=$1', [req.params.id, n.name, n.seats, n.space, n.active]);
+      await q('UPDATE shows_table_types SET name=$2, seats=$3, space=$4, active=$5 WHERE id=$1', [req.params.id, n.name, n.seats, n.space, n.active]);
     } catch (e) {
       if (e.code === '23505') return res.status(409).json({ error: 'Já existe uma mesa com esse nome' });
       throw e;
     }
     res.json((await q(`${TIPO} WHERE id=$1`, [req.params.id])).rows[0]);
   }));
-  r.delete('/scenarium/table-types/:id', wrap(async (req, res) => {
-    const { rowCount } = await q('DELETE FROM scn_table_types WHERE id=$1', [req.params.id]);
+  r.delete('/casa-de-shows/table-types/:id', wrap(async (req, res) => {
+    const { rowCount } = await q('DELETE FROM shows_table_types WHERE id=$1', [req.params.id]);
     rowCount ? res.json({ ok: true }) : res.status(404).json({ error: 'Mesa não encontrada' });
   }));
 
@@ -418,22 +418,22 @@ export function registerScenariumRoutes(r, wrap) {
   async function situacao(oc, { people, sectorId } = {}, run = q) {
     const setores = (await run(`${SETOR} WHERE active ${sectorId ? 'AND id = $1' : ''} ORDER BY position, id`, sectorId ? [sectorId] : [])).rows;
     const tipos = (await run(`${TIPO} WHERE active ORDER BY seats, id`)).rows;
-    const over = oc.event_id ? (await run('SELECT sector_id, space::float AS space FROM scn_event_sectors WHERE event_id=$1', [oc.event_id])).rows : [];
+    const over = oc.event_id ? (await run('SELECT sector_id, space::float AS space FROM shows_event_sectors WHERE event_id=$1', [oc.event_id])).rows : [];
     const a = [OCUPAM];
     const f = filtroOcasiao(oc, a);
     const uso = (await run(
       `SELECT sector_id, COUNT(*)::int AS reservations, COALESCE(SUM(people),0)::int AS people, COALESCE(SUM(tables * space_each),0)::float AS used,
               COALESCE(SUM(tables * seats_each),0)::int AS seats
-       FROM scn_reservations WHERE status = ANY($1) AND ${f} GROUP BY sector_id`, a)).rows;
+       FROM shows_reservations WHERE status = ANY($1) AND ${f} GROUP BY sector_id`, a)).rows;
     const a2 = [OCUPAM];
     const f2 = filtroOcasiao(oc, a2);
     const usoTipo = (await run(
-      `SELECT sector_id, table_type_id, SUM(tables)::int AS tables FROM scn_reservations
+      `SELECT sector_id, table_type_id, SUM(tables)::int AS tables FROM shows_reservations
        WHERE status = ANY($1) AND table_type_id IS NOT NULL AND ${f2} GROUP BY sector_id, table_type_id`, a2)).rows;
     const a4 = [];
     const f4 = filtroOcasiao(oc, a4);
     const extras = (await run(`SELECT sector_id, table_type_id, COALESCE(SUM(quantity),0)::int AS qtd, COALESCE(SUM(quantity * space_each),0)::float AS space
-                               FROM scn_extras WHERE ${f4} GROUP BY sector_id, table_type_id`, a4)).rows;
+                               FROM shows_extras WHERE ${f4} GROUP BY sector_id, table_type_id`, a4)).rows;
     return setores.map((s) => {
       const o = over.find((x) => String(x.sector_id) === String(s.id));
       const meusExtras = extras.filter((x) => String(x.sector_id) === String(s.id));
@@ -472,7 +472,7 @@ export function registerScenariumRoutes(r, wrap) {
   }
 
   // Vagas por setor. ?event_id= ou ?date= ; ?people=N diz onde cabe esse grupo ; ?sector_id= limita a um setor
-  r.get('/scenarium/availability', wrap(async (req, res) => {
+  r.get('/casa-de-shows/availability', wrap(async (req, res) => {
     const oc = await ocasiao(req.query);
     if (oc.erro) return res.status(400).json({ error: oc.erro });
     let people = null;
@@ -492,7 +492,7 @@ export function registerScenariumRoutes(r, wrap) {
 
   // Eventos que ainda valem, cada um com o resumo das vagas. É a lista que o atendente usa para saber "qual evento é qual",
   // sem depender de "show atual" e "show seguinte": cada evento tem nome, data e a própria lista de reservas.
-  r.get('/scenarium/events', wrap(async (req, res) => {
+  r.get('/casa-de-shows/events', wrap(async (req, res) => {
     const tz = await fuso();
     const evs = (await q(`SELECT id, title, starts_at, ends_at, place, notes, to_char(starts_at AT TIME ZONE $1, 'YYYY-MM-DD') AS dia FROM events
                           WHERE COALESCE(ends_at, starts_at + interval '3 hours') > now() ORDER BY starts_at, id LIMIT 20`, [tz])).rows;
@@ -502,7 +502,7 @@ export function registerScenariumRoutes(r, wrap) {
       out.push({
         id: e.id, title: e.title, starts_at: e.starts_at, ends_at: e.ends_at, place: e.place, notes: e.notes, date: e.dia,
         reservations: sectors.reduce((a, x) => a + x.reservations, 0), people: sectors.reduce((a, x) => a + x.people, 0),
-        interested: (await q('SELECT COUNT(*)::int AS n FROM scn_event_interest WHERE event_id=$1', [e.id])).rows[0].n,
+        interested: (await q('SELECT COUNT(*)::int AS n FROM shows_event_interest WHERE event_id=$1', [e.id])).rows[0].n,
         sectors: sectors.map((x) => ({ sector_id: x.sector_id, name: x.name, free: x.free, space: x.space })),
         sectors_with_room: sectors.filter((x) => x.free > 0).map((x) => x.name),
       });
@@ -514,7 +514,7 @@ export function registerScenariumRoutes(r, wrap) {
   // Preço por pessoa valendo agora, já considerando a palavra-chave (se vier) e, opcionalmente, outro desconto em % já reconhecido
   // (ex.: o do programa de benefícios). Descontos não se somam: vale o que sair mais barato.
   async function precoPara(run, eventId, palavra, outroPct, excluirReserva) {
-    const c = (await run('SELECT price::float AS price, door_price::float AS door_price, price_until FROM scn_event_conditions WHERE event_id=$1', [eventId])).rows[0];
+    const c = (await run('SELECT price::float AS price, door_price::float AS door_price, price_until FROM shows_event_conditions WHERE event_id=$1', [eventId])).rows[0];
     if (!c || c.price === null) return { unit_price: null, base_price: null, code_valid: !palavra, reason: palavra ? 'Este evento não tem preço cadastrado' : undefined };
     const portaria = c.price_until && c.door_price !== null && new Date() > new Date(c.price_until);
     const base = portaria ? c.door_price : c.price;
@@ -524,11 +524,11 @@ export function registerScenariumRoutes(r, wrap) {
       if (v < out.unit_price) { out.unit_price = v; out.applied = 'other'; }
     }
     if (palavra) {
-      const k = (await run('SELECT * FROM scn_event_codes WHERE event_id=$1 AND word_norm=$2', [eventId, norma(palavra)])).rows[0];
+      const k = (await run('SELECT * FROM shows_event_codes WHERE event_id=$1 AND word_norm=$2', [eventId, norma(palavra)])).rows[0];
       if (!k) return { ...out, code_valid: false, reason: 'Palavra-chave não encontrada neste evento' };
       if (k.valid_until && new Date() > new Date(k.valid_until)) return { ...out, code_valid: false, reason: 'Essa palavra-chave já expirou' };
       if (k.max_uses) {
-        const usos = Number((await run(`SELECT COUNT(*) AS n FROM scn_reservations WHERE code_id=$1 AND status = ANY($2)${excluirReserva ? ' AND id <> ' + Number(excluirReserva) : ''}`, [k.id, OCUPAM])).rows[0].n);
+        const usos = Number((await run(`SELECT COUNT(*) AS n FROM shows_reservations WHERE code_id=$1 AND status = ANY($2)${excluirReserva ? ' AND id <> ' + Number(excluirReserva) : ''}`, [k.id, OCUPAM])).rows[0].n);
         if (usos >= k.max_uses) return { ...out, code_valid: false, reason: 'Essa palavra-chave já atingiu o limite de usos' };
       }
       const v = k.kind === 'percent' ? r2(base * (1 - Number(k.value) / 100)) : r2(Number(k.value));
@@ -542,14 +542,14 @@ export function registerScenariumRoutes(r, wrap) {
     const oc = await ocasiao({ event_id: ref });
     return oc.erro ? null : oc.event;
   }
-  const COND = 'SELECT price::float AS price, door_price::float AS door_price, price_until, instructions FROM scn_event_conditions WHERE event_id=$1';
-  r.get('/scenarium/events/:id/conditions', wrap(async (req, res) => {
+  const COND = 'SELECT price::float AS price, door_price::float AS door_price, price_until, instructions FROM shows_event_conditions WHERE event_id=$1';
+  r.get('/casa-de-shows/events/:id/conditions', wrap(async (req, res) => {
     const ev = await eventoDe(req.params.id);
     if (!ev) return res.status(404).json({ error: 'Evento não encontrado' });
     const c = (await q(COND, [ev.id])).rows[0] || { price: null, door_price: null, price_until: null, instructions: null };
     res.json({ event_id: ev.id, ...c });
   }));
-  r.put('/scenarium/events/:id/conditions', wrap(async (req, res) => {
+  r.put('/casa-de-shows/events/:id/conditions', wrap(async (req, res) => {
     const ev = await eventoDe(req.params.id);
     if (!ev) return res.status(404).json({ error: 'Evento não encontrado' });
     const b = req.body || {};
@@ -571,16 +571,16 @@ export function registerScenariumRoutes(r, wrap) {
       n.instructions = t || null;
     }
     if (n.price === null && (n.door_price !== null || n.price_until)) return res.status(400).json({ error: 'Informe o preço do ingresso' });
-    await q(`INSERT INTO scn_event_conditions (event_id, price, door_price, price_until, instructions) VALUES ($1,$2,$3,$4,$5)
+    await q(`INSERT INTO shows_event_conditions (event_id, price, door_price, price_until, instructions) VALUES ($1,$2,$3,$4,$5)
              ON CONFLICT (event_id) DO UPDATE SET price=EXCLUDED.price, door_price=EXCLUDED.door_price, price_until=EXCLUDED.price_until, instructions=EXCLUDED.instructions`,
       [ev.id, n.price, n.door_price, n.price_until, n.instructions]);
     res.json({ event_id: ev.id, ...(await q(COND, [ev.id])).rows[0] });
   }));
 
   const CODIGO = `SELECT k.id, k.event_id, k.word, k.kind, k.value::float AS value, k.max_uses, k.valid_until, k.note,
-                         (SELECT COUNT(*)::int FROM scn_reservations v WHERE v.code_id = k.id AND v.status IN ('confirmed','attended')) AS uses
-                  FROM scn_event_codes k`;
-  r.get('/scenarium/events/:id/codes', wrap(async (req, res) => {
+                         (SELECT COUNT(*)::int FROM shows_reservations v WHERE v.code_id = k.id AND v.status IN ('confirmed','attended')) AS uses
+                  FROM shows_event_codes k`;
+  r.get('/casa-de-shows/events/:id/codes', wrap(async (req, res) => {
     const ev = await eventoDe(req.params.id);
     if (!ev) return res.status(404).json({ error: 'Evento não encontrado' });
     res.json((await q(`${CODIGO} WHERE k.event_id=$1 ORDER BY k.id`, [ev.id])).rows);
@@ -611,13 +611,13 @@ export function registerScenariumRoutes(r, wrap) {
     if (b.note !== undefined) { o.note = txt(b.note, 300); if (o.note === null) return { erro: 'Anotação inválida (até 300 letras)' }; }
     return { o };
   }
-  r.post('/scenarium/events/:id/codes', wrap(async (req, res) => {
+  r.post('/casa-de-shows/events/:id/codes', wrap(async (req, res) => {
     const ev = await eventoDe(req.params.id);
     if (!ev) return res.status(404).json({ error: 'Evento não encontrado' });
     const { o, erro } = lerCodigo(req.body || {}, false);
     if (erro) return res.status(400).json({ error: erro });
     try {
-      const id = (await q(`INSERT INTO scn_event_codes (event_id, word, word_norm, kind, value, max_uses, valid_until, note) VALUES ($1,$2,$3,$4,$5,$6,$7,NULLIF($8,'')) RETURNING id`,
+      const id = (await q(`INSERT INTO shows_event_codes (event_id, word, word_norm, kind, value, max_uses, valid_until, note) VALUES ($1,$2,$3,$4,$5,$6,$7,NULLIF($8,'')) RETURNING id`,
         [ev.id, o.word, o.word_norm, o.kind, o.value, o.max_uses ?? null, o.valid_until ?? null, o.note || ''])).rows[0].id;
       res.status(201).json((await q(`${CODIGO} WHERE k.id=$1`, [id])).rows[0]);
     } catch (e) {
@@ -625,14 +625,14 @@ export function registerScenariumRoutes(r, wrap) {
       throw e;
     }
   }));
-  r.put('/scenarium/codes/:id', wrap(async (req, res) => {
+  r.put('/casa-de-shows/codes/:id', wrap(async (req, res) => {
     const atual = (await q(`${CODIGO} WHERE k.id=$1`, [req.params.id])).rows[0];
     if (!atual) return res.status(404).json({ error: 'Palavra-chave não encontrada' });
     const { o, erro } = lerCodigo(req.body || {}, true, atual);
     if (erro) return res.status(400).json({ error: erro });
     const n = { ...atual, ...o, word_norm: o.word_norm || norma(atual.word) };
     try {
-      await q(`UPDATE scn_event_codes SET word=$2, word_norm=$3, kind=$4, value=$5, max_uses=$6, valid_until=$7, note=NULLIF($8,'') WHERE id=$1`,
+      await q(`UPDATE shows_event_codes SET word=$2, word_norm=$3, kind=$4, value=$5, max_uses=$6, valid_until=$7, note=NULLIF($8,'') WHERE id=$1`,
         [req.params.id, n.word, n.word_norm, n.kind, n.value, n.max_uses ?? null, n.valid_until ?? null, n.note || '']);
     } catch (e) {
       if (e.code === '23505') return res.status(409).json({ error: 'Já existe essa palavra-chave neste evento' });
@@ -640,14 +640,14 @@ export function registerScenariumRoutes(r, wrap) {
     }
     res.json((await q(`${CODIGO} WHERE k.id=$1`, [req.params.id])).rows[0]);
   }));
-  r.delete('/scenarium/codes/:id', wrap(async (req, res) => {
-    const { rowCount } = await q('DELETE FROM scn_event_codes WHERE id=$1', [req.params.id]);
+  r.delete('/casa-de-shows/codes/:id', wrap(async (req, res) => {
+    const { rowCount } = await q('DELETE FROM shows_event_codes WHERE id=$1', [req.params.id]);
     rowCount ? res.json({ ok: true }) : res.status(404).json({ error: 'Palavra-chave não encontrada' });
   }));
 
   // Quanto custa o ingresso agora? ?code=palavra (opcional) ; ?people=N (total = N × valor) ; ?other_percent=10 (outro desconto já reconhecido, ex.: programa de benefícios)
   // O atendente usa esta rota: ela nunca devolve a lista de palavras, só diz se a palavra dita vale.
-  r.get('/scenarium/events/:id/price', wrap(async (req, res) => {
+  r.get('/casa-de-shows/events/:id/price', wrap(async (req, res) => {
     const ev = await eventoDe(req.params.id);
     if (!ev) return res.status(404).json({ error: 'Evento não encontrado' });
     const people = req.query.people ? inteiro(req.query.people, 1, 1000) : null;
@@ -655,13 +655,13 @@ export function registerScenariumRoutes(r, wrap) {
     const outro = req.query.other_percent ? num(req.query.other_percent) : 0;
     if (outro === null || outro < 0 || outro > 100) return res.status(400).json({ error: 'Percentual inválido' });
     const pr = await precoPara(q, ev.id, String(req.query.code || '').trim(), outro, null);
-    const ins = (await q('SELECT instructions FROM scn_event_conditions WHERE event_id=$1', [ev.id])).rows[0]?.instructions || null;
+    const ins = (await q('SELECT instructions FROM shows_event_conditions WHERE event_id=$1', [ev.id])).rows[0]?.instructions || null;
     res.json({ event: { id: ev.id, title: ev.title }, ...pr, code_id: undefined, people, total: people && pr.unit_price !== null ? r2(people * pr.unit_price) : null, instructions: ins });
   }));
 
   // Duplica um evento (também um já realizado): mesmas condições, palavras-chave e espaço dos setores, com a lista de reservas vazia.
   // As datas de preço e validade acompanham a diferença entre o evento antigo e o novo. Mesas extras e reservas não são copiadas.
-  r.post('/scenarium/events/:id/duplicate', wrap(async (req, res) => {
+  r.post('/casa-de-shows/events/:id/duplicate', wrap(async (req, res) => {
     const ev0 = await eventoDe(req.params.id);
     if (!ev0) return res.status(404).json({ error: 'Evento não encontrado' });
     const b = req.body || {};
@@ -675,18 +675,18 @@ export function registerScenariumRoutes(r, wrap) {
     const fim = orig.ends_at ? mover(orig.ends_at) : null;
     const novo = await tx(currentCompany(), async (t) => {
       const e = (await t('INSERT INTO events (title, starts_at, ends_at, place, notes) VALUES ($1,$2,$3,$4,$5) RETURNING *', [titulo, novoInicio.toISOString(), fim, orig.place, orig.notes])).rows[0];
-      await t('INSERT INTO scn_event_sectors (event_id, sector_id, space) SELECT $2, sector_id, space FROM scn_event_sectors WHERE event_id=$1', [orig.id, e.id]);
-      const c = (await t('SELECT * FROM scn_event_conditions WHERE event_id=$1', [orig.id])).rows[0];
-      if (c) await t('INSERT INTO scn_event_conditions (event_id, price, door_price, price_until, instructions) VALUES ($1,$2,$3,$4,$5)', [e.id, c.price, c.door_price, mover(c.price_until), c.instructions]);
-      const ks = (await t('SELECT * FROM scn_event_codes WHERE event_id=$1 ORDER BY id', [orig.id])).rows;
-      for (const k of ks) await t('INSERT INTO scn_event_codes (event_id, word, word_norm, kind, value, max_uses, valid_until, note) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)', [e.id, k.word, k.word_norm, k.kind, k.value, k.max_uses, mover(k.valid_until), k.note]);
+      await t('INSERT INTO shows_event_sectors (event_id, sector_id, space) SELECT $2, sector_id, space FROM shows_event_sectors WHERE event_id=$1', [orig.id, e.id]);
+      const c = (await t('SELECT * FROM shows_event_conditions WHERE event_id=$1', [orig.id])).rows[0];
+      if (c) await t('INSERT INTO shows_event_conditions (event_id, price, door_price, price_until, instructions) VALUES ($1,$2,$3,$4,$5)', [e.id, c.price, c.door_price, mover(c.price_until), c.instructions]);
+      const ks = (await t('SELECT * FROM shows_event_codes WHERE event_id=$1 ORDER BY id', [orig.id])).rows;
+      for (const k of ks) await t('INSERT INTO shows_event_codes (event_id, word, word_norm, kind, value, max_uses, valid_until, note) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)', [e.id, k.word, k.word_norm, k.kind, k.value, k.max_uses, mover(k.valid_until), k.note]);
       return { event: e, codes: ks.length, has_conditions: !!c };
     });
     res.status(201).json(novo);
   }));
 
   // Quem pergunta sobre o evento vira lead (e fica registrado como interessado nele). Quem já é cliente continua cliente.
-  r.post('/scenarium/events/:id/interest', wrap(async (req, res) => {
+  r.post('/casa-de-shows/events/:id/interest', wrap(async (req, res) => {
     const ev = await eventoDe(req.params.id);
     if (!ev) return res.status(404).json({ error: 'Evento não encontrado' });
     const phone = normPhone(req.body?.phone);
@@ -695,7 +695,7 @@ export function registerScenariumRoutes(r, wrap) {
     if (nome === null && req.body?.name !== undefined) return res.status(400).json({ error: 'Nome inválido' });
     const cu = (await q(`INSERT INTO customers (name, phone, status, source) VALUES (NULLIF($1,''),$2,'lead',$3)
                          ON CONFLICT (phone) DO UPDATE SET name = COALESCE(customers.name, EXCLUDED.name) RETURNING id, status`, [nome || '', phone, quem(req)])).rows[0];
-    const novo = (await q('INSERT INTO scn_event_interest (event_id, customer_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [ev.id, cu.id])).rowCount === 1;
+    const novo = (await q('INSERT INTO shows_event_interest (event_id, customer_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [ev.id, cu.id])).rowCount === 1;
     res.status(novo ? 201 : 200).json({ customer_id: cu.id, status: cu.status, already: !novo });
   }));
 
@@ -703,20 +703,20 @@ export function registerScenariumRoutes(r, wrap) {
   // Abrir à mão uma mesa fora do que o setor comporta (ex.: tirar um pedaço da pista). Vale só para o evento/data e já aparece nas vagas.
   const EXTRA = `SELECT x.id, x.event_id, x.occasion_date::text AS date, x.sector_id, s.name AS sector_name, x.table_type_id, x.table_name, x.seats_each,
                         x.space_each::float AS space_each, x.quantity, (x.quantity * x.space_each)::float AS space, x.note, x.created_at
-                 FROM scn_extras x JOIN scn_sectors s ON s.id = x.sector_id`;
-  r.get('/scenarium/extras', wrap(async (req, res) => {
+                 FROM shows_extras x JOIN shows_sectors s ON s.id = x.sector_id`;
+  r.get('/casa-de-shows/extras', wrap(async (req, res) => {
     const oc = await ocasiao(req.query);
     if (oc.erro) return res.status(400).json({ error: oc.erro });
     const a = [];
     const f = filtroOcasiao(oc, a, 'x.');
     res.json((await q(`${EXTRA} WHERE ${f} ORDER BY x.id`, a)).rows);
   }));
-  r.post('/scenarium/extras', wrap(async (req, res) => {
+  r.post('/casa-de-shows/extras', wrap(async (req, res) => {
     const b = req.body || {};
     const oc = await ocasiao(b);
     if (oc.erro) return res.status(400).json({ error: oc.erro });
     const sid = idOk(b.sector_id);
-    if (!sid || !(await q('SELECT 1 FROM scn_sectors WHERE id=$1', [sid])).rows[0]) return res.status(400).json({ error: 'Setor não encontrado' });
+    if (!sid || !(await q('SELECT 1 FROM shows_sectors WHERE id=$1', [sid])).rows[0]) return res.status(400).json({ error: 'Setor não encontrado' });
     const tid = idOk(b.table_type_id);
     const tipo = tid && (await q(`${TIPO} WHERE id=$1`, [tid])).rows[0];
     if (!tipo) return res.status(400).json({ error: 'Escolha o tipo da mesa extra' });
@@ -724,18 +724,18 @@ export function registerScenariumRoutes(r, wrap) {
     if (!qtd) return res.status(400).json({ error: 'Quantidade inválida (1 a 100)' });
     const note = b.note === undefined ? '' : txt(b.note, 300);
     if (note === null) return res.status(400).json({ error: 'Anotação inválida (até 300 letras)' });
-    const id = (await q(`INSERT INTO scn_extras (event_id, occasion_date, sector_id, table_type_id, table_name, seats_each, space_each, quantity, note)
+    const id = (await q(`INSERT INTO shows_extras (event_id, occasion_date, sector_id, table_type_id, table_name, seats_each, space_each, quantity, note)
                          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NULLIF($9,'')) RETURNING id`, [oc.event_id, oc.date, sid, tipo.id, tipo.name, tipo.seats, tipo.space, qtd, note])).rows[0].id;
     res.status(201).json((await q(`${EXTRA} WHERE x.id=$1`, [id])).rows[0]);
   }));
   // Fechar a mesa extra só é possível se o setor continua comportando as reservas que já tem
-  r.delete('/scenarium/extras/:id', comTratamento(async (req, res) => {
-    const x = (await q('SELECT * FROM scn_extras WHERE id=$1', [req.params.id])).rows[0];
+  r.delete('/casa-de-shows/extras/:id', comTratamento(async (req, res) => {
+    const x = (await q('SELECT * FROM shows_extras WHERE id=$1', [req.params.id])).rows[0];
     if (!x) return res.status(404).json({ error: 'Mesa extra não encontrada' });
     const oc = { event_id: x.event_id, date: String(x.occasion_date instanceof Date ? x.occasion_date.toISOString().slice(0, 10) : x.occasion_date).slice(0, 10) };
     await tx(currentCompany(), async (t) => {
-      await t('SELECT pg_advisory_xact_lock(hashtext($1))', [`scn:${currentCompany()}:${oc.event_id || oc.date}`]);
-      await t('DELETE FROM scn_extras WHERE id=$1', [x.id]);
+      await t('SELECT pg_advisory_xact_lock(hashtext($1))', [`shows:${currentCompany()}:${oc.event_id || oc.date}`]);
+      await t('DELETE FROM shows_extras WHERE id=$1', [x.id]);
       const [s] = await situacao(oc, { sectorId: x.sector_id }, t);
       let estoura = s && s.used > s.space + 1e-9;
       if (!estoura && x.table_type_id) {
@@ -743,7 +743,7 @@ export function registerScenariumRoutes(r, wrap) {
         if (g.max !== null) {
           const a = [OCUPAM, x.sector_id, x.table_type_id];
           const f = filtroOcasiao(oc, a);
-          const ja = Number((await t(`SELECT COALESCE(SUM(tables),0) AS n FROM scn_reservations WHERE status = ANY($1) AND sector_id=$2 AND table_type_id=$3 AND ${f}`, a)).rows[0].n);
+          const ja = Number((await t(`SELECT COALESCE(SUM(tables),0) AS n FROM shows_reservations WHERE status = ANY($1) AND sector_id=$2 AND table_type_id=$3 AND ${f}`, a)).rows[0].n);
           estoura = ja > g.max;
         }
       }
@@ -753,7 +753,7 @@ export function registerScenariumRoutes(r, wrap) {
   }));
 
   // Ajusta o espaço dos setores só para um evento. Corpo: { sectors: [{ sector_id, space }] } ; space null volta ao padrão do setor.
-  r.put('/scenarium/events/:id/sectors', wrap(async (req, res) => {
+  r.put('/casa-de-shows/events/:id/sectors', wrap(async (req, res) => {
     const ev = idOk(req.params.id);
     if (!ev || !(await q('SELECT 1 FROM events WHERE id=$1', [ev])).rows[0]) return res.status(404).json({ error: 'Evento não encontrado' });
     const lista = Array.isArray(req.body?.sectors) ? req.body.sectors : null;
@@ -761,7 +761,7 @@ export function registerScenariumRoutes(r, wrap) {
     const itens = [];
     for (const it of lista) {
       const sid = idOk(it?.sector_id);
-      if (!sid || !(await q('SELECT 1 FROM scn_sectors WHERE id=$1', [sid])).rows[0]) return res.status(400).json({ error: 'Setor não encontrado' });
+      if (!sid || !(await q('SELECT 1 FROM shows_sectors WHERE id=$1', [sid])).rows[0]) return res.status(400).json({ error: 'Setor não encontrado' });
       if (it.space === null || it.space === '' || it.space === undefined) { itens.push([sid, null]); continue; }
       const v = espaco(it.space, 0);
       if (v === null) return res.status(400).json({ error: 'Espaço inválido' });
@@ -769,8 +769,8 @@ export function registerScenariumRoutes(r, wrap) {
     }
     await tx(currentCompany(), async (t) => {
       for (const [sid, v] of itens) {
-        if (v === null) await t('DELETE FROM scn_event_sectors WHERE event_id=$1 AND sector_id=$2', [ev, sid]);
-        else await t('INSERT INTO scn_event_sectors (event_id, sector_id, space) VALUES ($1,$2,$3) ON CONFLICT (event_id, sector_id) DO UPDATE SET space=EXCLUDED.space', [ev, sid, v]);
+        if (v === null) await t('DELETE FROM shows_event_sectors WHERE event_id=$1 AND sector_id=$2', [ev, sid]);
+        else await t('INSERT INTO shows_event_sectors (event_id, sector_id, space) VALUES ($1,$2,$3) ON CONFLICT (event_id, sector_id) DO UPDATE SET space=EXCLUDED.space', [ev, sid, v]);
       }
     });
     res.json({ ok: true });
@@ -780,11 +780,11 @@ export function registerScenariumRoutes(r, wrap) {
   const RESERVA = `SELECT v.id, v.event_id, e.title AS event_title, v.occasion_date::text AS date, v.sector_id, s.name AS sector_name,
                           v.customer_id, v.name, v.phone, v.people, v.table_type_id, v.table_name, v.seats_each, v.space_each::float AS space_each,
                           v.tables, (v.tables * v.space_each)::float AS space, (v.tables * v.seats_each) AS seats, v.status, v.note, v.guests, v.unit_price::float AS unit_price, (v.people * v.unit_price)::float AS total, v.code_word, v.created_at,
-                          COALESCE((SELECT SUM(p.amount) FROM scn_res_payments p WHERE p.reservation_id = v.id AND p.method <> 'cortesia'), 0)::float AS paid,
-                          EXISTS (SELECT 1 FROM scn_res_payments p WHERE p.reservation_id = v.id AND p.method = 'cortesia') AS courtesy
-                   FROM scn_reservations v JOIN scn_sectors s ON s.id = v.sector_id LEFT JOIN events e ON e.id = v.event_id`;
+                          COALESCE((SELECT SUM(p.amount) FROM shows_res_payments p WHERE p.reservation_id = v.id AND p.method <> 'cortesia'), 0)::float AS paid,
+                          EXISTS (SELECT 1 FROM shows_res_payments p WHERE p.reservation_id = v.id AND p.method = 'cortesia') AS courtesy
+                   FROM shows_reservations v JOIN shows_sectors s ON s.id = v.sector_id LEFT JOIN events e ON e.id = v.event_id`;
 
-  r.get('/scenarium/reservations', wrap(async (req, res) => {
+  r.get('/casa-de-shows/reservations', wrap(async (req, res) => {
     const w = [], a = [];
     if (req.query.event_id) { const e = idOk(req.query.event_id); if (!e) return res.status(400).json({ error: 'Evento inválido' }); a.push(e); w.push(`v.event_id = $${a.length}`); }
     if (req.query.date) { const d = dataOk(req.query.date); if (!d) return res.status(400).json({ error: 'Data inválida' }); a.push(d); w.push(`v.occasion_date = $${a.length}::date`); }
@@ -800,25 +800,25 @@ export function registerScenariumRoutes(r, wrap) {
 
   // O setor aceita esse tipo de mesa nessa ocasião? E até quantas (null = sem limite)? Mesas extras abertas à mão contam.
   async function regraDoTipo(run, oc, sid, tid) {
-    const regras = (await run('SELECT table_type_id::text AS t, max_tables FROM scn_sector_tables WHERE sector_id=$1', [sid])).rows;
+    const regras = (await run('SELECT table_type_id::text AS t, max_tables FROM shows_sector_tables WHERE sector_id=$1', [sid])).rows;
     const g = regras.find((x) => x.t === String(tid));
     const a = [sid, tid];
     const f = filtroOcasiao(oc, a);
-    const ex = Number((await run(`SELECT COALESCE(SUM(quantity),0) AS n FROM scn_extras WHERE sector_id=$1 AND table_type_id=$2 AND ${f}`, a)).rows[0].n);
+    const ex = Number((await run(`SELECT COALESCE(SUM(quantity),0) AS n FROM shows_extras WHERE sector_id=$1 AND table_type_id=$2 AND ${f}`, a)).rows[0].n);
     return { aceito: !regras.length || !!g || ex > 0, max: g && g.max_tables ? g.max_tables + ex : (!g && regras.length ? ex : null) };
   }
 
   // Confere se cabe e grava, tudo dentro de uma transação trancada por ocasião (duas reservas ao mesmo tempo não estouram o setor)
   async function gravar({ id, oc, setor, tipo, tables, people, status, nome, phone, cid, note, guests, confereMesa, preco, aniversario }) {
     return tx(currentCompany(), async (t) => {
-      await t('SELECT pg_advisory_xact_lock(hashtext($1))', [`scn:${currentCompany()}:${oc.event_id || oc.date}`]);
+      await t('SELECT pg_advisory_xact_lock(hashtext($1))', [`shows:${currentCompany()}:${oc.event_id || oc.date}`]);
       if (OCUPAM.includes(status) && confereMesa && tipo.id) {
         // limite de mesas desse tipo no setor, contando as extras (só a própria reserva em edição não conta)
         const g = await regraDoTipo(t, oc, setor.id, tipo.id);
         if (g.max !== null) {
           const a3 = [OCUPAM, setor.id, tipo.id];
           const f3 = filtroOcasiao(oc, a3);
-          const ja = Number((await t(`SELECT COALESCE(SUM(tables),0) AS n FROM scn_reservations WHERE status = ANY($1) AND sector_id=$2 AND table_type_id=$3 AND ${f3}${id ? ` AND id <> ${Number(id)}` : ''}`, a3)).rows[0].n);
+          const ja = Number((await t(`SELECT COALESCE(SUM(tables),0) AS n FROM shows_reservations WHERE status = ANY($1) AND sector_id=$2 AND table_type_id=$3 AND ${f3}${id ? ` AND id <> ${Number(id)}` : ''}`, a3)).rows[0].n);
           if (ja + tables > g.max) {
             const e = new Error(`O setor ${setor.name} comporta no máximo ${g.max} mesa(s) de ${tipo.name} e já tem ${ja}.`); e.status = 409; throw e;
           }
@@ -826,10 +826,10 @@ export function registerScenariumRoutes(r, wrap) {
       }
       if (OCUPAM.includes(status)) {
         const [s] = await situacao(oc, { sectorId: setor.id }, t);
-        const jaUsa = id ? Number((await t('SELECT status, tables * space_each AS u, sector_id FROM scn_reservations WHERE id=$1', [id])).rows
+        const jaUsa = id ? Number((await t('SELECT status, tables * space_each AS u, sector_id FROM shows_reservations WHERE id=$1', [id])).rows
           .filter((x) => OCUPAM.includes(x.status) && String(x.sector_id) === String(setor.id)).map((x) => x.u)[0] || 0) : 0;
         // para a edição, o espaço dela mesma conta como livre — mas só se a ocasião não mudou
-        const antes = id ? (await t('SELECT event_id, occasion_date::text AS d FROM scn_reservations WHERE id=$1', [id])).rows[0] : null;
+        const antes = id ? (await t('SELECT event_id, occasion_date::text AS d FROM shows_reservations WHERE id=$1', [id])).rows[0] : null;
         const mesma = antes && String(antes.event_id || '') === String(oc.event_id || '') && (oc.event_id || antes.d === oc.date);
         const livre = s.free + (mesma ? jaUsa : 0);
         const preciso = r2(tables * tipo.space);
@@ -840,23 +840,23 @@ export function registerScenariumRoutes(r, wrap) {
       const params = [oc.event_id, oc.date, setor.id, cid, nome, phone, people, tipo.id, tipo.name, tipo.seats, tipo.space, tables, status, note, guests];
       const comprou = async (rid) => {   // reserva com valor pago > 0 transforma o contato em cliente (mesma regra das outras vendas)
         await t(`UPDATE customers SET status = 'client', client_kinds = CASE WHEN 'buyer' = ANY(client_kinds) THEN client_kinds ELSE array_append(client_kinds, 'buyer') END
-                 WHERE id = (SELECT customer_id FROM scn_reservations WHERE id=$1 AND status IN ('confirmed','attended') AND unit_price > 0)
+                 WHERE id = (SELECT customer_id FROM shows_reservations WHERE id=$1 AND status IN ('confirmed','attended') AND unit_price > 0)
                    AND (status <> 'client' OR NOT 'buyer' = ANY(client_kinds))`, [rid]);
         if (aniversario) {   // aniversário informado na venda: grava na ficha só se ainda não houver
           await t(`UPDATE customers SET birth_day=$2, birth_month=$3, birth_year=COALESCE(birth_year, $4)
-                   WHERE id = (SELECT customer_id FROM scn_reservations WHERE id=$1) AND birth_day IS NULL AND birth_month IS NULL`, [rid, aniversario.birth_day, aniversario.birth_month, aniversario.birth_year ?? null]);
+                   WHERE id = (SELECT customer_id FROM shows_reservations WHERE id=$1) AND birth_day IS NULL AND birth_month IS NULL`, [rid, aniversario.birth_day, aniversario.birth_month, aniversario.birth_year ?? null]);
         }
         return rid;
       };
       if (id) {
-        await t(`UPDATE scn_reservations SET event_id=$2, occasion_date=$3, sector_id=$4, customer_id=$5, name=$6, phone=$7, people=$8, table_type_id=$9,
+        await t(`UPDATE shows_reservations SET event_id=$2, occasion_date=$3, sector_id=$4, customer_id=$5, name=$6, phone=$7, people=$8, table_type_id=$9,
                    table_name=$10, seats_each=$11, space_each=$12, tables=$13, status=$14, note=NULLIF($15,''), guests=NULLIF($16,''),
                    unit_price = CASE WHEN $17::boolean THEN $18::numeric ELSE unit_price END, code_id = CASE WHEN $17::boolean THEN $19::bigint ELSE code_id END,
                    code_word = CASE WHEN $17::boolean THEN $20 ELSE code_word END, updated_at=now() WHERE id=$1`,
           [id, ...params.slice(0, 13), params[13] || '', params[14] || '', preco !== undefined, preco?.unit_price ?? null, preco?.code_id ?? null, preco?.code_word ?? null]);
         return comprou(id);
       }
-      return comprou((await t(`INSERT INTO scn_reservations (event_id, occasion_date, sector_id, customer_id, name, phone, people, table_type_id, table_name, seats_each, space_each, tables, status, note, guests, unit_price, code_id, code_word)
+      return comprou((await t(`INSERT INTO shows_reservations (event_id, occasion_date, sector_id, customer_id, name, phone, people, table_type_id, table_name, seats_each, space_each, tables, status, note, guests, unit_price, code_id, code_word)
                        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NULLIF($14,''),NULLIF($15,''),$16,$17,$18) RETURNING id`,
         [...params, preco?.unit_price ?? null, preco?.code_id ?? null, preco?.code_word ?? null])).rows[0].id);
     });
@@ -874,7 +874,7 @@ export function registerScenariumRoutes(r, wrap) {
     // setor
     const sid = tem('sector_id') ? idOk(b.sector_id) : atual?.sector_id;
     if (!sid) return { erro: 'Escolha o setor' };
-    const setor = (await q('SELECT id, name, active FROM scn_sectors WHERE id=$1', [sid])).rows[0];
+    const setor = (await q('SELECT id, name, active FROM shows_sectors WHERE id=$1', [sid])).rows[0];
     if (!setor) return { erro: 'Setor não encontrado' };
     if (!setor.active && (!atual || String(atual.sector_id) !== String(setor.id))) return { erro: 'Esse setor está desativado' };
     // nome, telefone
@@ -916,7 +916,7 @@ export function registerScenariumRoutes(r, wrap) {
       tables = tem('tables') ? inteiro(b.tables, 1, 100) : Math.ceil(people / tipo.seats);
       if (!tables) return { erro: 'Quantidade de mesas inválida' };
     } else {
-      if (!(await q('SELECT 1 FROM scn_table_types WHERE active')).rows[0]) return { erro: 'Cadastre ao menos um tipo de mesa' };
+      if (!(await q('SELECT 1 FROM shows_table_types WHERE active')).rows[0]) return { erro: 'Cadastre ao menos um tipo de mesa' };
       const [s] = await situacao(oc, { people, sectorId: setor.id });
       const m = s?.option;
       if (!m) { const e = `Sem espaço no setor ${setor.name} para ${people} pessoa(s).`; return { erro: e, status: 409 }; }
@@ -966,15 +966,15 @@ export function registerScenariumRoutes(r, wrap) {
   }
 
 
-  r.post('/scenarium/reservations', comTratamento(async (req, res) => {
+  r.post('/casa-de-shows/reservations', comTratamento(async (req, res) => {
     const p = await preparar(req.body || {}, null, quem(req));
     if (p.erro) return res.status(p.status || 400).json({ error: p.erro });
     const id = await gravar({ ...p.v });
     res.status(201).json((await q(`${RESERVA} WHERE v.id=$1`, [id])).rows[0]);
   }));
 
-  r.put('/scenarium/reservations/:id', comTratamento(async (req, res) => {
-    const atual = (await q('SELECT *, occasion_date::text AS occasion_date FROM scn_reservations WHERE id=$1', [req.params.id])).rows[0];
+  r.put('/casa-de-shows/reservations/:id', comTratamento(async (req, res) => {
+    const atual = (await q('SELECT *, occasion_date::text AS occasion_date FROM shows_reservations WHERE id=$1', [req.params.id])).rows[0];
     if (!atual) return res.status(404).json({ error: 'Reserva não encontrada' });
     const p = await preparar(req.body || {}, atual, quem(req));
     if (p.erro) return res.status(p.status || 400).json({ error: p.erro });
@@ -985,9 +985,9 @@ export function registerScenariumRoutes(r, wrap) {
   // ---------- pagamentos da reserva ----------
   const PAGTO = `SELECT p.id, p.reservation_id, p.method, p.amount::float AS amount, p.pix_key_id, k.beneficiary, k.key AS pix_key,
                         p.payment_id, p.note, p.created_at
-                 FROM scn_res_payments p LEFT JOIN pix_keys k ON k.id = p.pix_key_id`;
+                 FROM shows_res_payments p LEFT JOIN pix_keys k ON k.id = p.pix_key_id`;
 
-  r.get('/scenarium/reservations/:id/payments', wrap(async (req, res) => {
+  r.get('/casa-de-shows/reservations/:id/payments', wrap(async (req, res) => {
     const id = idOk(req.params.id);
     if (!id) return res.status(400).json({ error: 'Reserva inválida' });
     const v = (await q(`${RESERVA} WHERE v.id=$1`, [id])).rows[0];
@@ -995,10 +995,10 @@ export function registerScenariumRoutes(r, wrap) {
     res.json({ total: v.total, paid: v.paid, courtesy: v.courtesy, payments: (await q(`${PAGTO} WHERE p.reservation_id=$1 ORDER BY p.id`, [id])).rows });
   }));
 
-  r.post('/scenarium/reservations/:id/payments', comTratamento(async (req, res) => {
+  r.post('/casa-de-shows/reservations/:id/payments', comTratamento(async (req, res) => {
     const id = idOk(req.params.id);
     if (!id) return res.status(400).json({ error: 'Reserva inválida' });
-    if (!(await q('SELECT 1 FROM scn_reservations WHERE id=$1', [id])).rows.length) return res.status(404).json({ error: 'Reserva não encontrada' });
+    if (!(await q('SELECT 1 FROM shows_reservations WHERE id=$1', [id])).rows.length) return res.status(404).json({ error: 'Reserva não encontrada' });
     const b = req.body || {};
     const method = String(b.method || '').toLowerCase();
     if (!FORMAS.includes(method)) return res.status(400).json({ error: 'Forma de pagamento inválida' });
@@ -1016,37 +1016,37 @@ export function registerScenariumRoutes(r, wrap) {
       if (!c) return res.status(400).json({ error: 'Comprovante não encontrado em Recebimentos' });
       if (method !== 'pix') return res.status(400).json({ error: 'Comprovante só vale para pagamento em Pix' });
       if (c.status !== 'accepted') return res.status(400).json({ error: 'Esse comprovante não foi aceito' });
-      if ((await q('SELECT 1 FROM scn_res_payments WHERE payment_id=$1', [payId])).rows.length) return res.status(409).json({ error: 'Esse comprovante já está ligado a uma reserva' });
+      if ((await q('SELECT 1 FROM shows_res_payments WHERE payment_id=$1', [payId])).rows.length) return res.status(409).json({ error: 'Esse comprovante já está ligado a uma reserva' });
       if (amount === null) amount = c.amount;
       if (!keyId && c.pix_key_id) keyId = String(c.pix_key_id);
     }
     if (method === 'cortesia') amount = 0;
     else if (amount === null || amount <= 0) return res.status(400).json({ error: 'Informe o valor pago' });
     const note = b.note ? String(b.note).slice(0, 300) : null;
-    const novo = (await q('INSERT INTO scn_res_payments (reservation_id, method, amount, pix_key_id, payment_id, note) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
+    const novo = (await q('INSERT INTO shows_res_payments (reservation_id, method, amount, pix_key_id, payment_id, note) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
       [id, method, amount, keyId, payId, note])).rows[0].id;
     res.status(201).json((await q(`${PAGTO} WHERE p.id=$1`, [novo])).rows[0]);
   }));
 
-  r.delete('/scenarium/payments/:id', wrap(async (req, res) => {
+  r.delete('/casa-de-shows/payments/:id', wrap(async (req, res) => {
     if ((req.baseUrl || '').includes('n8n')) return res.status(403).json({ error: 'Só pelo painel' });
-    const { rowCount } = await q('DELETE FROM scn_res_payments WHERE id=$1', [req.params.id]);
+    const { rowCount } = await q('DELETE FROM shows_res_payments WHERE id=$1', [req.params.id]);
     rowCount ? res.json({ ok: true }) : res.status(404).json({ error: 'Pagamento não encontrado' });
   }));
 
   // Totais por evento ou data: previsto x recebido, por forma de pagamento e por chave Pix/beneficiário. Reservas canceladas ficam de fora.
-  r.get('/scenarium/payments/summary', wrap(async (req, res) => {
+  r.get('/casa-de-shows/payments/summary', wrap(async (req, res) => {
     const w = ["v.status = ANY($1)"], a = [OCUPAM];
     if (req.query.event_id) { const e = idOk(req.query.event_id); if (!e) return res.status(400).json({ error: 'Evento inválido' }); a.push(e); w.push(`v.event_id = $${a.length}`); }
     if (req.query.date) { const d = dataOk(req.query.date); if (!d) return res.status(400).json({ error: 'Data inválida' }); a.push(d); w.push(`v.occasion_date = $${a.length}::date`); }
     const onde = w.join(' AND ');
     const base = (await q(`SELECT COUNT(*)::int AS reservations, COALESCE(SUM(v.people),0)::int AS people,
                              COALESCE(SUM(v.people * v.unit_price),0)::float AS expected
-                           FROM scn_reservations v WHERE ${onde}`, a)).rows[0];
+                           FROM shows_reservations v WHERE ${onde}`, a)).rows[0];
     const formas = (await q(`SELECT p.method, COUNT(*)::int AS n, COALESCE(SUM(p.amount),0)::float AS total
-                             FROM scn_res_payments p JOIN scn_reservations v ON v.id = p.reservation_id WHERE ${onde} GROUP BY p.method ORDER BY p.method`, a)).rows;
+                             FROM shows_res_payments p JOIN shows_reservations v ON v.id = p.reservation_id WHERE ${onde} GROUP BY p.method ORDER BY p.method`, a)).rows;
     const chaves = (await q(`SELECT p.pix_key_id, k.beneficiary, k.key AS pix_key, COUNT(*)::int AS n, COALESCE(SUM(p.amount),0)::float AS total
-                             FROM scn_res_payments p JOIN scn_reservations v ON v.id = p.reservation_id LEFT JOIN pix_keys k ON k.id = p.pix_key_id
+                             FROM shows_res_payments p JOIN shows_reservations v ON v.id = p.reservation_id LEFT JOIN pix_keys k ON k.id = p.pix_key_id
                              WHERE ${onde} AND p.method = 'pix' GROUP BY p.pix_key_id, k.beneficiary, k.key ORDER BY total DESC`, a)).rows;
     const estado = (await q(`SELECT
         COUNT(*) FILTER (WHERE x.courtesy)::int AS courtesy,
@@ -1055,15 +1055,33 @@ export function registerScenariumRoutes(r, wrap) {
         COUNT(*) FILTER (WHERE NOT x.courtesy AND x.paid = 0 AND COALESCE(x.total,0) > 0)::int AS pending,
         COALESCE(SUM(GREATEST(x.total - x.paid, 0)) FILTER (WHERE NOT x.courtesy),0)::float AS open_amount
       FROM (SELECT v.id, COALESCE(v.people * v.unit_price, 0) AS total,
-                   COALESCE((SELECT SUM(p.amount) FROM scn_res_payments p WHERE p.reservation_id = v.id AND p.method <> 'cortesia'),0) AS paid,
-                   EXISTS (SELECT 1 FROM scn_res_payments p WHERE p.reservation_id = v.id AND p.method = 'cortesia') AS courtesy
-            FROM scn_reservations v WHERE ${onde}) x`, a)).rows[0];
+                   COALESCE((SELECT SUM(p.amount) FROM shows_res_payments p WHERE p.reservation_id = v.id AND p.method <> 'cortesia'),0) AS paid,
+                   EXISTS (SELECT 1 FROM shows_res_payments p WHERE p.reservation_id = v.id AND p.method = 'cortesia') AS courtesy
+            FROM shows_reservations v WHERE ${onde}) x`, a)).rows[0];
     const recebido = r2(formas.filter((f) => f.method !== 'cortesia').reduce((s, f) => s + f.total, 0));
     res.json({ ...base, received: recebido, by_method: formas, by_pix_key: chaves, ...estado });
   }));
 
-  r.delete('/scenarium/reservations/:id', wrap(async (req, res) => {
-    const { rowCount } = await q('DELETE FROM scn_reservations WHERE id=$1', [req.params.id]);
+  r.delete('/casa-de-shows/reservations/:id', wrap(async (req, res) => {
+    const { rowCount } = await q('DELETE FROM shows_reservations WHERE id=$1', [req.params.id]);
     rowCount ? res.json({ ok: true }) : res.status(404).json({ error: 'Reserva não encontrada' });
   }));
 }
+
+// Passo 32: ajusta o prefixo das tabelas das empresas que ainda usam o nome antigo; as que já estão no nome novo não mudam.
+export const SHOWS_RENOMEAR_SQL = `
+  DO $r$
+  DECLARE n TEXT;
+  BEGIN
+    FOREACH n IN ARRAY ARRAY['sectors','table_types','sector_tables','extras','event_sectors','event_interest','event_conditions','event_codes','reservations','media','res_payments','hirings'] LOOP
+      IF to_regclass('scn_' || n) IS NOT NULL AND to_regclass('shows_' || n) IS NULL THEN
+        EXECUTE format('ALTER TABLE %I RENAME TO %I', 'scn_' || n, 'shows_' || n);
+      END IF;
+    END LOOP;
+    FOREACH n IN ARRAY ARRAY['idx_scn_res_event','idx_scn_res_date','idx_scn_hirings_customer','idx_scn_extras_event','scn_media_sector','scn_res_pay_res','scn_res_pay_comprovante'] LOOP
+      IF to_regclass(n) IS NOT NULL AND to_regclass(replace(n, 'scn_', 'shows_')) IS NULL THEN
+        EXECUTE format('ALTER INDEX %I RENAME TO %I', n, replace(n, 'scn_', 'shows_'));
+      END IF;
+    END LOOP;
+  END $r$;
+`;

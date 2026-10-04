@@ -8,7 +8,7 @@ import { ASSISTENTE_SQL } from './assistente.js';
 import { PRODUTOS_SQL } from './produtos.js';
 import { VENDAS_SQL } from './vendas.js';
 import { COMISSOES_SQL } from './comissoes.js';
-import { SCENARIUM_SQL, SCN_MEDIA_SQL, SCN_PAGAMENTOS_SQL } from './scenarium.js';
+import { CASA_DE_SHOWS_SQL, SHOWS_MEDIA_SQL, SHOWS_PAGAMENTOS_SQL, SHOWS_RENOMEAR_SQL } from './casa_de_shows.js';
 import { ANIVERSARIO_SQL } from './aniversario.js';
 import { DOCUMENTOS_SQL } from './documentos.js';
 import { DELIVERY_SQL } from './delivery.js';
@@ -148,8 +148,8 @@ export const TENANT_STEPS = [
   { version: 21, sql: VENDAS_SQL },
   // 22: comissões dos profissionais
   { version: 22, sql: COMISSOES_SQL },
-  // 23: Scenarium (reservas de mesa por setor, controladas por espaço)
-  { version: 23, sql: SCENARIUM_SQL },
+  // 23: Casa de Shows (reservas de mesa por setor, controladas por espaço)
+  { version: 23, sql: CASA_DE_SHOWS_SQL },
   // 24: campanha automática de aniversariantes
   { version: 24, sql: ANIVERSARIO_SQL },
   // 25: contratações (shows contratados) na ficha do Contratante
@@ -162,10 +162,12 @@ export const TENANT_STEPS = [
   { version: 28, sql: DELIVERY_SQL },
   // 29: módulo Restaurante (mesas, comandas, fila da cozinha, caixa)
   { version: 29, sql: RESTAURANTE_SQL },
-  // 30: mapa do espaço e fotos dos setores (Scenarium)
-  { version: 30, sql: SCN_MEDIA_SQL },
-  // 31: pagamentos das reservas do Scenarium (forma, chave Pix, comprovante)
-  { version: 31, sql: SCN_PAGAMENTOS_SQL },
+  // 30: mapa do espaço e fotos dos setores (Casa de Shows)
+  { version: 30, sql: SHOWS_MEDIA_SQL },
+  // 31: pagamentos das reservas da Casa de Shows (forma, chave Pix, comprovante)
+  { version: 31, sql: SHOWS_PAGAMENTOS_SQL },
+  // 32: tabelas da Casa de Shows passam a usar o prefixo shows_
+  { version: 32, sql: SHOWS_RENOMEAR_SQL },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 
@@ -191,14 +193,14 @@ export async function createCompanySchema(cx, companyId) {
   await cx.query(PRODUTOS_SQL);
   await cx.query(VENDAS_SQL);
   await cx.query(COMISSOES_SQL);
-  await cx.query(SCENARIUM_SQL);
+  await cx.query(CASA_DE_SHOWS_SQL);
   await cx.query(ANIVERSARIO_SQL);
   await cx.query(CONTRATACOES_SQL);
   await cx.query(DOCUMENTOS_SQL);
   await cx.query(DELIVERY_SQL);
   await cx.query(RESTAURANTE_SQL);
-  await cx.query(SCN_MEDIA_SQL);
-  await cx.query(SCN_PAGAMENTOS_SQL);
+  await cx.query(SHOWS_MEDIA_SQL);
+  await cx.query(SHOWS_PAGAMENTOS_SQL);
   await cx.query('SET LOCAL search_path TO public');
   await cx.query('INSERT INTO tenant_versions (company_id, version) VALUES ($1, 1)', [companyId]);
 }

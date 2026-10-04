@@ -214,7 +214,7 @@ export async function runImport(companyId, data, dryRun) {
       const tipoDe = (row) => norm(rowGet(row, 'tipo', 'situacao', 'programa')).replace(/\s+/g, ' ');
       // se a planilha usa a coluna de situação, quem está sem nada é só um contato (lead)
       const usaPrograma = custRows.some((r) => SIT[tipoDe(r)]);
-      // perfis do cliente (Scenarium): "Comprador" e "Contratante" na coluna Tipo; quem não tem nada é só um contato (lead)
+      // perfis do cliente (Casa de Shows): "Comprador" e "Contratante" na coluna Tipo; quem não tem nada é só um contato (lead)
       const PERFIS_TIPO = { comprador: 'buyer', contratante: 'hirer' };
       const usaPerfis = custRows.some((r) => PERFIS_TIPO[tipoDe(r)]);
       const nivelAvisado = new Set();

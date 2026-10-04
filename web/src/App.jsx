@@ -22,7 +22,7 @@ import Pedidos from './pages/Pedidos.jsx';
 import Eventos from './pages/Eventos.jsx';
 import Financeiro from './pages/Financeiro.jsx';
 import Comissoes from './pages/Comissoes.jsx';
-import Scenarium from './pages/Scenarium.jsx';
+import CasaDeShows from './pages/CasaDeShows.jsx';
 import Documentos from './pages/Documentos.jsx';
 import Beneficios from './pages/Beneficios.jsx';
 import { moduleOn } from './modules.js';
@@ -56,7 +56,7 @@ const BASE_MENU = [
   { id: 'eventos', module: 'eventos', label: 'Eventos', icon: '🗓️', comp: Eventos },
   { id: 'financeiro', module: 'financeiro', label: 'Recebimentos', icon: '💰', comp: Financeiro },
   { id: 'comissoes', module: 'comissoes', label: 'Comissões', icon: '💸', comp: Comissoes },
-  { id: 'scenarium', module: 'scenarium', label: 'Scenarium', icon: '🎟️', comp: Scenarium },
+  { id: 'casa_de_shows', module: 'casa_de_shows', label: 'Casa de Shows', icon: '🎟️', comp: CasaDeShows },
   { id: 'fila', module: 'fila', label: 'Fila de espera', icon: '⏳', comp: Fila },
   { id: 'comandos', module: 'comandos', label: 'Comandos', icon: '🎛️', comp: Comandos },
   { id: 'bloqueios', module: 'bloqueios', label: 'Atendimentos bloqueados', icon: '🚫', comp: Bloqueios },

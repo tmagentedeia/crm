@@ -10,12 +10,12 @@ const paraInput = (d) => { if (!d) return ''; const x = new Date(d); x.setMinute
 const vir = (v) => (v === null || v === undefined ? '' : String(v).replace('.', ','));
 const hoje = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
 
-export default function Scenarium() {
+export default function CasaDeShows() {
   const [aba, setAba] = useState('reservas');
   return (
     <>
       <div style={{ marginBottom: 12 }}>
-        <h1>Scenarium</h1>
+        <h1>Casa de Shows</h1>
         <p className="muted">Reservas de mesa por setor. Cada setor tem um espaço, e cada tipo de mesa ocupa uma parte dele.</p>
       </div>
       <div className="row" style={{ marginBottom: 12 }}>
@@ -53,16 +53,16 @@ function Reservas() {
   useEffect(() => {
     api('/events?quando=proximos').then((l) => { setEventos(l); setOc(l[0] ? String(l[0].id) : 'data'); }).catch(() => setOc('data'));
     api('/events?quando=passados').then((l) => setPassados(l.slice(0, 60))).catch(() => {});
-    api('/scenarium/sectors').then(setSetores).catch(() => {});
-    api('/scenarium/table-types').then(setTipos).catch(() => {});
+    api('/casa-de-shows/sectors').then(setSetores).catch(() => {});
+    api('/casa-de-shows/table-types').then(setTipos).catch(() => {});
   }, []);
   const filtro = oc === 'data' ? 'date=' + data : 'event_id=' + oc;
   const load = () => {
     if (!oc) return;
     setErr('');
-    api('/scenarium/availability?' + filtro).then(setDisp).catch((e) => setErr(e.message));
-    api('/scenarium/reservations?' + filtro).then(setLista).catch((e) => setErr(e.message));
-    api('/scenarium/extras?' + filtro).then(setExtras).catch(() => {});
+    api('/casa-de-shows/availability?' + filtro).then(setDisp).catch((e) => setErr(e.message));
+    api('/casa-de-shows/reservations?' + filtro).then(setLista).catch((e) => setErr(e.message));
+    api('/casa-de-shows/extras?' + filtro).then(setExtras).catch(() => {});
   };
   useEffect(() => { load(); }, [oc, data]);
 
@@ -82,33 +82,33 @@ function Reservas() {
     if (edit.birthday.trim()) body.birthday = edit.birthday.trim();
     if (edit.id ? edit.unit_price !== edit.unit_price_antes : edit.unit_price !== '') body.unit_price = edit.unit_price;
     try {
-      if (edit.id) await api('/scenarium/reservations/' + edit.id, { method: 'PUT', body });
-      else await api('/scenarium/reservations', { method: 'POST', body });
+      if (edit.id) await api('/casa-de-shows/reservations/' + edit.id, { method: 'PUT', body });
+      else await api('/casa-de-shows/reservations', { method: 'POST', body });
       setEdit(null); load();
     } catch (e2) { setErr(e2.message); }
   }
   const mudar = async (v, status) => {
-    try { await api('/scenarium/reservations/' + v.id, { method: 'PUT', body: { status } }); load(); } catch (e) { setErr(e.message); }
+    try { await api('/casa-de-shows/reservations/' + v.id, { method: 'PUT', body: { status } }); load(); } catch (e) { setErr(e.message); }
   };
   const apagar = async (v) => {
     if (!confirm(`Apagar a reserva de ${v.name}? Não dá para desfazer.`)) return;
-    try { await api('/scenarium/reservations/' + v.id, { method: 'DELETE' }); load(); } catch (e) { setErr(e.message); }
+    try { await api('/casa-de-shows/reservations/' + v.id, { method: 'DELETE' }); load(); } catch (e) { setErr(e.message); }
   };
   async function salvarExtra(e) {
     e.preventDefault(); setErr('');
     try {
-      await api('/scenarium/extras', { method: 'POST', body: { ...(oc === 'data' ? { date: data } : { event_id: oc }), sector_id: novaExtra.sector_id, table_type_id: novaExtra.table_type_id, quantity: Number(novaExtra.quantity) || 1, note: novaExtra.note } });
+      await api('/casa-de-shows/extras', { method: 'POST', body: { ...(oc === 'data' ? { date: data } : { event_id: oc }), sector_id: novaExtra.sector_id, table_type_id: novaExtra.table_type_id, quantity: Number(novaExtra.quantity) || 1, note: novaExtra.note } });
       setNovaExtra(null); load();
     } catch (e2) { setErr(e2.message); }
   }
   const fecharExtra = async (x) => {
     if (!confirm(`Fechar a mesa extra (${x.quantity} × ${x.table_name}) do ${x.sector_name}?`)) return;
-    try { await api('/scenarium/extras/' + x.id, { method: 'DELETE' }); load(); } catch (e) { setErr(e.message); }
+    try { await api('/casa-de-shows/extras/' + x.id, { method: 'DELETE' }); load(); } catch (e) { setErr(e.message); }
   };
   async function abrirCond() {
     setErr('');
     try {
-      const [c, k] = await Promise.all([api(`/scenarium/events/${oc}/conditions`), api(`/scenarium/events/${oc}/codes`)]);
+      const [c, k] = await Promise.all([api(`/casa-de-shows/events/${oc}/conditions`), api(`/casa-de-shows/events/${oc}/codes`)]);
       setCond({ price: vir(c.price), door_price: vir(c.door_price), price_until: paraInput(c.price_until), instructions: c.instructions || '' });
       setCodigos(k);
       setNovoCod({ word: '', kind: 'percent', value: '', max_uses: '', note: '' });
@@ -117,21 +117,21 @@ function Reservas() {
   async function salvarCond(e) {
     e.preventDefault(); setErr('');
     try {
-      await api(`/scenarium/events/${oc}/conditions`, { method: 'PUT', body: { price: cond.price, door_price: cond.door_price, price_until: cond.price_until ? new Date(cond.price_until).toISOString() : null, instructions: cond.instructions } });
+      await api(`/casa-de-shows/events/${oc}/conditions`, { method: 'PUT', body: { price: cond.price, door_price: cond.door_price, price_until: cond.price_until ? new Date(cond.price_until).toISOString() : null, instructions: cond.instructions } });
       setCond(null); load();
     } catch (e2) { setErr(e2.message); }
   }
   async function addCodigo() {
     setErr('');
     try {
-      await api(`/scenarium/events/${oc}/codes`, { method: 'POST', body: { word: novoCod.word, kind: novoCod.kind, value: novoCod.value, max_uses: novoCod.max_uses || null, note: novoCod.note } });
-      setCodigos(await api(`/scenarium/events/${oc}/codes`));
+      await api(`/casa-de-shows/events/${oc}/codes`, { method: 'POST', body: { word: novoCod.word, kind: novoCod.kind, value: novoCod.value, max_uses: novoCod.max_uses || null, note: novoCod.note } });
+      setCodigos(await api(`/casa-de-shows/events/${oc}/codes`));
       setNovoCod({ word: '', kind: 'percent', value: '', max_uses: '', note: '' });
     } catch (e) { setErr(e.message); }
   }
   async function apagarCodigo(k) {
     if (!confirm(`Apagar a palavra "${k.word}"?`)) return;
-    try { await api('/scenarium/codes/' + k.id, { method: 'DELETE' }); setCodigos(codigos.filter((x) => x.id !== k.id)); } catch (e) { setErr(e.message); }
+    try { await api('/casa-de-shows/codes/' + k.id, { method: 'DELETE' }); setCodigos(codigos.filter((x) => x.id !== k.id)); } catch (e) { setErr(e.message); }
   }
   function abrirDup() {
     const ev = [...eventos, ...passados].find((x) => String(x.id) === String(oc));
@@ -140,7 +140,7 @@ function Reservas() {
   async function salvarDup(e) {
     e.preventDefault(); setErr('');
     try {
-      const r = await api(`/scenarium/events/${oc}/duplicate`, { method: 'POST', body: { title: dup.title, starts_at: new Date(dup.starts_at).toISOString() } });
+      const r = await api(`/casa-de-shows/events/${oc}/duplicate`, { method: 'POST', body: { title: dup.title, starts_at: new Date(dup.starts_at).toISOString() } });
       const l = await api('/events?quando=proximos');
       setEventos(l); setOc(String(r.event.id)); setDup(null);
     } catch (e2) { setErr(e2.message); }
@@ -152,7 +152,7 @@ function Reservas() {
   async function salvarAjuste(e) {
     e.preventDefault();
     try {
-      await api(`/scenarium/events/${oc}/sectors`, { method: 'PUT', body: { sectors: ajuste.map((a) => ({ sector_id: a.sector_id, space: a.space === '' ? null : a.space })) } });
+      await api(`/casa-de-shows/events/${oc}/sectors`, { method: 'PUT', body: { sectors: ajuste.map((a) => ({ sector_id: a.sector_id, space: a.space === '' ? null : a.space })) } });
       setAjuste(null); load();
     } catch (e2) { setErr(e2.message); }
   }
@@ -383,15 +383,15 @@ function MapaDoEspaco() {
   const [m, setM] = useState(undefined);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
-  const load = () => api('/scenarium/media').then((r) => setM(r.map)).catch((e) => setErr(e.message));
+  const load = () => api('/casa-de-shows/media').then((r) => setM(r.map)).catch((e) => setErr(e.message));
   useEffect(() => { load(); }, []);
   async function enviar(e) {
     const f = e.target.files[0]; e.target.value = ''; if (!f) return;
     setErr(''); setBusy(true);
-    try { await api('/scenarium/media', { method: 'POST', body: { kind: 'map', data: await reduzirImagem(f, 1800) } }); await load(); } catch (e2) { setErr(e2.message); }
+    try { await api('/casa-de-shows/media', { method: 'POST', body: { kind: 'map', data: await reduzirImagem(f, 1800) } }); await load(); } catch (e2) { setErr(e2.message); }
     setBusy(false);
   }
-  async function tirar() { if (!confirm('Remover o mapa do espaço?')) return; try { await api('/scenarium/media/' + m.id, { method: 'DELETE' }); load(); } catch (e) { setErr(e.message); } }
+  async function tirar() { if (!confirm('Remover o mapa do espaço?')) return; try { await api('/casa-de-shows/media/' + m.id, { method: 'DELETE' }); load(); } catch (e) { setErr(e.message); } }
   if (m === undefined) return null;
   return (
     <div className="card" style={{ marginBottom: 12 }}>
@@ -409,19 +409,19 @@ function FotosDoSetor({ setorId }) {
   const [fotos, setFotos] = useState(null);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
-  const load = () => api('/scenarium/media?sector_id=' + setorId).then((r) => setFotos(r.sectors[0]?.photos || [])).catch((e) => setErr(e.message));
+  const load = () => api('/casa-de-shows/media?sector_id=' + setorId).then((r) => setFotos(r.sectors[0]?.photos || [])).catch((e) => setErr(e.message));
   useEffect(() => { load(); }, [setorId]);
   async function enviar(e) {
     const arq = [...e.target.files]; e.target.value = ''; if (!arq.length) return;
     setErr(''); setBusy(true);
-    try { for (const f of arq) await api('/scenarium/media', { method: 'POST', body: { kind: 'photo', sector_id: setorId, data: await reduzirImagem(f, 1400) } }); } catch (e2) { setErr(e2.message); }
+    try { for (const f of arq) await api('/casa-de-shows/media', { method: 'POST', body: { kind: 'photo', sector_id: setorId, data: await reduzirImagem(f, 1400) } }); } catch (e2) { setErr(e2.message); }
     await load(); setBusy(false);
   }
   async function legenda(f) {
     const t = window.prompt('Legenda da foto (opcional):', f.caption || ''); if (t === null) return;
-    try { await api('/scenarium/media/' + f.id, { method: 'PUT', body: { caption: t } }); load(); } catch (e) { setErr(e.message); }
+    try { await api('/casa-de-shows/media/' + f.id, { method: 'PUT', body: { caption: t } }); load(); } catch (e) { setErr(e.message); }
   }
-  async function tirar(f) { if (!confirm('Remover esta foto?')) return; try { await api('/scenarium/media/' + f.id, { method: 'DELETE' }); load(); } catch (e) { setErr(e.message); } }
+  async function tirar(f) { if (!confirm('Remover esta foto?')) return; try { await api('/casa-de-shows/media/' + f.id, { method: 'DELETE' }); load(); } catch (e) { setErr(e.message); } }
   return (
     <div className="field" style={{ marginTop: 10 }}>
       <label>Fotos do setor (até 8)</label>
@@ -446,8 +446,8 @@ function Setores() {
   const [tipos, setTipos] = useState([]);
   const [edit, setEdit] = useState(null);
   const [err, setErr] = useState('');
-  const load = () => api('/scenarium/sectors').then(setRows).catch((e) => setErr(e.message));
-  useEffect(() => { load(); api('/scenarium/table-types').then(setTipos).catch(() => {}); }, []);
+  const load = () => api('/casa-de-shows/sectors').then(setRows).catch((e) => setErr(e.message));
+  useEffect(() => { load(); api('/casa-de-shows/table-types').then(setTipos).catch(() => {}); }, []);
   const nomeMesas = (s) => (s.tables.length ? s.tables.map((g) => { const t = tipos.find((x) => String(x.id) === String(g.table_type_id)); return t ? t.name + (g.max_tables ? ` (até ${g.max_tables})` : '') : null; }).filter(Boolean).join(', ') : 'Todas');
   const abrir = (s) => {
     setErr('');
@@ -459,14 +459,14 @@ function Setores() {
     const tables = edit.restringe ? Object.entries(edit.regras).filter(([, v]) => v !== undefined && v !== null).map(([id, v]) => ({ table_type_id: id, max_tables: v === '' ? null : Number(v) })) : [];
     const body = { name: edit.name, space: edit.space, notes: edit.notes, active: edit.active, tables };
     try {
-      if (edit.id) await api('/scenarium/sectors/' + edit.id, { method: 'PUT', body });
-      else await api('/scenarium/sectors', { method: 'POST', body });
+      if (edit.id) await api('/casa-de-shows/sectors/' + edit.id, { method: 'PUT', body });
+      else await api('/casa-de-shows/sectors', { method: 'POST', body });
       setEdit(null); load();
     } catch (e2) { setErr(e2.message); }
   }
   const apagar = async (s) => {
     if (!confirm(`Apagar o setor "${s.name}"?`)) return;
-    try { await api('/scenarium/sectors/' + s.id, { method: 'DELETE' }); load(); } catch (e) { setErr(e.message); }
+    try { await api('/casa-de-shows/sectors/' + s.id, { method: 'DELETE' }); load(); } catch (e) { setErr(e.message); }
   };
   const alternarMesa = (id) => {
     const r = { ...edit.regras };
@@ -537,20 +537,20 @@ function Mesas() {
   const [rows, setRows] = useState([]);
   const [edit, setEdit] = useState(null);
   const [err, setErr] = useState('');
-  const load = () => api('/scenarium/table-types').then(setRows).catch((e) => setErr(e.message));
+  const load = () => api('/casa-de-shows/table-types').then(setRows).catch((e) => setErr(e.message));
   useEffect(() => { load(); }, []);
   async function salvar(e) {
     e.preventDefault(); setErr('');
     const body = { name: edit.name, seats: Number(edit.seats), space: edit.space, active: edit.active };
     try {
-      if (edit.id) await api('/scenarium/table-types/' + edit.id, { method: 'PUT', body });
-      else await api('/scenarium/table-types', { method: 'POST', body });
+      if (edit.id) await api('/casa-de-shows/table-types/' + edit.id, { method: 'PUT', body });
+      else await api('/casa-de-shows/table-types', { method: 'POST', body });
       setEdit(null); load();
     } catch (e2) { setErr(e2.message); }
   }
   const apagar = async (t) => {
     if (!confirm(`Apagar a mesa "${t.name}"? As reservas já feitas continuam como estão.`)) return;
-    try { await api('/scenarium/table-types/' + t.id, { method: 'DELETE' }); load(); } catch (e) { setErr(e.message); }
+    try { await api('/casa-de-shows/table-types/' + t.id, { method: 'DELETE' }); load(); } catch (e) { setErr(e.message); }
   };
   return (
     <>
