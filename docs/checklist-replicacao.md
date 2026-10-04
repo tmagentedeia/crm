@@ -41,3 +41,4 @@ Situação: [ ] pendente · [x] feito e confirmado.
 
 ## Casa de Shows
 - Chave interna do módulo `casa_de_shows`; rotas `/api/casa-de-shows/...` e `/n8n/casa-de-shows/...`; tabelas com prefixo `shows_`. A migração (`node src/migrate.js`) converte o que já estava gravado com o nome antigo.
+- Locais e formatos (passo 33, tabelas `shows_venues`, `shows_layouts`, `shows_layout_sectors`, `shows_layout_tables`, `shows_event_setup`): cada setor pertence a um local; um formato escolhe os setores que valem, o espaço de cada um e, se quiser, as mesas aceitas. O evento escolhe local e formato em `PUT /casa-de-shows/events/:id/setup` (sem escolha vale o primeiro local e o formato padrão, como antes). O atendente recebe `venue` e `layout` em `availability` e em `events`, e consulta o mapa do local pelo evento com `GET /n8n/casa-de-shows/media?event_id=`. Rotas novas: `/casa-de-shows/venues`, `/casa-de-shows/layouts`.

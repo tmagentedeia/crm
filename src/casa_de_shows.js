@@ -180,6 +180,78 @@ export const SHOWS_PAGAMENTOS_SQL = `
   CREATE INDEX IF NOT EXISTS shows_res_pay_res ON shows_res_payments (reservation_id);
   CREATE UNIQUE INDEX IF NOT EXISTS shows_res_pay_comprovante ON shows_res_payments (payment_id) WHERE payment_id IS NOT NULL;
 `;
+// Locais e formatos: cada empresa pode ter vários locais (ambientes), cada local tem seus setores e vários formatos de uso.
+// Um formato diz quais setores valem, o espaço de cada um e, se quiser, quais mesas cada setor aceita. Cada evento escolhe local e formato.
+// Evento sem escolha usa o primeiro local e o formato padrão dele, como era antes.
+export const SHOWS_LOCAIS_SQL = `
+  CREATE TABLE IF NOT EXISTS shows_venues (
+    id         BIGSERIAL PRIMARY KEY,
+    name       TEXT NOT NULL UNIQUE,
+    address    TEXT,
+    notes      TEXT,
+    position   INT NOT NULL DEFAULT 0,
+    active     BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+  INSERT INTO shows_venues (name) SELECT 'Local principal' WHERE NOT EXISTS (SELECT 1 FROM shows_venues);
+  ALTER TABLE shows_sectors ADD COLUMN IF NOT EXISTS venue_id BIGINT REFERENCES shows_venues(id) ON DELETE RESTRICT;
+  UPDATE shows_sectors SET venue_id = (SELECT id FROM shows_venues ORDER BY id LIMIT 1) WHERE venue_id IS NULL;
+  ALTER TABLE shows_sectors ALTER COLUMN venue_id SET NOT NULL;
+  DO $u$
+  DECLARE c TEXT;
+  BEGIN
+    FOR c IN SELECT conname FROM pg_constraint WHERE conrelid = 'shows_sectors'::regclass AND contype = 'u' LOOP
+      EXECUTE format('ALTER TABLE shows_sectors DROP CONSTRAINT %I', c);   -- o nome do setor passa a ser único só dentro do local
+    END LOOP;
+  END $u$;
+  CREATE UNIQUE INDEX IF NOT EXISTS shows_sectors_venue_name ON shows_sectors (venue_id, name);
+  ALTER TABLE shows_media ADD COLUMN IF NOT EXISTS venue_id BIGINT REFERENCES shows_venues(id) ON DELETE CASCADE;   -- mapa de cada local
+  UPDATE shows_media SET venue_id = (SELECT id FROM shows_venues ORDER BY id LIMIT 1) WHERE kind = 'map' AND venue_id IS NULL;
+  CREATE TABLE IF NOT EXISTS shows_layouts (
+    id         BIGSERIAL PRIMARY KEY,
+    venue_id   BIGINT NOT NULL REFERENCES shows_venues(id) ON DELETE CASCADE,
+    name       TEXT NOT NULL,
+    is_default BOOLEAN NOT NULL DEFAULT false,
+    position   INT NOT NULL DEFAULT 0,
+    active     BOOLEAN NOT NULL DEFAULT true,
+    UNIQUE (venue_id, name)
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS shows_layouts_default ON shows_layouts (venue_id) WHERE is_default;
+  INSERT INTO shows_layouts (venue_id, name, is_default) SELECT v.id, 'Padrão', true FROM shows_venues v
+    WHERE NOT EXISTS (SELECT 1 FROM shows_layouts l WHERE l.venue_id = v.id);
+  CREATE TABLE IF NOT EXISTS shows_layout_sectors (            -- sem linhas = o formato usa todos os setores do local, no espaço de cada um
+    layout_id  BIGINT NOT NULL REFERENCES shows_layouts(id) ON DELETE CASCADE,
+    sector_id  BIGINT NOT NULL REFERENCES shows_sectors(id) ON DELETE CASCADE,
+    space      NUMERIC(8,2) CHECK (space >= 0),                 -- vazio = espaço do setor
+    own_rules  BOOLEAN NOT NULL DEFAULT false,                  -- true = as mesas deste setor neste formato são as de shows_layout_tables
+    PRIMARY KEY (layout_id, sector_id)
+  );
+  CREATE TABLE IF NOT EXISTS shows_layout_tables (
+    layout_id     BIGINT NOT NULL,
+    sector_id     BIGINT NOT NULL,
+    table_type_id BIGINT NOT NULL REFERENCES shows_table_types(id) ON DELETE CASCADE,
+    max_tables    INT CHECK (max_tables BETWEEN 1 AND 100),
+    PRIMARY KEY (layout_id, sector_id, table_type_id),
+    FOREIGN KEY (layout_id, sector_id) REFERENCES shows_layout_sectors(layout_id, sector_id) ON DELETE CASCADE
+  );
+  CREATE TABLE IF NOT EXISTS shows_event_setup (               -- local e formato escolhidos para o evento
+    event_id  BIGINT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
+    venue_id  BIGINT NOT NULL REFERENCES shows_venues(id) ON DELETE RESTRICT,
+    layout_id BIGINT NOT NULL REFERENCES shows_layouts(id) ON DELETE RESTRICT
+  );
+  DO $n$
+  DECLARE x RECORD;
+  BEGIN
+    FOR x IN SELECT c.relname, c.relkind FROM pg_class c WHERE c.relnamespace = current_schema()::regnamespace AND c.relname LIKE 'scn\\_%' AND c.relkind IN ('S','i') LOOP
+      IF to_regclass(replace(x.relname, 'scn_', 'shows_')) IS NULL THEN
+        EXECUTE format(CASE x.relkind WHEN 'S' THEN 'ALTER SEQUENCE %I RENAME TO %I' ELSE 'ALTER INDEX %I RENAME TO %I' END, x.relname, replace(x.relname, 'scn_', 'shows_'));
+      END IF;
+    END LOOP;
+    FOR x IN SELECT conname, conrelid::regclass::text AS tabela FROM pg_constraint WHERE connamespace = current_schema()::regnamespace AND conname LIKE 'scn\\_%' LOOP
+      EXECUTE format('ALTER TABLE %s RENAME CONSTRAINT %I TO %I', x.tabela, x.conname, replace(x.conname, 'scn_', 'shows_'));
+    END LOOP;
+  END $n$;
+`;
 const FORMAS = ['pix', 'dinheiro', 'cartao', 'parceiro', 'cortesia', 'outro'];
 const MIDIA_MAX_BYTES = 2.5 * 1024 * 1024, FOTOS_POR_SETOR = 8;
 // confere pelo conteúdo (não pelo nome) que é mesmo uma imagem aceita
@@ -209,7 +281,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
   const quem = (req) => (req.baseUrl || '').includes('n8n') ? 'ia' : 'manual';
 
   // ---------- setores ----------
-  const SETOR = `SELECT id, name, space::float AS space, notes, position, active,
+  const SETOR = `SELECT id, venue_id, (SELECT v.name FROM shows_venues v WHERE v.id = shows_sectors.venue_id) AS venue_name, name, space::float AS space, notes, position, active,
     COALESCE((SELECT json_agg(json_build_object('table_type_id', st.table_type_id::text, 'max_tables', st.max_tables) ORDER BY st.table_type_id)
               FROM shows_sector_tables st WHERE st.sector_id = shows_sectors.id), '[]'::json) AS tables
     FROM shows_sectors`;
@@ -218,13 +290,21 @@ export function registerCasaDeShowsRoutes(r, wrap) {
   const urlBase = (req) => process.env.PUBLIC_URL || `${req.headers['x-forwarded-proto'] || req.protocol}://${req.headers['x-forwarded-host'] || req.get('host')}`;
   const midiaOut = (req, m) => ({ id: String(m.id), sector_id: m.sector_id ? String(m.sector_id) : null, kind: m.kind, caption: m.caption, url: `${urlBase(req)}/m/${m.token}` });
   // Lista (sem os arquivos): o painel mostra e o atendente usa os endereços para enviar ao cliente
+  // Mapa e fotos são do local: ?venue_id= ou ?event_id= (o local do evento); sem nada, vale o primeiro local
   r.get('/casa-de-shows/media', wrap(async (req, res) => {
     const setorId = req.query.sector_id ? idOk(req.query.sector_id) : null;
     if (req.query.sector_id && !setorId) return res.status(400).json({ error: 'Setor inválido' });
+    let origem = req.query;
+    if (setorId && !origem.venue_id && !origem.event_id) {   // só o setor: vale o local dele
+      const dono = (await q('SELECT venue_id FROM shows_sectors WHERE id=$1', [setorId])).rows[0];
+      if (dono) origem = { venue_id: dono.venue_id };
+    }
+    const lv = await venueDe(origem);
+    if (lv.erro) return res.status(400).json({ error: lv.erro });
     const rows = (await q(`SELECT m.id, m.sector_id, m.kind, m.caption, m.token, s.name AS sector_name FROM shows_media m LEFT JOIN shows_sectors s ON s.id = m.sector_id
-      ${setorId ? 'WHERE m.sector_id = $1 OR m.sector_id IS NULL' : ''} ORDER BY m.kind DESC, m.position, m.id`, setorId ? [setorId] : [])).rows;
+      WHERE (m.kind = 'map' AND m.venue_id = $1) OR (m.kind = 'photo' AND s.venue_id = $1)${setorId ? ' AND (m.sector_id = $2 OR m.kind = \'map\')' : ''} ORDER BY m.kind DESC, m.position, m.id`, setorId ? [lv.venue_id, setorId] : [lv.venue_id])).rows;
     const map = rows.find((m) => m.kind === 'map');
-    const setores = (await q('SELECT id, name FROM shows_sectors WHERE active ORDER BY position, id')).rows;
+    const setores = (await q('SELECT id, name FROM shows_sectors WHERE active AND venue_id=$1 ORDER BY position, id', [lv.venue_id])).rows;
     res.json({
       map: map ? midiaOut(req, map) : null,
       sectors: setores.filter((s) => !setorId || String(s.id) === setorId).map((s) => ({ sector_id: String(s.id), name: s.name, photos: rows.filter((m) => m.kind === 'photo' && String(m.sector_id) === String(s.id)).map((m) => midiaOut(req, m)) })),
@@ -244,7 +324,12 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     if (buf.length > MIDIA_MAX_BYTES) return res.status(400).json({ error: 'A imagem é grande demais (até 2,5 MB)' });
     const mime = tipoDaImagem(buf);
     if (!mime) return res.status(400).json({ error: 'Use uma imagem JPG, PNG ou WebP' });
-    let setorId = null;
+    let setorId = null, localId = null;
+    if (kind === 'map') {
+      const lv = await venueDe(b);
+      if (lv.erro) return res.status(400).json({ error: lv.erro });
+      localId = lv.venue_id;
+    }
     if (kind === 'photo') {
       setorId = idOk(b.sector_id);
       if (!setorId || !(await q('SELECT 1 FROM shows_sectors WHERE id=$1', [setorId])).rowCount) return res.status(400).json({ error: 'Escolha o setor da foto' });
@@ -253,10 +338,10 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     }
     const token = `${currentCompany()}-${crypto.randomBytes(20).toString('hex')}`;
     const novo = await tx(currentCompany(), async (t) => {
-      if (kind === 'map') await t("DELETE FROM shows_media WHERE kind='map'");   // só existe um mapa: o novo substitui
-      return (await t(`INSERT INTO shows_media (sector_id, kind, caption, mime, data, token, position)
-        VALUES ($1,$2,$3,$4,$5,$6,(SELECT COALESCE(max(position),0)+1 FROM shows_media)) RETURNING id, sector_id, kind, caption, token`,
-        [setorId, kind, legenda || null, mime, buf, token])).rows[0];
+      if (kind === 'map') await t("DELETE FROM shows_media WHERE kind='map' AND venue_id=$1", [localId]);   // cada local tem um mapa só: o novo substitui
+      return (await t(`INSERT INTO shows_media (sector_id, venue_id, kind, caption, mime, data, token, position)
+        VALUES ($1,$7,$2,$3,$4,$5,$6,(SELECT COALESCE(max(position),0)+1 FROM shows_media)) RETURNING id, sector_id, kind, caption, token`,
+        [setorId, kind, legenda || null, mime, buf, token, localId])).rows[0];
     });
     res.status(201).json(midiaOut(req, novo));
   }));
@@ -274,7 +359,14 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     rowCount ? res.json({ ok: true }) : res.status(404).json({ error: 'Imagem não encontrada' });
   }));
 
-  r.get('/casa-de-shows/sectors', wrap(async (req, res) => res.json((await q(`${SETOR} ORDER BY position, id`)).rows)));
+  r.get('/casa-de-shows/sectors', wrap(async (req, res) => {
+    if (req.query.venue_id !== undefined && req.query.venue_id !== '') {
+      const v = idOk(req.query.venue_id);
+      if (!v) return res.status(400).json({ error: 'Local inválido' });
+      return res.json((await q(`${SETOR} WHERE venue_id=$1 ORDER BY position, id`, [v])).rows);
+    }
+    res.json((await q(`${SETOR} ORDER BY venue_id, position, id`)).rows);
+  }));
   function lerSetor(b, parcial) {
     const o = {};
     if (!parcial || b.name !== undefined) { o.name = txt(b.name, 60); if (!o.name) return { erro: 'Informe o nome do setor (até 60 letras)' }; }
@@ -309,13 +401,15 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     if (erro) return res.status(400).json({ error: erro });
     const rg = await lerRegras(req.body || {});
     if (rg.erro) return res.status(400).json({ error: rg.erro });
+    const lv = await venueDe(req.body || {});
+    if (lv.erro) return res.status(400).json({ error: lv.erro });
     try {
-      const pos = o.position ?? (await q('SELECT COALESCE(MAX(position), 0) + 1 AS p FROM shows_sectors')).rows[0].p;
-      const id = (await q('INSERT INTO shows_sectors (name, space, notes, position) VALUES ($1,$2,NULLIF($3,\'\'),$4) RETURNING id', [o.name, o.space, o.notes || '', pos])).rows[0].id;
+      const pos = o.position ?? (await q('SELECT COALESCE(MAX(position), 0) + 1 AS p FROM shows_sectors WHERE venue_id=$1', [lv.venue_id])).rows[0].p;
+      const id = (await q('INSERT INTO shows_sectors (venue_id, name, space, notes, position) VALUES ($5,$1,$2,NULLIF($3,\'\'),$4) RETURNING id', [o.name, o.space, o.notes || '', pos, lv.venue_id])).rows[0].id;
       await salvarRegras(id, rg.regras);
       res.status(201).json((await q(`${SETOR} WHERE id=$1`, [id])).rows[0]);
     } catch (e) {
-      if (e.code === '23505') return res.status(409).json({ error: 'Já existe um setor com esse nome' });
+      if (e.code === '23505') return res.status(409).json({ error: 'Já existe um setor com esse nome neste local' });
       throw e;
     }
   }));
@@ -330,7 +424,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     try {
       await q('UPDATE shows_sectors SET name=$2, space=$3, notes=NULLIF($4,\'\'), position=$5, active=$6 WHERE id=$1', [req.params.id, n.name, n.space, n.notes || '', n.position, n.active]);
     } catch (e) {
-      if (e.code === '23505') return res.status(409).json({ error: 'Já existe um setor com esse nome' });
+      if (e.code === '23505') return res.status(409).json({ error: 'Já existe um setor com esse nome neste local' });
       throw e;
     }
     await salvarRegras(req.params.id, rg.regras);
@@ -414,9 +508,56 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     a.push(oc.date); return `(${alias}event_id IS NULL AND ${alias}occasion_date = $${a.length}::date)`;
   };
 
+
+  // ---------- local e formato da ocasião ----------
+  async function primeiroLocal(run = q) {
+    return (await run('SELECT id FROM shows_venues WHERE active ORDER BY position, id LIMIT 1')).rows[0] || (await run('SELECT id FROM shows_venues ORDER BY id LIMIT 1')).rows[0];
+  }
+  // Local pedido por venue_id, pelo evento (event_id) ou, sem nada, o primeiro local
+  async function venueDe(src, run = q) {
+    if (src.venue_id !== undefined && src.venue_id !== null && src.venue_id !== '') {
+      const v = idOk(src.venue_id);
+      if (!v || !(await run('SELECT 1 FROM shows_venues WHERE id=$1', [v])).rowCount) return { erro: 'Local não encontrado' };
+      return { venue_id: v };
+    }
+    if (src.event_id) {
+      const oc = await ocasiao(src);
+      if (oc.erro) return { erro: oc.erro };
+      return { venue_id: String((await configuracao(run, oc)).venue_id) };
+    }
+    return { venue_id: String((await primeiroLocal(run)).id) };
+  }
+  // Local e formato que valem para a ocasião, e o que o formato muda nos setores (quais valem, espaço, mesas aceitas)
+  async function configuracao(run, oc) {
+    const es = oc.event_id ? (await run('SELECT venue_id, layout_id FROM shows_event_setup WHERE event_id=$1', [oc.event_id])).rows[0] : null;
+    let venueId, layoutId;
+    if (es) { venueId = es.venue_id; layoutId = es.layout_id; }
+    else {
+      venueId = (await primeiroLocal(run)).id;
+      layoutId = (await run('SELECT id FROM shows_layouts WHERE venue_id=$1 AND is_default', [venueId])).rows[0]?.id;
+    }
+    const info = (await run(`SELECT v.name AS venue_name, l.name AS layout_name FROM shows_venues v LEFT JOIN shows_layouts l ON l.id = $2 WHERE v.id = $1`, [venueId, layoutId || null])).rows[0] || {};
+    const ls = layoutId ? (await run('SELECT sector_id, space::float AS space, own_rules FROM shows_layout_sectors WHERE layout_id=$1', [layoutId])).rows : [];
+    const lt = layoutId ? (await run('SELECT sector_id, table_type_id::text AS t, max_tables FROM shows_layout_tables WHERE layout_id=$1', [layoutId])).rows : [];
+    const st = (await run('SELECT sector_id, table_type_id::text AS t, max_tables FROM shows_sector_tables')).rows;
+    const linha = (sid) => ls.find((x) => String(x.sector_id) === String(sid));
+    return {
+      venue_id: venueId, layout_id: layoutId || null, venue_name: info.venue_name || null, layout_name: info.layout_name || null,
+      custom: !!es,
+      entra: (sid) => !ls.length || !!linha(sid),
+      espaco: (sid, base) => { const x = linha(sid); return x && x.space !== null ? x.space : base; },
+      regras: (sid) => {
+        const x = linha(sid);
+        const fonte = x && x.own_rules ? lt : st;
+        return fonte.filter((m) => String(m.sector_id) === String(sid)).map((m) => ({ table_type_id: m.t, max_tables: m.max_tables }));
+      },
+    };
+  }
+
   // Situação dos setores nessa ocasião: espaço, usado, livre e, se pedido, onde cabe `people` pessoas
   async function situacao(oc, { people, sectorId } = {}, run = q) {
-    const setores = (await run(`${SETOR} WHERE active ${sectorId ? 'AND id = $1' : ''} ORDER BY position, id`, sectorId ? [sectorId] : [])).rows;
+    const cfg = await configuracao(run, oc);
+    const setores = (await run(`${SETOR} WHERE active AND venue_id = $1 ${sectorId ? 'AND id = $2' : ''} ORDER BY position, id`, sectorId ? [cfg.venue_id, sectorId] : [cfg.venue_id])).rows.filter((x) => cfg.entra(x.id));
     const tipos = (await run(`${TIPO} WHERE active ORDER BY seats, id`)).rows;
     const over = oc.event_id ? (await run('SELECT sector_id, space::float AS space FROM shows_event_sectors WHERE event_id=$1', [oc.event_id])).rows : [];
     const a = [OCUPAM];
@@ -438,12 +579,13 @@ export function registerCasaDeShowsRoutes(r, wrap) {
       const o = over.find((x) => String(x.sector_id) === String(s.id));
       const meusExtras = extras.filter((x) => String(x.sector_id) === String(s.id));
       const espacoExtra = r2(meusExtras.reduce((a, x) => a + x.space, 0));
-      const total = r2((o ? o.space : s.space) + espacoExtra);
+      const baseDoFormato = cfg.espaco(s.id, s.space);
+      const total = r2((o ? o.space : baseDoFormato) + espacoExtra);
       const u = uso.find((x) => String(x.sector_id) === String(s.id)) || { reservations: 0, people: 0, used: 0, seats: 0 };
       const usado = r2(u.used);
       const livre = r2(Math.max(0, total - usado));
       // mesas que o setor aceita (sem regras = todas) e, para cada uma, quantas ainda cabem pelo limite do setor
-      const regras = s.tables || [];
+      const regras = cfg.regras(s.id);
       const extraDe = (t) => meusExtras.filter((x) => String(x.table_type_id) === String(t.id)).reduce((a, x) => a + x.qtd, 0);
       const permitidos = tipos.filter((t) => !regras.length || regras.some((g) => String(g.table_type_id) === String(t.id)) || extraDe(t) > 0).map((t) => {
         const g = regras.find((x) => String(x.table_type_id) === String(t.id));
@@ -454,7 +596,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
       });
       const cabe = (t) => { const porEspaco = Math.floor((livre + 1e-9) / t.space); return t.left === undefined ? porEspaco : Math.min(porEspaco, t.left); };
       const out = {
-        sector_id: s.id, name: s.name, notes: s.notes, base_space: s.space, space: total, custom_space: !!o, extra_space: espacoExtra, extra_tables: meusExtras.reduce((a, x) => a + x.qtd, 0),
+        sector_id: s.id, name: s.name, notes: s.notes, base_space: baseDoFormato, space: total, custom_space: !!o, extra_space: espacoExtra, extra_tables: meusExtras.reduce((a, x) => a + x.qtd, 0),
         used: usado, free: livre, reservations: u.reservations, people: u.people, seats_reserved: u.seats,
         max_table_seats: permitidos.reduce((m, t) => Math.max(m, t.seats), 0),
         // quantas mesas de cada tipo ainda cabem se só esse tipo fosse usado (respeitando as regras do setor)
@@ -483,9 +625,10 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     let sectorId = null;
     if (req.query.sector_id) { sectorId = idOk(req.query.sector_id); if (!sectorId) return res.status(400).json({ error: 'Setor inválido' }); }
     const sectors = await situacao(oc, { people, sectorId });
+    const cfg = setupOut(await configuracao(q, oc));
     res.json({
       event: oc.event ? { id: oc.event.id, title: oc.event.title, starts_at: oc.event.starts_at } : null,
-      date: oc.date, people, sectors,
+      date: oc.date, venue: cfg.venue, layout: cfg.layout, people, sectors,
       ...(people ? { sectors_with_room: sectors.filter((s) => s.can_fit).map((s) => s.name) } : {}),
     });
   }));
@@ -499,7 +642,9 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     const out = [];
     for (const e of evs) {
       const sectors = await situacao({ event_id: e.id, date: e.dia });
+      const cfg = setupOut(await configuracao(q, { event_id: e.id }));
       out.push({
+        venue: cfg.venue, layout: cfg.layout,
         id: e.id, title: e.title, starts_at: e.starts_at, ends_at: e.ends_at, place: e.place, notes: e.notes, date: e.dia,
         reservations: sectors.reduce((a, x) => a + x.reservations, 0), people: sectors.reduce((a, x) => a + x.people, 0),
         interested: (await q('SELECT COUNT(*)::int AS n FROM shows_event_interest WHERE event_id=$1', [e.id])).rows[0].n,
@@ -508,6 +653,239 @@ export function registerCasaDeShowsRoutes(r, wrap) {
       });
     }
     res.json(out);
+  }));
+
+
+  // ---------- locais ----------
+  const LOCAL = `SELECT v.id, v.name, v.address, v.notes, v.position, v.active,
+      (SELECT COUNT(*)::int FROM shows_sectors s WHERE s.venue_id = v.id) AS sectors,
+      COALESCE((SELECT json_agg(json_build_object('id', l.id, 'name', l.name, 'is_default', l.is_default) ORDER BY l.is_default DESC, l.position, l.id) FROM shows_layouts l WHERE l.venue_id = v.id), '[]'::json) AS layouts
+    FROM shows_venues v`;
+  function lerLocal(b, parcial) {
+    const o = {};
+    if (!parcial || b.name !== undefined) { o.name = txt(b.name, 80); if (!o.name) return { erro: 'Informe o nome do local (até 80 letras)' }; }
+    if (b.address !== undefined) { o.address = txt(b.address, 200); if (o.address === null) return { erro: 'Endereço inválido (até 200 letras)' }; }
+    if (b.notes !== undefined) { o.notes = txt(b.notes, 300); if (o.notes === null) return { erro: 'Observação inválida (até 300 letras)' }; }
+    if (b.position !== undefined) { o.position = inteiro(b.position, 0, 9999); if (o.position === null) return { erro: 'Posição inválida' }; }
+    if (b.active !== undefined) { if (typeof b.active !== 'boolean') return { erro: 'Ativo inválido' }; o.active = b.active; }
+    return { o };
+  }
+  r.get('/casa-de-shows/venues', wrap(async (req, res) => res.json((await q(`${LOCAL} ORDER BY v.position, v.id`)).rows)));
+  r.post('/casa-de-shows/venues', wrap(async (req, res) => {
+    const { o, erro } = lerLocal(req.body || {}, false);
+    if (erro) return res.status(400).json({ error: erro });
+    try {
+      const id = await tx(currentCompany(), async (t) => {
+        const pos = o.position ?? (await t('SELECT COALESCE(MAX(position), 0) + 1 AS p FROM shows_venues')).rows[0].p;
+        const novo = (await t(`INSERT INTO shows_venues (name, address, notes, position) VALUES ($1,NULLIF($2,''),NULLIF($3,''),$4) RETURNING id`, [o.name, o.address || '', o.notes || '', pos])).rows[0].id;
+        await t(`INSERT INTO shows_layouts (venue_id, name, is_default) VALUES ($1,'Padrão',true)`, [novo]);
+        return novo;
+      });
+      res.status(201).json((await q(`${LOCAL} WHERE v.id=$1`, [id])).rows[0]);
+    } catch (e) {
+      if (e.code === '23505') return res.status(409).json({ error: 'Já existe um local com esse nome' });
+      throw e;
+    }
+  }));
+  r.put('/casa-de-shows/venues/:id', wrap(async (req, res) => {
+    const { o, erro } = lerLocal(req.body || {}, true);
+    if (erro) return res.status(400).json({ error: erro });
+    const atual = (await q(`${LOCAL} WHERE v.id=$1`, [idOk(req.params.id) || 0])).rows[0];
+    if (!atual) return res.status(404).json({ error: 'Local não encontrado' });
+    const n = { ...atual, ...o };
+    try {
+      await q(`UPDATE shows_venues SET name=$2, address=NULLIF($3,''), notes=NULLIF($4,''), position=$5, active=$6 WHERE id=$1`, [atual.id, n.name, n.address || '', n.notes || '', n.position, n.active]);
+    } catch (e) {
+      if (e.code === '23505') return res.status(409).json({ error: 'Já existe um local com esse nome' });
+      throw e;
+    }
+    res.json((await q(`${LOCAL} WHERE v.id=$1`, [atual.id])).rows[0]);
+  }));
+  r.delete('/casa-de-shows/venues/:id', wrap(async (req, res) => {
+    const id = idOk(req.params.id);
+    const v = id && (await q(`${LOCAL} WHERE v.id=$1`, [id])).rows[0];
+    if (!v) return res.status(404).json({ error: 'Local não encontrado' });
+    if ((await q('SELECT COUNT(*)::int AS n FROM shows_venues')).rows[0].n <= 1) return res.status(409).json({ error: 'Mantenha ao menos um local' });
+    if (v.sectors > 0) return res.status(409).json({ error: 'Esse local ainda tem setores. Apague os setores primeiro.' });
+    try { await q('DELETE FROM shows_venues WHERE id=$1', [id]); } catch (e) {
+      if (e.code === '23503') return res.status(409).json({ error: 'Há eventos usando esse local. Troque o local desses eventos primeiro.' });
+      throw e;
+    }
+    res.json({ ok: true });
+  }));
+
+  // ---------- formatos do local ----------
+  // Um formato diz quais setores do local valem, o espaço de cada um e, se quiser, as mesas aceitas. Sem setores listados = todos, como são.
+  async function formatoOut(l) {
+    const linhas = (await q(`SELECT ls.sector_id, ls.space::float AS space, ls.own_rules FROM shows_layout_sectors ls JOIN shows_sectors s ON s.id = ls.sector_id WHERE ls.layout_id=$1 ORDER BY s.position, s.id`, [l.id])).rows;
+    const mesas = (await q('SELECT sector_id, table_type_id::text AS table_type_id, max_tables FROM shows_layout_tables WHERE layout_id=$1 ORDER BY table_type_id', [l.id])).rows;
+    const setores = (await q('SELECT id, name, space::float AS space FROM shows_sectors WHERE venue_id=$1 ORDER BY position, id', [l.venue_id])).rows;
+    const todos = !linhas.length;
+    const lista = todos ? setores.map((s) => ({ sector_id: s.id, space: null, own_rules: false })) : linhas;
+    return {
+      id: l.id, venue_id: l.venue_id, name: l.name, is_default: l.is_default, active: l.active, all_sectors: todos,
+      sectors: lista.map((x) => {
+        const s = setores.find((y) => String(y.id) === String(x.sector_id));
+        return {
+          sector_id: x.sector_id, name: s?.name, base_space: s?.space, space: x.space, effective_space: x.space !== null ? x.space : s?.space,
+          tables: x.own_rules ? mesas.filter((m) => String(m.sector_id) === String(x.sector_id)).map((m) => ({ table_type_id: m.table_type_id, max_tables: m.max_tables })) : null,
+        };
+      }),
+    };
+  }
+  const FORMATO = 'SELECT id, venue_id, name, is_default, active, position FROM shows_layouts';
+  r.get('/casa-de-shows/layouts', wrap(async (req, res) => {
+    let w = '', a = [];
+    if (req.query.venue_id !== undefined && req.query.venue_id !== '') {
+      const v = idOk(req.query.venue_id);
+      if (!v) return res.status(400).json({ error: 'Local inválido' });
+      w = 'WHERE venue_id=$1'; a = [v];
+    }
+    const rows = (await q(`${FORMATO} ${w} ORDER BY venue_id, is_default DESC, position, id`, a)).rows;
+    res.json(await Promise.all(rows.map(formatoOut)));
+  }));
+  // Lê a lista de setores do formato: [{ sector_id, space|null, tables: null (as do setor) | [{ table_type_id, max_tables }] }]
+  async function lerSetoresDoFormato(venueId, lista) {
+    if (lista === undefined) return { itens: undefined };
+    if (lista === null || (Array.isArray(lista) && !lista.length)) return { itens: [] };
+    if (!Array.isArray(lista)) return { erro: 'Setores do formato inválidos' };
+    const vistos = new Set(), itens = [];
+    for (const it of lista) {
+      const sid = idOk(it?.sector_id);
+      const setor = sid && (await q('SELECT venue_id FROM shows_sectors WHERE id=$1', [sid])).rows[0];
+      if (!setor) return { erro: 'Setor não encontrado' };
+      if (String(setor.venue_id) !== String(venueId)) return { erro: 'Esse setor é de outro local' };
+      if (vistos.has(sid)) return { erro: 'Setor repetido no formato' };
+      vistos.add(sid);
+      let sp = null;
+      if (it.space !== null && it.space !== undefined && it.space !== '') { sp = espaco(it.space, 0); if (sp === null) return { erro: 'Espaço inválido' }; }
+      let mesas = null;
+      if (it.tables !== null && it.tables !== undefined) {
+        const rg = await lerRegras({ tables: it.tables });
+        if (rg.erro) return { erro: rg.erro };
+        mesas = rg.regras;
+      }
+      itens.push({ sid, sp, mesas });
+    }
+    return { itens };
+  }
+  // O que muda no espaço não pode deixar um evento com mais reservas do que cabe
+  async function conferirEventos(t, ids) {
+    for (const id of ids) {
+      const ss = await situacao({ event_id: id, date: '' }, {}, t);
+      const estoura = ss.find((x) => x.used > x.space + 1e-9);
+      if (estoura) { const e = new Error(`No setor ${estoura.name} já há reservas que ocupam ${estoura.used} e o novo espaço é ${estoura.space}.`); e.status = 409; throw e; }
+    }
+  }
+  async function eventosDoFormato(t, layoutId, venueId) {
+    const doEvento = (await t('SELECT event_id FROM shows_event_setup WHERE layout_id=$1', [layoutId])).rows.map((x) => x.event_id);
+    const principal = await primeiroLocal(t);
+    const padrao = (await t('SELECT 1 FROM shows_layouts WHERE id=$1 AND is_default', [layoutId])).rowCount && String(principal.id) === String(venueId);
+    const semEscolha = padrao ? (await t('SELECT DISTINCT v.event_id FROM shows_reservations v WHERE v.event_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM shows_event_setup es WHERE es.event_id = v.event_id)')).rows.map((x) => x.event_id) : [];
+    return [...new Set([...doEvento, ...semEscolha].map(String))];
+  }
+  async function salvarFormato(t, id, venueId, itens) {
+    if (itens === undefined) return;
+    await t('DELETE FROM shows_layout_sectors WHERE layout_id=$1', [id]);
+    for (const it of itens) {
+      await t('INSERT INTO shows_layout_sectors (layout_id, sector_id, space, own_rules) VALUES ($1,$2,$3,$4)', [id, it.sid, it.sp, it.mesas !== null]);
+      for (const [tid, mx] of it.mesas || []) await t('INSERT INTO shows_layout_tables (layout_id, sector_id, table_type_id, max_tables) VALUES ($1,$2,$3,$4)', [id, it.sid, tid, mx]);
+    }
+  }
+  r.post('/casa-de-shows/layouts', comTratamento(async (req, res) => {
+    const b = req.body || {};
+    const lv = await venueDe(b);
+    if (lv.erro) return res.status(400).json({ error: lv.erro });
+    const nome = txt(b.name, 60);
+    if (!nome) return res.status(400).json({ error: 'Informe o nome do formato (até 60 letras)' });
+    const ls = await lerSetoresDoFormato(lv.venue_id, b.sectors);
+    if (ls.erro) return res.status(400).json({ error: ls.erro });
+    try {
+      const id = await tx(currentCompany(), async (t) => {
+        const pos = (await t('SELECT COALESCE(MAX(position), 0) + 1 AS p FROM shows_layouts WHERE venue_id=$1', [lv.venue_id])).rows[0].p;
+        const novo = (await t('INSERT INTO shows_layouts (venue_id, name, position) VALUES ($1,$2,$3) RETURNING id', [lv.venue_id, nome, pos])).rows[0].id;
+        await salvarFormato(t, novo, lv.venue_id, ls.itens);
+        if (b.is_default === true) { await t('UPDATE shows_layouts SET is_default = (id = $2) WHERE venue_id=$1', [lv.venue_id, novo]); }
+        return novo;
+      });
+      res.status(201).json(await formatoOut((await q(`${FORMATO} WHERE id=$1`, [id])).rows[0]));
+    } catch (e) {
+      if (e.code === '23505') return res.status(409).json({ error: 'Já existe um formato com esse nome neste local' });
+      throw e;
+    }
+  }));
+  r.put('/casa-de-shows/layouts/:id', comTratamento(async (req, res) => {
+    const b = req.body || {};
+    const atual = (await q(`${FORMATO} WHERE id=$1`, [idOk(req.params.id) || 0])).rows[0];
+    if (!atual) return res.status(404).json({ error: 'Formato não encontrado' });
+    let nome = atual.name;
+    if (b.name !== undefined) { nome = txt(b.name, 60); if (!nome) return res.status(400).json({ error: 'Informe o nome do formato (até 60 letras)' }); }
+    if (b.active !== undefined && typeof b.active !== 'boolean') return res.status(400).json({ error: 'Ativo inválido' });
+    if (b.is_default === false && atual.is_default) return res.status(400).json({ error: 'Escolha outro formato como padrão para trocar' });
+    const ls = await lerSetoresDoFormato(atual.venue_id, b.sectors);
+    if (ls.erro) return res.status(400).json({ error: ls.erro });
+    try {
+      await tx(currentCompany(), async (t) => {
+        await t('UPDATE shows_layouts SET name=$2, active=$3 WHERE id=$1', [atual.id, nome, b.active ?? atual.active]);
+        await salvarFormato(t, atual.id, atual.venue_id, ls.itens);
+        if (b.is_default === true) await t('UPDATE shows_layouts SET is_default = (id = $2) WHERE venue_id=$1', [atual.venue_id, atual.id]);
+        if (ls.itens !== undefined) await conferirEventos(t, await eventosDoFormato(t, atual.id, atual.venue_id));
+      });
+    } catch (e) {
+      if (e.code === '23505') return res.status(409).json({ error: 'Já existe um formato com esse nome neste local' });
+      throw e;
+    }
+    res.json(await formatoOut((await q(`${FORMATO} WHERE id=$1`, [atual.id])).rows[0]));
+  }));
+  r.delete('/casa-de-shows/layouts/:id', wrap(async (req, res) => {
+    const l = (await q(`${FORMATO} WHERE id=$1`, [idOk(req.params.id) || 0])).rows[0];
+    if (!l) return res.status(404).json({ error: 'Formato não encontrado' });
+    if (l.is_default) return res.status(409).json({ error: 'O formato padrão não pode ser apagado. Escolha outro como padrão antes.' });
+    try { await q('DELETE FROM shows_layouts WHERE id=$1', [l.id]); } catch (e) {
+      if (e.code === '23503') return res.status(409).json({ error: 'Há eventos usando esse formato. Troque o formato desses eventos primeiro.' });
+      throw e;
+    }
+    res.json({ ok: true });
+  }));
+
+  // Local e formato de um evento
+  const setupOut = (cfg) => ({ venue: { id: cfg.venue_id, name: cfg.venue_name }, layout: cfg.layout_id ? { id: cfg.layout_id, name: cfg.layout_name } : null, chosen: cfg.custom });
+  r.get('/casa-de-shows/events/:id/setup', wrap(async (req, res) => {
+    const ev = await eventoDe(req.params.id);
+    if (!ev) return res.status(404).json({ error: 'Evento não encontrado' });
+    res.json(setupOut(await configuracao(q, { event_id: ev.id })));
+  }));
+  // Corpo: { venue_id, layout_id? } (sem formato, vale o padrão do local) ; { venue_id: null } volta ao local principal e formato padrão
+  r.put('/casa-de-shows/events/:id/setup', comTratamento(async (req, res) => {
+    const ev = await eventoDe(req.params.id);
+    if (!ev) return res.status(404).json({ error: 'Evento não encontrado' });
+    const b = req.body || {};
+    let venueId = null, layoutId = null;
+    if (b.venue_id !== null && b.venue_id !== undefined && b.venue_id !== '') {
+      const lv = await venueDe({ venue_id: b.venue_id });
+      if (lv.erro) return res.status(400).json({ error: lv.erro });
+      venueId = lv.venue_id;
+      if (b.layout_id !== undefined && b.layout_id !== null && b.layout_id !== '') {
+        layoutId = idOk(b.layout_id);
+        const l = layoutId && (await q('SELECT venue_id FROM shows_layouts WHERE id=$1', [layoutId])).rows[0];
+        if (!l || String(l.venue_id) !== String(venueId)) return res.status(400).json({ error: 'Esse formato não é deste local' });
+      } else layoutId = (await q('SELECT id FROM shows_layouts WHERE venue_id=$1 AND is_default', [venueId])).rows[0]?.id;
+    } else if (b.venue_id === undefined) return res.status(400).json({ error: 'Informe o local' });
+    await tx(currentCompany(), async (t) => {
+      await t('SELECT pg_advisory_xact_lock(hashtext($1))', [`shows:${currentCompany()}:${ev.id}`]);
+      if (venueId) await t(`INSERT INTO shows_event_setup (event_id, venue_id, layout_id) VALUES ($1,$2,$3) ON CONFLICT (event_id) DO UPDATE SET venue_id=EXCLUDED.venue_id, layout_id=EXCLUDED.layout_id`, [ev.id, venueId, layoutId]);
+      else await t('DELETE FROM shows_event_setup WHERE event_id=$1', [ev.id]);
+      const cfg = await configuracao(t, { event_id: ev.id });
+      const usados = (await t(`SELECT DISTINCT s.id, s.name FROM shows_reservations v JOIN shows_sectors s ON s.id = v.sector_id WHERE v.event_id=$1 AND v.status = ANY($2)`, [ev.id, OCUPAM])).rows;
+      const naoCabem = [];
+      for (const x of usados) {
+        const dono = (await t('SELECT venue_id FROM shows_sectors WHERE id=$1', [x.id])).rows[0].venue_id;
+        if (String(dono) !== String(cfg.venue_id) || !cfg.entra(x.id)) naoCabem.push(x.name);
+      }
+      if (naoCabem.length) { const e = new Error(`Há reservas em setores que não existem nesse local e formato: ${naoCabem.join(', ')}.`); e.status = 409; throw e; }
+      await conferirEventos(t, [ev.id]);
+    });
+    res.json(setupOut(await configuracao(q, { event_id: ev.id })));
   }));
 
   // ---------- preço e palavras-chave do evento ----------
@@ -676,6 +1054,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     const novo = await tx(currentCompany(), async (t) => {
       const e = (await t('INSERT INTO events (title, starts_at, ends_at, place, notes) VALUES ($1,$2,$3,$4,$5) RETURNING *', [titulo, novoInicio.toISOString(), fim, orig.place, orig.notes])).rows[0];
       await t('INSERT INTO shows_event_sectors (event_id, sector_id, space) SELECT $2, sector_id, space FROM shows_event_sectors WHERE event_id=$1', [orig.id, e.id]);
+      await t('INSERT INTO shows_event_setup (event_id, venue_id, layout_id) SELECT $2, venue_id, layout_id FROM shows_event_setup WHERE event_id=$1', [orig.id, e.id]);
       const c = (await t('SELECT * FROM shows_event_conditions WHERE event_id=$1', [orig.id])).rows[0];
       if (c) await t('INSERT INTO shows_event_conditions (event_id, price, door_price, price_until, instructions) VALUES ($1,$2,$3,$4,$5)', [e.id, c.price, c.door_price, mover(c.price_until), c.instructions]);
       const ks = (await t('SELECT * FROM shows_event_codes WHERE event_id=$1 ORDER BY id', [orig.id])).rows;
@@ -800,7 +1179,8 @@ export function registerCasaDeShowsRoutes(r, wrap) {
 
   // O setor aceita esse tipo de mesa nessa ocasião? E até quantas (null = sem limite)? Mesas extras abertas à mão contam.
   async function regraDoTipo(run, oc, sid, tid) {
-    const regras = (await run('SELECT table_type_id::text AS t, max_tables FROM shows_sector_tables WHERE sector_id=$1', [sid])).rows;
+    const cfg = await configuracao(run, oc);
+    const regras = cfg.regras(sid).map((x) => ({ t: x.table_type_id, max_tables: x.max_tables }));
     const g = regras.find((x) => x.t === String(tid));
     const a = [sid, tid];
     const f = filtroOcasiao(oc, a);
@@ -826,6 +1206,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
       }
       if (OCUPAM.includes(status)) {
         const [s] = await situacao(oc, { sectorId: setor.id }, t);
+        if (!s) { const e = new Error(`O setor ${setor.name} não faz parte do local e formato deste evento.`); e.status = 409; throw e; }
         const jaUsa = id ? Number((await t('SELECT status, tables * space_each AS u, sector_id FROM shows_reservations WHERE id=$1', [id])).rows
           .filter((x) => OCUPAM.includes(x.status) && String(x.sector_id) === String(setor.id)).map((x) => x.u)[0] || 0) : 0;
         // para a edição, o espaço dela mesma conta como livre — mas só se a ocasião não mudou
@@ -877,6 +1258,12 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     const setor = (await q('SELECT id, name, active FROM shows_sectors WHERE id=$1', [sid])).rows[0];
     if (!setor) return { erro: 'Setor não encontrado' };
     if (!setor.active && (!atual || String(atual.sector_id) !== String(setor.id))) return { erro: 'Esse setor está desativado' };
+    if (!atual || tem('sector_id') || tem('event_id') || tem('date')) {
+      const cfg = await configuracao(q, oc);
+      const dele = (await q('SELECT venue_id FROM shows_sectors WHERE id=$1', [setor.id])).rows[0];
+      if (String(dele.venue_id) !== String(cfg.venue_id) || !cfg.entra(setor.id))
+        return { erro: `O setor ${setor.name} não faz parte do local e formato deste evento`, status: 409 };
+    }
     // nome, telefone
     let nome = atual?.name, phone = atual?.phone ?? null;
     if (tem('name')) { nome = txt(b.name, 120); if (!nome) return { erro: 'Informe o nome de quem reserva' }; }

@@ -16,14 +16,15 @@ export default function CasaDeShows() {
     <>
       <div style={{ marginBottom: 12 }}>
         <h1>Casa de Shows</h1>
-        <p className="muted">Reservas de mesa por setor. Cada setor tem um espaço, e cada tipo de mesa ocupa uma parte dele.</p>
+        <p className="muted">Reservas de mesa por setor. Cada local tem seus setores e formatos de uso; cada setor tem um espaço, e cada tipo de mesa ocupa uma parte dele.</p>
       </div>
       <div className="row" style={{ marginBottom: 12 }}>
-        {[['reservas', 'Reservas'], ['setores', 'Setores'], ['mesas', 'Mesas']].map(([v, l]) => (
+        {[['reservas', 'Reservas'], ['locais', 'Locais'], ['setores', 'Setores'], ['mesas', 'Mesas']].map(([v, l]) => (
           <button key={v} className={'btn' + (aba === v ? ' primary' : '')} onClick={() => setAba(v)}>{l}</button>
         ))}
       </div>
       {aba === 'reservas' && <Reservas />}
+      {aba === 'locais' && <Locais />}
       {aba === 'setores' && <Setores />}
       {aba === 'mesas' && <Mesas />}
     </>
@@ -38,7 +39,9 @@ function Reservas() {
   const [data, setData] = useState(hoje());
   const [disp, setDisp] = useState(null);
   const [lista, setLista] = useState([]);
-  const [setores, setSetores] = useState([]);
+  const [todosSetores, setSetores] = useState([]);
+  const [locais, setLocais] = useState([]);
+  const [setup, setSetup] = useState(null);
   const [tipos, setTipos] = useState([]);
   const [edit, setEdit] = useState(null);
   const [ajuste, setAjuste] = useState(null);
@@ -55,7 +58,12 @@ function Reservas() {
     api('/events?quando=passados').then((l) => setPassados(l.slice(0, 60))).catch(() => {});
     api('/casa-de-shows/sectors').then(setSetores).catch(() => {});
     api('/casa-de-shows/table-types').then(setTipos).catch(() => {});
+    api('/casa-de-shows/venues').then(setLocais).catch(() => {});
   }, []);
+  // só valem os setores do local e formato do evento
+  const noEvento = (x) => !disp || disp.sectors.some((d) => String(d.sector_id) === String(x.id));
+  const setores = todosSetores.filter(noEvento);
+  const variosLocais = locais.length > 1 || locais.some((l) => l.layouts.length > 1);
   const filtro = oc === 'data' ? 'date=' + data : 'event_id=' + oc;
   const load = () => {
     if (!oc) return;
@@ -145,6 +153,20 @@ function Reservas() {
       setEventos(l); setOc(String(r.event.id)); setDup(null);
     } catch (e2) { setErr(e2.message); }
   }
+  async function abrirSetup() {
+    setErr('');
+    try {
+      const [st, fs] = await Promise.all([api(`/casa-de-shows/events/${oc}/setup`), api('/casa-de-shows/layouts')]);
+      setSetup({ venue_id: String(st.venue.id), layout_id: st.layout ? String(st.layout.id) : '', formatos: fs });
+    } catch (e) { setErr(e.message); }
+  }
+  async function salvarSetup(e) {
+    e.preventDefault(); setErr('');
+    try {
+      await api(`/casa-de-shows/events/${oc}/setup`, { method: 'PUT', body: { venue_id: setup.venue_id, layout_id: setup.layout_id || null } });
+      setSetup(null); load();
+    } catch (e2) { setErr(e2.message); }
+  }
   async function abrirAjuste() {
     if (!disp) return;
     setAjuste(disp.sectors.map((s) => ({ sector_id: s.sector_id, name: s.name, base: s.base_space, space: s.custom_space ? String(s.space) : '' })));
@@ -171,6 +193,7 @@ function Reservas() {
             <option value="data">Outra data…</option>
           </select>
           {oc === 'data' && <input type="date" value={data} onChange={(e) => setData(e.target.value || hoje())} style={{ maxWidth: 170 }} />}
+          {oc !== 'data' && variosLocais && <button className="btn" onClick={abrirSetup}>Local e formato</button>}
           {oc !== 'data' && <button className="btn" onClick={abrirAjuste}>Ajustar espaço deste evento</button>}
           {oc !== 'data' && <button className="btn" onClick={abrirCond}>Preço e descontos</button>}
           {oc !== 'data' && <button className="btn" onClick={abrirDup}>Duplicar evento</button>}
@@ -179,7 +202,8 @@ function Reservas() {
         <button className="btn primary" onClick={novo} disabled={!setores.some((s) => s.active) || !tiposAtivos.length}>+ Nova reserva</button>
       </div>
       {(!setores.some((s) => s.active) || !tiposAtivos.length) && <p className="muted">Antes de reservar, cadastre ao menos um setor (aba Setores) e um tipo de mesa (aba Mesas).</p>}
-      {err && !edit && !ajuste && <div className="error">{err}</div>}
+      {err && !edit && !ajuste && !setup && <div className="error">{err}</div>}
+      {disp?.venue && variosLocais && oc !== 'data' && <p className="muted" style={{ margin: '0 0 10px' }}>Local: <strong>{disp.venue.name}</strong>{disp.layout && <> · Formato: <strong>{disp.layout.name}</strong></>}</p>}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 10, marginBottom: 14 }}>
         {(disp?.sectors || []).map((s) => {
@@ -245,7 +269,7 @@ function Reservas() {
             <div className="row">
               <div className="field"><label>Setor *</label>
                 <select value={edit.sector_id} onChange={(e) => setEdit({ ...edit, sector_id: e.target.value })} required>
-                  {setores.filter((s) => s.active || String(s.id) === String(edit.sector_id)).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  {todosSetores.filter((s) => (s.active && noEvento(s)) || String(s.id) === String(edit.sector_id)).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select></div>
               <div className="field"><label>Pessoas *</label><input type="number" min="1" max="1000" value={edit.people} onChange={(e) => setEdit({ ...edit, people: e.target.value })} required /></div>
             </div>
@@ -347,6 +371,25 @@ function Reservas() {
         </div>
       )}
 
+      {setup && (
+        <div className="modal-bg" onClick={() => setSetup(null)}>
+          <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={salvarSetup}>
+            <h2>Local e formato deste evento</h2>
+            {err && <div className="error">{err}</div>}
+            <div className="field"><label>Local</label>
+              <select value={setup.venue_id} onChange={(e) => setSetup({ ...setup, venue_id: e.target.value, layout_id: '' })}>
+                {locais.filter((l) => l.active || String(l.id) === setup.venue_id).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+              </select></div>
+            <div className="field"><label>Formato</label>
+              <select value={setup.layout_id} onChange={(e) => setSetup({ ...setup, layout_id: e.target.value })}>
+                <option value="">Formato padrão do local</option>
+                {setup.formatos.filter((f) => String(f.venue_id) === setup.venue_id && !f.is_default && (f.active || String(f.id) === setup.layout_id)).map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+              </select>
+              <span className="muted">O formato define quais setores valem neste evento, o espaço de cada um e as mesas aceitas.</span></div>
+            <div className="row" style={{ marginTop: 12 }}><button className="btn primary">Salvar</button><button type="button" className="btn" onClick={() => setSetup(null)}>Cancelar</button></div>
+          </form>
+        </div>
+      )}
       {ajuste && (
         <div className="modal-bg" onClick={() => setAjuste(null)}>
           <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={salvarAjuste}>
@@ -379,23 +422,23 @@ async function reduzirImagem(file, max) {
   } finally { URL.revokeObjectURL(url); }
 }
 
-function MapaDoEspaco() {
+function MapaDoEspaco({ venueId }) {
   const [m, setM] = useState(undefined);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
-  const load = () => api('/casa-de-shows/media').then((r) => setM(r.map)).catch((e) => setErr(e.message));
-  useEffect(() => { load(); }, []);
+  const load = () => api('/casa-de-shows/media?venue_id=' + venueId).then((r) => setM(r.map)).catch((e) => setErr(e.message));
+  useEffect(() => { load(); }, [venueId]);
   async function enviar(e) {
     const f = e.target.files[0]; e.target.value = ''; if (!f) return;
     setErr(''); setBusy(true);
-    try { await api('/casa-de-shows/media', { method: 'POST', body: { kind: 'map', data: await reduzirImagem(f, 1800) } }); await load(); } catch (e2) { setErr(e2.message); }
+    try { await api('/casa-de-shows/media', { method: 'POST', body: { kind: 'map', venue_id: venueId, data: await reduzirImagem(f, 1800) } }); await load(); } catch (e2) { setErr(e2.message); }
     setBusy(false);
   }
   async function tirar() { if (!confirm('Remover o mapa do espaço?')) return; try { await api('/casa-de-shows/media/' + m.id, { method: 'DELETE' }); load(); } catch (e) { setErr(e.message); } }
   if (m === undefined) return null;
   return (
     <div className="card" style={{ marginBottom: 12 }}>
-      <strong>Mapa do espaço</strong>
+      <strong>Mapa do local</strong>
       <p className="muted" style={{ margin: '4px 0 8px' }}>O atendente envia este mapa ao cliente que quer saber onde ficam os setores.</p>
       {err && <div className="error">{err}</div>}
       {m && <a href={m.url} target="_blank" rel="noreferrer"><img src={m.url} alt="Mapa do espaço" style={{ maxWidth: '100%', maxHeight: 220, borderRadius: 8, display: 'block', marginBottom: 8 }} /></a>}
@@ -440,24 +483,194 @@ function FotosDoSetor({ setorId }) {
   );
 }
 
+// ---------------------------------------------------------------- locais e formatos
+function Locais() {
+  const [locais, setLocais] = useState([]);
+  const [formatos, setFormatos] = useState([]);
+  const [setores, setSetores] = useState([]);
+  const [tipos, setTipos] = useState([]);
+  const [edit, setEdit] = useState(null);
+  const [fmt, setFmt] = useState(null);
+  const [err, setErr] = useState('');
+  const load = () => {
+    api('/casa-de-shows/venues').then(setLocais).catch((e) => setErr(e.message));
+    api('/casa-de-shows/layouts').then(setFormatos).catch(() => {});
+    api('/casa-de-shows/sectors').then(setSetores).catch(() => {});
+  };
+  useEffect(() => { load(); api('/casa-de-shows/table-types').then(setTipos).catch(() => {}); }, []);
+
+  async function salvarLocal(e) {
+    e.preventDefault(); setErr('');
+    const body = { name: edit.name, address: edit.address, notes: edit.notes, active: edit.active };
+    try {
+      if (edit.id) await api('/casa-de-shows/venues/' + edit.id, { method: 'PUT', body });
+      else await api('/casa-de-shows/venues', { method: 'POST', body });
+      setEdit(null); load();
+    } catch (e2) { setErr(e2.message); }
+  }
+  const apagarLocal = async (l) => {
+    if (!confirm(`Apagar o local "${l.name}"?`)) return;
+    try { await api('/casa-de-shows/venues/' + l.id, { method: 'DELETE' }); load(); } catch (e) { setErr(e.message); }
+  };
+
+  const abrirFormato = (local, f) => {
+    setErr('');
+    const doLocal = setores.filter((s) => String(s.venue_id) === String(local.id));
+    const linhas = {};
+    if (f && !f.all_sectors) for (const x of f.sectors) linhas[String(x.sector_id)] = { space: x.space === null ? '' : vir(x.space), proprias: x.tables !== null, regras: Object.fromEntries((x.tables || []).map((g) => [String(g.table_type_id), g.max_tables ? String(g.max_tables) : ''])) };
+    setFmt({ id: f?.id, venue_id: local.id, name: f?.name || '', is_default: !!f?.is_default, active: f ? f.active : true, todos: f ? f.all_sectors : true, linhas, doLocal });
+  };
+  async function salvarFormato(e) {
+    e.preventDefault(); setErr('');
+    const sectors = fmt.todos ? [] : Object.entries(fmt.linhas).map(([sid, x]) => ({
+      sector_id: sid, space: x.space === '' ? null : x.space,
+      tables: x.proprias ? Object.entries(x.regras).map(([id, v]) => ({ table_type_id: id, max_tables: v === '' ? null : Number(v) })) : null,
+    }));
+    const body = { name: fmt.name, sectors, active: fmt.active, ...(fmt.is_default ? { is_default: true } : {}) };
+    try {
+      if (fmt.id) await api('/casa-de-shows/layouts/' + fmt.id, { method: 'PUT', body });
+      else await api('/casa-de-shows/layouts', { method: 'POST', body: { ...body, venue_id: fmt.venue_id } });
+      setFmt(null); load();
+    } catch (e2) { setErr(e2.message); }
+  }
+  const apagarFormato = async (f) => {
+    if (!confirm(`Apagar o formato "${f.name}"?`)) return;
+    try { await api('/casa-de-shows/layouts/' + f.id, { method: 'DELETE' }); load(); } catch (e) { setErr(e.message); }
+  };
+  const linha = (sid) => fmt.linhas[String(sid)];
+  const marcarSetor = (sid, on) => {
+    const l = { ...fmt.linhas };
+    if (on) l[String(sid)] = { space: '', proprias: false, regras: {} }; else delete l[String(sid)];
+    setFmt({ ...fmt, linhas: l });
+  };
+  const mudaLinha = (sid, campo) => setFmt({ ...fmt, linhas: { ...fmt.linhas, [String(sid)]: { ...linha(sid), ...campo } } });
+
+  return (
+    <>
+      <div className="row" style={{ justifyContent: 'space-between', marginBottom: 12 }}>
+        <p className="muted" style={{ margin: 0 }}>Um local é um ambiente com setores próprios (uma casa, um salão, um palco). Cada local pode ter vários formatos de uso: escolha, em cada evento, o local e o formato que valem.</p>
+        <button className="btn primary" onClick={() => { setErr(''); setEdit({ name: '', address: '', notes: '', active: true }); }}>+ Novo local</button>
+      </div>
+      {err && !edit && !fmt && <div className="error">{err}</div>}
+      {locais.map((l) => {
+        const meus = formatos.filter((f) => String(f.venue_id) === String(l.id));
+        return (
+          <div className="card" key={l.id} style={{ marginBottom: 12 }}>
+            <div className="row" style={{ justifyContent: 'space-between' }}>
+              <div>
+                <strong>{l.name}</strong>{!l.active && <span className="muted"> · desativado</span>}
+                {l.address && <div className="muted">{l.address}</div>}
+                {l.notes && <div className="muted">{l.notes}</div>}
+                <div className="muted">{l.sectors} setor(es)</div>
+              </div>
+              <div className="row">
+                <button className="btn sm" onClick={() => { setErr(''); setEdit({ id: l.id, name: l.name, address: l.address || '', notes: l.notes || '', active: l.active }); }}>Editar</button>
+                <button className="btn sm" onClick={() => apagarLocal(l)}>Apagar</button>
+              </div>
+            </div>
+            <MapaDoEspaco venueId={l.id} />
+            <div className="row" style={{ justifyContent: 'space-between', margin: '4px 0' }}>
+              <strong>Formatos</strong>
+              <button className="btn sm" onClick={() => abrirFormato(l, null)}>+ Novo formato</button>
+            </div>
+            {meus.map((f) => (
+              <div className="row" key={f.id} style={{ justifyContent: 'space-between', padding: '6px 0', borderTop: '1px solid var(--line)' }}>
+                <span>{f.name}{f.is_default && <span className="muted"> · padrão</span>}{!f.active && <span className="muted"> · desativado</span>}
+                  <span className="muted"> · {f.all_sectors ? 'todos os setores' : `${f.sectors.length} setor(es)`}</span></span>
+                <span className="row">
+                  <button className="btn sm" onClick={() => abrirFormato(l, f)}>Editar</button>
+                  {!f.is_default && <button className="btn sm" onClick={() => apagarFormato(f)}>Apagar</button>}
+                </span>
+              </div>
+            ))}
+          </div>
+        );
+      })}
+
+      {edit && (
+        <div className="modal-bg" onClick={() => setEdit(null)}>
+          <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={salvarLocal}>
+            <h2>{edit.id ? 'Editar local' : 'Novo local'}</h2>
+            {err && <div className="error">{err}</div>}
+            <div className="field"><label>Nome *</label><input value={edit.name} maxLength={80} onChange={(e) => setEdit({ ...edit, name: e.target.value })} required /></div>
+            <div className="field"><label>Endereço</label><input value={edit.address} maxLength={200} onChange={(e) => setEdit({ ...edit, address: e.target.value })} /></div>
+            <div className="field"><label>Observações</label><input value={edit.notes} maxLength={300} onChange={(e) => setEdit({ ...edit, notes: e.target.value })} /></div>
+            {edit.id && <label className="row" style={{ gap: 8 }}><input type="checkbox" checked={edit.active} onChange={(e) => setEdit({ ...edit, active: e.target.checked })} /> Local ativo</label>}
+            {!edit.id && <p className="muted">Depois de criar, cadastre os setores dele na aba Setores.</p>}
+            <div className="row" style={{ marginTop: 12 }}><button className="btn primary">Salvar</button><button type="button" className="btn" onClick={() => setEdit(null)}>Cancelar</button></div>
+          </form>
+        </div>
+      )}
+
+      {fmt && (
+        <div className="modal-bg" onClick={() => setFmt(null)}>
+          <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={salvarFormato}>
+            <h2>{fmt.id ? 'Editar formato' : 'Novo formato'}</h2>
+            {err && <div className="error">{err}</div>}
+            <div className="field"><label>Nome * (ex.: Show em pé, Mesas na pista, Festa fechada)</label><input value={fmt.name} maxLength={60} onChange={(e) => setFmt({ ...fmt, name: e.target.value })} required /></div>
+            <label className="row" style={{ gap: 8 }}><input type="checkbox" checked={fmt.todos} onChange={(e) => setFmt({ ...fmt, todos: e.target.checked })} /> Usar todos os setores do local, do jeito que estão cadastrados</label>
+            {!fmt.todos && (
+              <div className="field" style={{ marginTop: 8 }}>
+                <label>Setores deste formato (deixe o espaço em branco para usar o espaço do setor)</label>
+                {fmt.doLocal.map((s) => {
+                  const x = linha(s.id);
+                  return (
+                    <div key={s.id} style={{ marginTop: 6 }}>
+                      <div className="row" style={{ gap: 8 }}>
+                        <label className="row" style={{ gap: 8, flex: 1 }}><input type="checkbox" checked={!!x} onChange={(e) => marcarSetor(s.id, e.target.checked)} /> {s.name} <span className="muted">(espaço {n1(s.space)})</span></label>
+                        {x && <input placeholder={n1(s.space)} style={{ maxWidth: 110 }} value={x.space} onChange={(e) => mudaLinha(s.id, { space: e.target.value })} />}
+                      </div>
+                      {x && (
+                        <div style={{ marginLeft: 26 }}>
+                          <label className="row" style={{ gap: 8 }}><input type="checkbox" checked={x.proprias} onChange={(e) => mudaLinha(s.id, { proprias: e.target.checked, regras: x.regras })} /> Mesas diferentes neste formato</label>
+                          {x.proprias && tipos.filter((t) => t.active).map((t) => {
+                            const id = String(t.id), on = x.regras[id] !== undefined;
+                            return (
+                              <div className="row" key={t.id} style={{ gap: 8, marginTop: 4 }}>
+                                <label className="row" style={{ gap: 8, flex: 1 }}><input type="checkbox" checked={on} onChange={() => { const r = { ...x.regras }; if (on) delete r[id]; else r[id] = ''; mudaLinha(s.id, { regras: r }); }} /> {t.name} ({t.seats} lugar(es))</label>
+                                {on && <input type="number" min="1" max="100" placeholder="até quantas" style={{ maxWidth: 120 }} value={x.regras[id]} onChange={(e) => mudaLinha(s.id, { regras: { ...x.regras, [id]: e.target.value } })} />}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {!fmt.doLocal.length && <span className="muted">Este local ainda não tem setores. Cadastre-os na aba Setores.</span>}
+              </div>
+            )}
+            {!fmt.is_default && <label className="row" style={{ gap: 8, marginTop: 8 }}><input type="checkbox" checked={fmt.is_default} onChange={(e) => setFmt({ ...fmt, is_default: e.target.checked })} /> Usar como formato padrão do local</label>}
+            {fmt.id && <label className="row" style={{ gap: 8, marginTop: 8 }}><input type="checkbox" checked={fmt.active} onChange={(e) => setFmt({ ...fmt, active: e.target.checked })} /> Formato ativo</label>}
+            <div className="row" style={{ marginTop: 12 }}><button className="btn primary">Salvar</button><button type="button" className="btn" onClick={() => setFmt(null)}>Cancelar</button></div>
+          </form>
+        </div>
+      )}
+    </>
+  );
+}
+
 // ---------------------------------------------------------------- setores
 function Setores() {
   const [rows, setRows] = useState([]);
+  const [locais, setLocais] = useState([]);
+  const [filtroLocal, setFiltroLocal] = useState('');
   const [tipos, setTipos] = useState([]);
   const [edit, setEdit] = useState(null);
   const [err, setErr] = useState('');
   const load = () => api('/casa-de-shows/sectors').then(setRows).catch((e) => setErr(e.message));
-  useEffect(() => { load(); api('/casa-de-shows/table-types').then(setTipos).catch(() => {}); }, []);
+  useEffect(() => { load(); api('/casa-de-shows/table-types').then(setTipos).catch(() => {}); api('/casa-de-shows/venues').then(setLocais).catch(() => {}); }, []);
+  const visiveis = rows.filter((s) => !filtroLocal || String(s.venue_id) === filtroLocal);
   const nomeMesas = (s) => (s.tables.length ? s.tables.map((g) => { const t = tipos.find((x) => String(x.id) === String(g.table_type_id)); return t ? t.name + (g.max_tables ? ` (até ${g.max_tables})` : '') : null; }).filter(Boolean).join(', ') : 'Todas');
   const abrir = (s) => {
     setErr('');
     const regras = Object.fromEntries((s?.tables || []).map((g) => [String(g.table_type_id), g.max_tables ? String(g.max_tables) : '']));
-    setEdit({ id: s?.id, name: s?.name || '', space: s ? String(s.space).replace('.', ',') : '', notes: s?.notes || '', active: s ? s.active : true, restringe: !!s?.tables?.length, regras });
+    setEdit({ id: s?.id, venue_id: String(s?.venue_id || filtroLocal || locais[0]?.id || ''), name: s?.name || '', space: s ? String(s.space).replace('.', ',') : '', notes: s?.notes || '', active: s ? s.active : true, restringe: !!s?.tables?.length, regras });
   };
   async function salvar(e) {
     e.preventDefault(); setErr('');
     const tables = edit.restringe ? Object.entries(edit.regras).filter(([, v]) => v !== undefined && v !== null).map(([id, v]) => ({ table_type_id: id, max_tables: v === '' ? null : Number(v) })) : [];
-    const body = { name: edit.name, space: edit.space, notes: edit.notes, active: edit.active, tables };
+    const body = { name: edit.name, space: edit.space, notes: edit.notes, active: edit.active, tables, ...(edit.id ? {} : { venue_id: edit.venue_id }) };
     try {
       if (edit.id) await api('/casa-de-shows/sectors/' + edit.id, { method: 'PUT', body });
       else await api('/casa-de-shows/sectors', { method: 'POST', body });
@@ -480,21 +693,28 @@ function Setores() {
         <button className="btn primary" onClick={() => abrir(null)}>+ Novo setor</button>
       </div>
       {err && !edit && <div className="error">{err}</div>}
-      <MapaDoEspaco />
+      {locais.length > 1 && (
+        <div className="row" style={{ marginBottom: 10 }}>
+          <select value={filtroLocal} onChange={(e) => setFiltroLocal(e.target.value)} style={{ maxWidth: 260 }}>
+            <option value="">Todos os locais</option>
+            {locais.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+          </select>
+        </div>
+      )}
       <div className="card table-wrap">
         <table>
-          <thead><tr><th>Setor</th><th>Espaço</th><th>Mesas aceitas</th><th>Observações</th><th>Situação</th><th></th></tr></thead>
+          <thead><tr><th>Setor</th>{locais.length > 1 && <th>Local</th>}<th>Espaço</th><th>Mesas aceitas</th><th>Observações</th><th>Situação</th><th></th></tr></thead>
           <tbody>
-            {rows.map((s) => (
+            {visiveis.map((s) => (
               <tr key={s.id}>
-                <td>{s.name}</td><td>{n1(s.space)}</td><td>{nomeMesas(s)}</td><td className="muted">{s.notes || '—'}</td><td>{s.active ? 'Ativo' : 'Desativado'}</td>
+                <td>{s.name}</td>{locais.length > 1 && <td>{s.venue_name}</td>}<td>{n1(s.space)}</td><td>{nomeMesas(s)}</td><td className="muted">{s.notes || '—'}</td><td>{s.active ? 'Ativo' : 'Desativado'}</td>
                 <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                   <button className="btn sm" onClick={() => abrir(s)}>Editar</button>{' '}
                   <button className="btn sm" onClick={() => apagar(s)}>Apagar</button>
                 </td>
               </tr>
             ))}
-            {!rows.length && <tr><td colSpan="6" className="muted">Nenhum setor cadastrado.</td></tr>}
+            {!visiveis.length && <tr><td colSpan="7" className="muted">Nenhum setor cadastrado.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -503,6 +723,10 @@ function Setores() {
           <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={salvar}>
             <h2>{edit.id ? 'Editar setor' : 'Novo setor'}</h2>
             {err && <div className="error">{err}</div>}
+            {!edit.id && locais.length > 1 && (
+              <div className="field"><label>Local *</label>
+                <select value={edit.venue_id} onChange={(e) => setEdit({ ...edit, venue_id: e.target.value })}>{locais.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></div>
+            )}
             <div className="field"><label>Nome *</label><input value={edit.name} maxLength={60} onChange={(e) => setEdit({ ...edit, name: e.target.value })} required /></div>
             <div className="field"><label>Espaço total *</label><input value={edit.space} onChange={(e) => setEdit({ ...edit, space: e.target.value })} required /></div>
             <div className="field"><label>Observações (visão, som, perto do bar…)</label><input value={edit.notes} maxLength={300} onChange={(e) => setEdit({ ...edit, notes: e.target.value })} /></div>
