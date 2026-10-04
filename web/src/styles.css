@@ -135,3 +135,9 @@ tr.click { cursor: pointer; } tr.click:hover td { background: var(--bg); }
 /* ícone fino, na cor do texto esmaecida: discreto, realça ao passar o mouse */
 .senha-olho { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); background: none; border: 0; cursor: pointer; line-height: 0; padding: 6px; color: var(--muted); opacity: .7; display: inline-flex; }
 .senha-olho:hover { opacity: 1; color: var(--text); }
+
+/* Seletor de tema: pílula discreta com ícone de traço fino */
+.tema-sel { display: inline-flex; align-items: center; gap: 8px; padding: 0 10px 0 12px; border: 1px solid var(--line); background: var(--card); border-radius: 999px; color: var(--muted); }
+.tema-sel:hover { color: var(--text); }
+.tema-sel select { width: auto; border: 0; background: transparent; color: var(--text); padding: 8px 4px; font-size: 14px; outline: none; cursor: pointer; }
+:root[data-mode='dark'] .tema-sel select { background: transparent; }

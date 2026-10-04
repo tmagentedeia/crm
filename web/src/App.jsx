@@ -27,7 +27,7 @@ import Documentos from './pages/Documentos.jsx';
 import Beneficios from './pages/Beneficios.jsx';
 import { moduleOn } from './modules.js';
 import UpgradeModal from './UpgradeModal.jsx';
-import { IconeCadeado } from './icones.jsx';
+import { IconeCadeado, IconeSair, IconeTema } from './icones.jsx';
 import { MenuCustomContext, nomeDoMenu, iconeDoMenu } from './menu.jsx';
 
 const THEMES = [
@@ -56,18 +56,18 @@ const BASE_MENU = [
   { id: 'eventos', module: 'eventos', label: 'Eventos', icon: '🗓️', comp: Eventos },
   { id: 'financeiro', module: 'financeiro', label: 'Recebimentos', icon: '💰', comp: Financeiro },
   { id: 'comissoes', module: 'comissoes', label: 'Comissões', icon: '💸', comp: Comissoes },
-  { id: 'scenarium', module: 'scenarium', label: 'Scenarium', icon: '▦', comp: Scenarium },
+  { id: 'scenarium', module: 'scenarium', label: 'Scenarium', icon: '🎟️', comp: Scenarium },
   { id: 'fila', module: 'fila', label: 'Fila de espera', icon: '⏳', comp: Fila },
   { id: 'comandos', module: 'comandos', label: 'Comandos', icon: '🎛️', comp: Comandos },
   { id: 'bloqueios', module: 'bloqueios', label: 'Atendimentos bloqueados', icon: '🚫', comp: Bloqueios },
-  { id: 'delivery', module: 'delivery', label: 'Delivery', icon: '⛟', comp: Delivery },
-  { id: 'rst_salao', module: 'restaurante', label: 'Salão', icon: '◫', comp: RstSalao },
-  { id: 'rst_cozinha', module: 'restaurante', label: 'Cozinha', icon: '♨', comp: RstCozinha },
-  { id: 'rst_caixa', module: 'restaurante', label: 'Caixa', icon: '◎', comp: RstCaixa },
-  { id: 'rst_gestao', module: 'restaurante', label: 'Gestão', icon: '▣', comp: RstGestao },
-  { id: 'documentos', module: 'documentos', label: 'Documentos', icon: '▤', comp: Documentos },
-  { id: 'beneficios', module: 'beneficios', label: 'Programa de benefícios M2', icon: '◈', comp: Beneficios },
-  { id: 'equipe', label: 'Equipe e acessos', icon: '☷', comp: Equipe, soDono: true },
+  { id: 'delivery', module: 'delivery', label: 'Delivery', icon: '🛵', comp: Delivery },
+  { id: 'rst_salao', module: 'restaurante', label: 'Salão', icon: '🍽️', comp: RstSalao },
+  { id: 'rst_cozinha', module: 'restaurante', label: 'Cozinha', icon: '👨‍🍳', comp: RstCozinha },
+  { id: 'rst_caixa', module: 'restaurante', label: 'Caixa', icon: '🧾', comp: RstCaixa },
+  { id: 'rst_gestao', module: 'restaurante', label: 'Gestão', icon: '🏪', comp: RstGestao },
+  { id: 'documentos', module: 'documentos', label: 'Documentos', icon: '📄', comp: Documentos },
+  { id: 'beneficios', module: 'beneficios', label: 'Programa de benefícios M2', icon: '🎁', comp: Beneficios },
+  { id: 'equipe', label: 'Equipe e acessos', icon: '🔑', comp: Equipe, soDono: true },
   { id: 'config', label: 'Configurações', icon: '⚙️', comp: Config, soDono: true },
 ];
 
@@ -166,7 +166,7 @@ export default function App() {
         ))}
         <div className="spacer" />
         <button className="nav-item" onClick={() => { setToken(null); localStorage.removeItem(ADMIN_KEY); localStorage.removeItem('crm_company'); setLogged(false); }}>
-          <span className="nav-icon">🚪</span><span>Sair</span>
+          <span className="nav-icon" style={{ display: 'inline-flex', justifyContent: 'center' }}><IconeSair /></span><span>Sair</span>
         </button>
       </aside>
       {/* No celular, tocar fora do menu aberto (na área da página) fecha o menu e volta pra onde estava */}
@@ -180,9 +180,12 @@ export default function App() {
         )}
         <div className="topbar">
           <button className="btn" onClick={() => setCollapsed(!collapsed)}>☰ Menu</button>
-          <select value={theme} onChange={(e) => setTheme(e.target.value)} style={{ width: 'auto' }} title="Tema">
-            {THEMES.map((t) => <option key={t.id} value={t.id}>🎨 {t.label}</option>)}
-          </select>
+          <label className="tema-sel" title="Tema">
+            <IconeTema />
+            <select value={theme} onChange={(e) => setTheme(e.target.value)} aria-label="Tema">
+              {THEMES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+            </select>
+          </label>
         </div>
         <Current company={company} menu={visible} />
       </main>

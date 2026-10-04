@@ -17,3 +17,19 @@ export const IconeCadeado = ({ size = 14 }) => (
     <path d="M8 11V8a4 4 0 0 1 8 0v3" />
   </svg>
 );
+
+export const IconeSair = ({ size = 18 }) => (
+  <svg {...base} width={size} height={size}>
+    <path d="M10 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4" />
+    <path d="M16 8l4 4-4 4" />
+    <path d="M20 12H9" />
+  </svg>
+);
+
+export const IconeTema = ({ size = 16 }) => (
+  <svg {...base} width={size} height={size}>
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="M12 3.5v17" />
+    <path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor" stroke="none" opacity=".35" />
+  </svg>
+);
