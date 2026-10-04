@@ -10,12 +10,14 @@ export const PLANOS = { starter: STARTER, pro: PRO, advanced: ADVANCED };
 
 // Módulos sem item de menu próprio: não entram na vitrine de upgrade
 const SEM_MENU = ['assistente', 'lembrete_cliente'];
+// Módulos fora dos planos: o administrador liga caso a caso; aplicar um plano não liga, não desliga e não coloca cadeado
+const FORA_DOS_PLANOS = ['scenarium'];
 
 // { modules, locks } completos do plano, ou null se o plano não existe
 export function aplicacaoDoPlano(plano) {
   const ligados = PLANOS[plano];
   if (!ligados) return null;
-  const modules = Object.fromEntries(MODULE_KEYS.map((k) => [k, ligados.includes(k)]));
-  const locks = Object.fromEntries(MODULE_KEYS.filter((k) => !ligados.includes(k) && !SEM_MENU.includes(k)).map((k) => [k, true]));
+  const modules = Object.fromEntries(MODULE_KEYS.filter((k) => !FORA_DOS_PLANOS.includes(k)).map((k) => [k, ligados.includes(k)]));
+  const locks = Object.fromEntries(MODULE_KEYS.filter((k) => !ligados.includes(k) && !SEM_MENU.includes(k) && !FORA_DOS_PLANOS.includes(k)).map((k) => [k, true]));
   return { modules, locks };
 }

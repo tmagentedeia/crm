@@ -19,10 +19,14 @@ const linhas = (rows) => rows.map((c) => [c.name, c.last_name, c.phone, c.status
 // aceita 25/09 ou 25/09/1990; devolve o que o servidor entende
 const nomeCompleto = (c) => [c.name, c.last_name].filter(Boolean).join(' ');
 
+const PERFIL = { buyer: 'Comprador', hirer: 'Contratante' };
+
 const STATUS = { pending: 'Aguardando confirmação', scheduled: 'Agendado', attended: 'Compareceu', no_show: 'Faltou', cancelled: 'Cancelado' };
 
 export default function Clientes({ company }) {
   const clube = moduleOn(company?.modules, 'clube');
+  const scn = moduleOn(company?.modules, 'scenarium');
+  const [perfil, setPerfil] = useState('');
   const [club, setClub] = useState(null);
   const [sit, setSit] = useState('');
   const [nivel, setNivel] = useState('');
@@ -35,7 +39,7 @@ export default function Clientes({ company }) {
   const [adding, setAdding] = useState(false);
   const sel = useSelecao(list);
 
-  const qs = `status=${tab}&search=${encodeURIComponent(search)}&club=${sit}&level=${nivel}`;
+  const qs = `status=${tab}&search=${encodeURIComponent(search)}&club=${sit}&level=${nivel}&kind=${perfil}`;
   const [campo, sentido] = ordem.split('-');
   const load = () => api(`/customers?${qs}${campo ? `&sort=${campo}&dir=${sentido}` : ''}`).then(setList);
   useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [tab, search, sit, nivel, ordem]);
@@ -76,6 +80,12 @@ export default function Clientes({ company }) {
         {[['', 'Todos'], ['lead', 'Leads'], ['client', 'Clientes']].map(([v, l]) => (
           <button key={v} className={'btn' + (tab === v ? ' primary' : '')} onClick={() => setTab(v)}>{l}</button>
         ))}
+        {scn && (
+          <select value={perfil} onChange={(e) => setPerfil(e.target.value)} style={{ maxWidth: 170 }} title="Perfil do cliente">
+            <option value="">Perfil: todos</option>
+            {Object.entries(PERFIL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        )}
         {clube && (
           <>
             <select value={sit} onChange={(e) => { setSit(e.target.value); setNivel(''); }} style={{ maxWidth: 190 }} title="Situação no programa">
@@ -114,7 +124,7 @@ export default function Clientes({ company }) {
                 <CelulaLinha s={sel} id={c.id} />
                 <td>{nomeCompleto(c) || <span className="muted">Sem nome</span>}</td>
                 <td>{fmtPhone(c.phone)}</td>
-                <td><span className={'badge ' + c.status}>{c.status === 'client' ? 'Cliente' : 'Lead'}</span></td>
+                <td><span className={'badge ' + c.status}>{c.status === 'client' ? 'Cliente' : 'Lead'}</span>{(c.client_kinds || []).map((k) => <span key={k} className="muted"> · {PERFIL[k]}</span>)}</td>
                 {clube && <td>{c.club_status ? <span className="badge">{SITUACAO[c.club_status]}{c.club_level_name ? ' · ' + c.club_level_name : ''}</span> : <span className="muted">—</span>}</td>}
                 <td>{[c.city, c.state].filter(Boolean).join(' / ') || <span className="muted">—</span>}</td>
                 <td>{fmtDate(c.last_visit_at)}</td>
@@ -124,7 +134,7 @@ export default function Clientes({ company }) {
           </tbody>
         </table>
       </div>
-      {detail && <Detail c={detail} nomePedidos={rotulosDe(company, 'pedidos').items} clube={clube} club={club} onClose={() => setDetail(null)} onSaved={() => { setDetail(null); load(); }} onDeleted={() => { setDetail(null); load(); }} />}
+      {detail && <Detail c={detail} perfis={scn || !!detail.client_kinds?.length} nomePedidos={rotulosDe(company, 'pedidos').items} clube={clube} club={club} onClose={() => setDetail(null)} onSaved={() => { setDetail(null); load(); }} onDeleted={() => { setDetail(null); load(); }} />}
       {adding && <AddCustomer clube={clube} club={club} onClose={() => setAdding(false)} onSaved={() => { setAdding(false); load(); }} />}
     </>
   );
@@ -170,14 +180,16 @@ const fichaCorpo = (f, clube) => ({
   ...(clube ? { club_status: f.club_status || null, club_level_id: f.club_status === 'member' && f.club_level_id ? Number(f.club_level_id) : null } : {}),
 });
 
-function Detail({ c, nomePedidos, clube, club, onClose, onSaved, onDeleted }) {
+function Detail({ c, perfis, nomePedidos, clube, club, onClose, onSaved, onDeleted }) {
   const [f, setF] = useState({ name: c.name || '', last_name: c.last_name || '', phone: c.phone || '', status: c.status, notes: c.notes || '', ...fichaInicial(c) });
+  const [kinds, setKinds] = useState(c.client_kinds || []);
+  const alternarPerfil = (k) => setKinds(kinds.includes(k) ? kinds.filter((x) => x !== k) : [...kinds, k]);
   const [err, setErr] = useState('');
   const attended = c.history.filter((h) => h.status === 'attended');
   const future = c.history.filter((h) => h.status === 'scheduled' && new Date(h.starts_at) > new Date()).length;
   const save = async () => {
     setErr('');
-    try { await api('/customers/' + c.id, { method: 'PUT', body: { name: f.name, last_name: f.last_name, phone: f.phone, status: f.status, notes: f.notes, ...fichaCorpo(f, clube) } }); onSaved(); } catch (e) { setErr(e.message); }
+    try { await api('/customers/' + c.id, { method: 'PUT', body: { name: f.name, last_name: f.last_name, phone: f.phone, status: f.status, notes: f.notes, ...fichaCorpo(f, clube), ...(perfis ? { client_kinds: kinds } : {}) } }); onSaved(); } catch (e) { setErr(e.message); }
   };
   const [semCamp, setSemCamp] = useState(!!c.campaign_excluded);
   const alternarCampanhas = async () => {
@@ -213,6 +225,15 @@ function Detail({ c, nomePedidos, clube, club, onClose, onSaved, onDeleted }) {
               <option value="lead">Lead</option><option value="client">Cliente</option>
             </select></div>
         </div>
+        {perfis && (
+          <div className="field"><label>Perfil do cliente</label>
+            <div className="row" style={{ gap: 16 }}>
+              {Object.entries(PERFIL).map(([k, l]) => (
+                <label key={k} className="row" style={{ gap: 6 }}><input type="checkbox" checked={kinds.includes(k)} onChange={() => alternarPerfil(k)} /> {l}</label>
+              ))}
+            </div>
+          </div>
+        )}
         <FichaCampos f={f} setF={setF} clube={clube} club={club} />
         <div className="field"><label>Observações</label><textarea rows={3} value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} /></div>
         <div className="row" style={{ marginBottom: 14 }}>
@@ -231,6 +252,22 @@ function Detail({ c, nomePedidos, clube, club, onClose, onSaved, onDeleted }) {
                 <tr key={o.id}><td>{o.live_starts_at ? new Date(o.live_starts_at).toLocaleDateString('pt-BR') : 'Na fila'}</td><td>{o.song}</td><td>{o.kind === 'franchise' ? 'Franquia' : o.kind === 'courtesy' ? 'Cortesia' : o.kind === 'paid' ? 'Pago' : '—'}</td></tr>
               ))}</tbody></table>
             ) : <p className="muted">Sem pedidos ainda.</p>}
+          </>
+        )}
+        {c.tickets?.rows?.length > 0 && (
+          <>
+            <h2>Ingressos e reservas</h2>
+            <p className="muted">
+              {c.tickets.purchases} compra(s) · total pago {money(c.tickets.total)}
+              {c.tickets.average_ticket !== null && ` · ticket médio ${money(c.tickets.average_ticket)} por compra e ${money(c.tickets.average_per_person)} por pessoa`}
+            </p>
+            <table><tbody>{c.tickets.rows.map((t) => (
+              <tr key={t.id}>
+                <td>{new Date(t.date + 'T12:00:00').toLocaleDateString('pt-BR')}</td><td>{t.event_title || 'Reserva avulsa'}</td><td>{t.sector_name}</td>
+                <td>{t.people} pessoa(s)</td><td>{t.total !== null ? money(t.total) : '—'}{t.code_word ? ` · ${t.code_word}` : ''}</td>
+                <td className="muted">{t.status === 'cancelled' ? 'Cancelada' : t.status === 'no_show' ? 'Não veio' : t.status === 'attended' ? 'Compareceu' : 'Confirmada'}</td>
+              </tr>
+            ))}</tbody></table>
           </>
         )}
         <h2>Histórico</h2>

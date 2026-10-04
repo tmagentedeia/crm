@@ -11,6 +11,7 @@ import { registerFinanceRoutes } from './financeiro.js';
 import { TIPOS_ITEM } from './produtos.js';
 import { registerSalesRoutes } from './vendas.js';
 import { registerCommissionRoutes } from './comissoes.js';
+import { registerScenariumRoutes, historicoScenarium, KINDS as PERFIS } from './scenarium.js';
 
 const digits = (s) => String(s || '').replace(/\D/g, '');
 const custPhone = normPhone;
@@ -514,9 +515,10 @@ export function buildRouter() {
   const FILTRO = `($1::text IS NULL OR c.status=$1)
        AND ($2::text IS NULL OR c.name ILIKE '%'||$2||'%' OR c.phone LIKE '%'||$2||'%')
        AND ($3::text IS NULL OR ($3='none' AND c.club_status IS NULL) OR c.club_status=$3)
-       AND ($4::bigint IS NULL OR c.club_level_id=$4)`;
+       AND ($4::bigint IS NULL OR c.club_level_id=$4)
+       AND ($5::text IS NULL OR $5 = ANY(c.client_kinds))`;
   const filtroArgs = (qs) => [qs.status || null, qs.search || null, qs.club || null,
-    /^\d+$/.test(String(qs.level || '')) ? qs.level : null];
+    /^\d+$/.test(String(qs.level || '')) ? qs.level : null, PERFIS.includes(qs.kind) ? qs.kind : null];
 
   // Campos da ficha (aniversário, cidade, Clube). Devolve { erro } ou { campos } só com o que veio no corpo.
   async function lerFicha(body, atual = null) {
@@ -636,7 +638,7 @@ export function buildRouter() {
     const h = await q(
       'SELECT * FROM v_customer_history WHERE customer_id=$1 ORDER BY starts_at DESC',
       [req.params.id]);
-    res.json({ ...c.rows[0], history: h.rows, ...(await historicoDoCliente(req.params.id)) });
+    res.json({ ...c.rows[0], history: h.rows, ...(await historicoDoCliente(req.params.id)), ...(await historicoScenarium(req.params.id)) });
   }));
   r.put('/customers/:id', wrap(async (req, res) => {
     const { name, phone, notes, status } = req.body;
@@ -646,12 +648,29 @@ export function buildRouter() {
     if (!atual) return res.status(404).json({ error: 'Não encontrado' });
     const f = await lerFicha(req.body, atual);
     if (f.erro) return res.status(400).json({ error: f.erro });
+    // perfis do cliente (comprador, contratante): quem tem algum perfil é cliente
+    let perfis = null;
+    if (req.body.client_kinds !== undefined) {
+      if (!Array.isArray(req.body.client_kinds) || req.body.client_kinds.some((k) => !PERFIS.includes(k))) return res.status(400).json({ error: 'Perfil inválido' });
+      perfis = [...new Set(req.body.client_kinds)];
+    }
     const { rows } = await q(
       `UPDATE customers SET name=COALESCE($2,name), phone=COALESCE($3,phone), notes=COALESCE($4,notes),
        status=COALESCE($5,status), updated_at=now()
        WHERE id=$1 RETURNING id`,
       [req.params.id, name, phone ? custPhone(phone) : null, notes, status ?? null]);
     await gravarFicha(rows[0].id, f.campos);
+    if (perfis) await q(`UPDATE customers SET client_kinds=$2::text[], status = CASE WHEN cardinality($2::text[]) > 0 THEN 'client' ELSE status END WHERE id=$1`, [rows[0].id, perfis]);
+    res.json((await q(`${CUST} WHERE c.id=$1`, [rows[0].id])).rows[0]);
+  }));
+  // Liga ou desliga um perfil do cliente sem mexer nos outros (o atendente usa quando fecha uma contratação, por exemplo).
+  r.post('/customers/:id/kinds', wrap(async (req, res) => {
+    const { kind, on = true } = req.body || {};
+    if (!PERFIS.includes(kind) || typeof on !== 'boolean') return res.status(400).json({ error: 'Perfil inválido' });
+    const { rows } = await q(
+      `UPDATE customers SET client_kinds = CASE WHEN $3::boolean THEN (CASE WHEN $2::text = ANY(client_kinds) THEN client_kinds ELSE array_append(client_kinds, $2::text) END) ELSE array_remove(client_kinds, $2::text) END,
+              status = CASE WHEN $3::boolean THEN 'client' ELSE status END, updated_at = now() WHERE id=$1 RETURNING id`, [req.params.id, kind, on]);
+    if (!rows[0]) return res.status(404).json({ error: 'Não encontrado' });
     res.json((await q(`${CUST} WHERE c.id=$1`, [rows[0].id])).rows[0]);
   }));
 
@@ -1206,5 +1225,6 @@ export function buildRouter() {
   registerFinanceRoutes(r, wrap);
   registerSalesRoutes(r, wrap);
   registerCommissionRoutes(r, wrap);
+  registerScenariumRoutes(r, wrap);
   return r;
 }

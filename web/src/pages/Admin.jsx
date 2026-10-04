@@ -8,7 +8,7 @@ import { ROTULOS } from '../rotulos.js';
 
 const FORM_VAZIO = () => ({
   name: '', owner_name: '', email: '', password: '', template_id: '',
-  modules: Object.fromEntries(MODULES.map((m) => [m.key, true])),
+  modules: Object.fromEntries(MODULES.map((m) => [m.key, m.key !== 'scenarium'])),  // Scenarium só entra quando o administrador marca
 });
 
 // Campo com rótulo pequeno em cima (definido aqui fora para os campos não perderem o foco ao digitar)
