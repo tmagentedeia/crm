@@ -91,9 +91,24 @@ const outro = await call('GET', '/api/benefits', { token: B.token });
 check('outra empresa não vê as indicações da primeira', outro.body.total === 0 && outro.body.referrals.length === 0);
 check('apagar indicação inexistente', (await call('DELETE', '/api/admin/referrals/999999', { token: A.token })).status === 404);
 
+// vários clientes com o mesmo vencimento: os avisos saem com pelo menos 10 minutos de diferença
+psql('delete from partner_referrals; delete from partner_reminders; delete from agendamentos_mensagens');
+for (const id of [1, 2]) {
+  await call('PUT', `/api/admin/companies/${id}/billing`, { token: A.token, body: { billing_due_day: diaDe(venc), billing_exempt: false } });
+  await call('POST', `/api/admin/companies/${id}/referrals`, { token: A.token, body: { referred_name: 'Ind empresa ' + id } });
+}
+const horas = psql("select extract(epoch from data_hora_envio)::bigint from agendamentos_mensagens where origem='indicacao_m2' order by data_hora_envio").split('\n').map(Number);
+check('dois avisos para o mesmo dia', horas.length === 2, String(horas.length));
+check('com pelo menos 10 minutos entre eles', horas.length === 2 && horas[1] - horas[0] >= 600, horas.join(','));
+// três de uma vez
+await call('PUT', '/api/admin/companies/1/billing', { token: A.token, body: { billing_due_day: diaDe(venc), billing_exempt: false } });
+await call('POST', '/api/admin/companies/1/referrals', { token: A.token, body: { referred_name: 'Outra' } });
+const h3 = psql("select extract(epoch from data_hora_envio)::bigint from agendamentos_mensagens where origem='indicacao_m2' order by data_hora_envio").split('\n').map(Number);
+check('trocar um aviso mantém o intervalo entre todos', h3.length === 2 && h3.every((x, i) => i === 0 || x - h3[i - 1] >= 600), h3.join(','));
+
 // limpeza
 psql('delete from partner_referrals; delete from partner_reminders; delete from agendamentos_mensagens');
-await call('PUT', '/api/admin/companies/1/billing', { token: A.token, body: { billing_due_day: null, billing_exempt: false } });
+for (const id of [1, 2]) await call('PUT', `/api/admin/companies/${id}/billing`, { token: A.token, body: { billing_due_day: null, billing_exempt: false } });
 
 console.log(`indicacoes: ${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);

@@ -80,7 +80,19 @@ async function configAvisos() {
   return { phone: v.phone || '', instance: v.instance || '' };
 }
 
+// Os avisos para o administrador nunca saem juntos: entre um e outro há pelo menos INTERVALO_MIN minutos
+const INTERVALO_MIN = 10;
 async function agendarMsg(cfg, nome, texto, quando) {
+  let t = new Date(quando);
+  for (let i = 0; i < 500; i++) {
+    const { rows: [x] } = await msgPool().query(
+      `SELECT max(data_hora_envio) AS ultimo FROM agendamentos_mensagens
+       WHERE origem='indicacao_m2' AND data_hora_envio > $1::timestamptz - make_interval(mins => $2) AND data_hora_envio < $1::timestamptz + make_interval(mins => $2)`,
+      [t, INTERVALO_MIN]);
+    if (!x.ultimo) break;
+    t = new Date(new Date(x.ultimo).getTime() + INTERVALO_MIN * 60000);
+  }
+  quando = t;
   const { rows } = await msgPool().query(
     `INSERT INTO agendamentos_mensagens (telefone, mensagem, data_hora_envio, instancia, nome, origem)
      VALUES ($1,$2,$3,$4,$5,'indicacao_m2') RETURNING id`, [cfg.phone, texto, quando, cfg.instance, nome]);
