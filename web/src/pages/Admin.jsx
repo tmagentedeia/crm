@@ -2,6 +2,7 @@ import CampoSenha from '../senha.jsx';
 import React, { useEffect, useState } from 'react';
 import { api, fmtDate, getToken, setToken, ADMIN_KEY } from '../api.js';
 import { MODULES, moduleOn } from '../modules.js';
+import { PLANOS, planoDe } from '../plans.js';
 import { IconeCadeado, IconeOlho } from '../icones.jsx';
 import { ROTULOS } from '../rotulos.js';
 
@@ -157,6 +158,11 @@ export default function Admin() {
     try { setUp(await api('/admin/upgrade', { method: 'PUT', body: up })); setMsg('Aviso de upgrade salvo.'); } catch (e) { setErr(e.message); }
   }
 
+  async function aplicarPlano(s, p) {
+    if (!confirm(`Aplicar o plano ${p.nome} a ${s.name}?\n\nIsso liga os módulos do plano, desliga os demais e deixa os que ficam de fora à vista, apagados, com o convite de upgrade. O limite de profissionais não muda.`)) return;
+    setErr(''); setMsg('');
+    try { await api(`/admin/companies/${s.id}/plan`, { method: 'PUT', body: { plan: p.id } }); setMsg(`Plano ${p.nome} aplicado a ${s.name}`); load(); } catch (e) { setErr(e.message); }
+  }
   async function alternarModulo(s, key) {
     setErr(''); setMsg('');
     try {
@@ -377,6 +383,12 @@ export default function Admin() {
               </div>
             </div>
             <div style={{ flex: '0 0 auto' }}>
+              <span className="muted" style={{ fontSize: 12 }}>Plano: <strong>{planoDe(s.modules) || 'personalizado'}</strong></span>
+              <div className="row" style={{ gap: 6, margin: '4px 0 8px' }}>
+                {PLANOS.map((p) => (
+                  <button key={p.id} type="button" className={'btn sm' + (planoDe(s.modules) === p.nome ? ' primary' : '')} onClick={() => aplicarPlano(s, p)}>{p.nome}</button>
+                ))}
+              </div>
               <span className="muted" style={{ fontSize: 12 }}>Módulos</span>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, max-content)', columnGap: 22, rowGap: 2, marginTop: 3 }}>
                 {MODULES.map((m) => (

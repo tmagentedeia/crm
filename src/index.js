@@ -10,6 +10,7 @@ import { snapshotCompany } from './templates.js';
 import { pool } from './db.js';
 import { newApiKey } from './apikeys.js';
 import { cleanModules, cleanMenuCustom, cleanModuleLabels } from './modules.js';
+import { aplicacaoDoPlano } from './plans.js';
 import { listar as listarBloqueios, bloquear, liberar, numeroDoContato, nomeValido, prefixoValido, redisDisponivel } from './blocks.js';
 import { requireUser, requireN8n, requireAdmin, isAdmin, signToken, signImpersonationToken } from './auth.js';
 import { buildRouter } from './routes.js';
@@ -328,6 +329,18 @@ app.put('/api/admin/companies/:id/modules', requireUser, requireAdmin, async (re
   const modules = cleanModules(req.body.modules);
   if (!modules) return res.status(400).json({ error: 'Módulos inválidos' });
   const { rows } = await qg('UPDATE companies SET modules = modules || $2::jsonb WHERE id=$1 RETURNING id, name, modules', [id, JSON.stringify(modules)]);
+  rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Empresa não encontrada' });
+});
+
+// Aplica um plano (starter, pro ou advanced): liga os módulos dele, desliga os demais e deixa os de fora à vista, apagados.
+// O limite de profissionais e as demais configurações da empresa não mudam.
+app.put('/api/admin/companies/:id/plan', requireUser, requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id <= 0) return res.status(404).json({ error: 'Empresa não encontrada' });
+  const ap = aplicacaoDoPlano(String(req.body.plan ?? ''));
+  if (!ap) return res.status(400).json({ error: 'Plano inválido' });
+  const { rows } = await qg('UPDATE companies SET modules = modules || $2::jsonb, locked_modules = $3::jsonb WHERE id=$1 RETURNING id, name, modules, locked_modules, max_professionals',
+    [id, JSON.stringify(ap.modules), JSON.stringify(ap.locks)]);
   rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Empresa não encontrada' });
 });
 
