@@ -34,3 +34,6 @@ Situação: [ ] pendente · [x] feito e confirmado.
 ## Equipe e acessos / Restaurante
 - Funções e acessos: `src/funcoes.js` (tabela `company_funcoes`, colunas novas em `users`). O bloqueio vale no servidor (`bloqueioPorFuncao`); toda tela nova precisa entrar em `TELAS`, `ROTAS_DA_TELA` (e, se lê dados de outras, `LEITURAS_DA_TELA`).
 - Restaurante (módulo `restaurante`, passo 29): telas `rst_salao`, `rst_cozinha`, `rst_caixa`, `rst_gestao`. Usa o cardápio do Delivery (coluna `station` em `dlv_items`). Não é exposto ao atendente (n8n).
+
+## Scenarium: mapa e fotos dos setores
+- Passo 30 (`scn_media`). Painel: aba Setores (mapa do espaço no topo; fotos dentro da edição do setor). O atendente consulta `GET /n8n/scenarium/media` (ou `?sector_id=`) e recebe `map.url` e `sectors[].photos[].url` para enviar ao cliente; o envio e a exclusão são só do painel.

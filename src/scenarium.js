@@ -5,7 +5,8 @@
 //  - o espaço do setor pode ser ajustado só para um evento (ex.: show com a pista reduzida)
 //  - a reserva guarda o tipo de mesa e o espaço usado na hora; mudar o cadastro depois não altera reservas antigas
 //  - só ocupam espaço reservas "confirmada" e "compareceu"; cancelada e "não veio" liberam
-import { q, qg, tx, currentCompany } from './db.js';
+import crypto from 'crypto';
+import { q, qg, tx, currentCompany, runAs } from './db.js';
 import { normPhone } from './phone.js';
 import { parseBirthday } from './ficha.js';
 
@@ -148,6 +149,42 @@ export function opcoes(tipos, people, livre) {
 }
 export const melhorOpcao = (tipos, people, livre) => opcoes(tipos, people, livre)[0] || null;
 
+
+// Mapa do espaço e fotos de cada setor: o atendente envia ao cliente pelo WhatsApp (endereço público e difícil de adivinhar)
+export const SCN_MEDIA_SQL = `
+  CREATE TABLE IF NOT EXISTS scn_media (
+    id         BIGSERIAL PRIMARY KEY,
+    sector_id  BIGINT REFERENCES scn_sectors(id) ON DELETE CASCADE,   -- vazio = mapa geral do espaço
+    kind       TEXT NOT NULL CHECK (kind IN ('map','photo')),
+    caption    TEXT,
+    mime       TEXT NOT NULL,
+    data       BYTEA NOT NULL,
+    token      TEXT NOT NULL UNIQUE,
+    position   INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+  CREATE INDEX IF NOT EXISTS scn_media_sector ON scn_media (sector_id);
+`;
+const MIDIA_MAX_BYTES = 2.5 * 1024 * 1024, FOTOS_POR_SETOR = 8;
+// confere pelo conteúdo (não pelo nome) que é mesmo uma imagem aceita
+function tipoDaImagem(buf) {
+  if (buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+  if (buf.length > 8 && buf.slice(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png';
+  if (buf.length > 12 && buf.slice(0, 4).toString() === 'RIFF' && buf.slice(8, 12).toString() === 'WEBP') return 'image/webp';
+  return null;
+}
+export function registerMidiaPublica(app) {
+  app.get('/m/:token', async (req, res) => {
+    const m = String(req.params.token || '').match(/^(\d+)-([0-9a-f]{40})$/);
+    if (!m) return res.status(404).end();
+    try {
+      const f = await runAs(Number(m[1]), async () => (await q('SELECT mime, data FROM scn_media WHERE token=$1', [req.params.token])).rows[0]);
+      if (!f) return res.status(404).end();
+      res.set({ 'content-type': f.mime, 'cache-control': 'public, max-age=3600', 'x-content-type-options': 'nosniff' }).send(f.data);
+    } catch (e) { console.error('scenarium mídia:', e.message); res.status(404).end(); }
+  });
+}
+
 export function registerScenariumRoutes(r, wrap) {
   const fuso = async () => (await qg('SELECT timezone FROM companies WHERE id=$1', [currentCompany()])).rows[0]?.timezone || 'America/Sao_Paulo';
   const comTratamento = (fn) => wrap(async (req, res) => {
@@ -160,6 +197,67 @@ export function registerScenariumRoutes(r, wrap) {
     COALESCE((SELECT json_agg(json_build_object('table_type_id', st.table_type_id::text, 'max_tables', st.max_tables) ORDER BY st.table_type_id)
               FROM scn_sector_tables st WHERE st.sector_id = scn_sectors.id), '[]'::json) AS tables
     FROM scn_sectors`;
+
+  // ---------- mapa e fotos ----------
+  const urlBase = (req) => process.env.PUBLIC_URL || `${req.headers['x-forwarded-proto'] || req.protocol}://${req.headers['x-forwarded-host'] || req.get('host')}`;
+  const midiaOut = (req, m) => ({ id: String(m.id), sector_id: m.sector_id ? String(m.sector_id) : null, kind: m.kind, caption: m.caption, url: `${urlBase(req)}/m/${m.token}` });
+  // Lista (sem os arquivos): o painel mostra e o atendente usa os endereços para enviar ao cliente
+  r.get('/scenarium/media', wrap(async (req, res) => {
+    const setorId = req.query.sector_id ? idOk(req.query.sector_id) : null;
+    if (req.query.sector_id && !setorId) return res.status(400).json({ error: 'Setor inválido' });
+    const rows = (await q(`SELECT m.id, m.sector_id, m.kind, m.caption, m.token, s.name AS sector_name FROM scn_media m LEFT JOIN scn_sectors s ON s.id = m.sector_id
+      ${setorId ? 'WHERE m.sector_id = $1 OR m.sector_id IS NULL' : ''} ORDER BY m.kind DESC, m.position, m.id`, setorId ? [setorId] : [])).rows;
+    const map = rows.find((m) => m.kind === 'map');
+    const setores = (await q('SELECT id, name FROM scn_sectors WHERE active ORDER BY position, id')).rows;
+    res.json({
+      map: map ? midiaOut(req, map) : null,
+      sectors: setores.filter((s) => !setorId || String(s.id) === setorId).map((s) => ({ sector_id: String(s.id), name: s.name, photos: rows.filter((m) => m.kind === 'photo' && String(m.sector_id) === String(s.id)).map((m) => midiaOut(req, m)) })),
+    });
+  }));
+  // Envio: { kind: 'map' | 'photo', sector_id (fotos), caption, data: "data:image/jpeg;base64,..." }
+  r.post('/scenarium/media', comTratamento(async (req, res) => {
+    if (quem(req) === 'ia') return res.status(403).json({ error: 'Só pelo painel' });
+    const b = req.body || {};
+    const kind = b.kind === 'map' ? 'map' : b.kind === 'photo' ? 'photo' : null;
+    if (!kind) return res.status(400).json({ error: 'Diga se é o mapa ou a foto de um setor' });
+    const legenda = txt(b.caption ?? '', 120);
+    if (legenda === null) return res.status(400).json({ error: 'Legenda inválida (até 120 letras)' });
+    const bruto = String(b.data || '').replace(/^data:[^,]*,/, '');
+    const buf = Buffer.from(bruto, 'base64');
+    if (!buf.length) return res.status(400).json({ error: 'Escolha uma imagem' });
+    if (buf.length > MIDIA_MAX_BYTES) return res.status(400).json({ error: 'A imagem é grande demais (até 2,5 MB)' });
+    const mime = tipoDaImagem(buf);
+    if (!mime) return res.status(400).json({ error: 'Use uma imagem JPG, PNG ou WebP' });
+    let setorId = null;
+    if (kind === 'photo') {
+      setorId = idOk(b.sector_id);
+      if (!setorId || !(await q('SELECT 1 FROM scn_sectors WHERE id=$1', [setorId])).rowCount) return res.status(400).json({ error: 'Escolha o setor da foto' });
+      if ((await q("SELECT count(*)::int AS n FROM scn_media WHERE kind='photo' AND sector_id=$1", [setorId])).rows[0].n >= FOTOS_POR_SETOR)
+        return res.status(409).json({ error: `Cada setor aceita até ${FOTOS_POR_SETOR} fotos. Apague uma para enviar outra.` });
+    }
+    const token = `${currentCompany()}-${crypto.randomBytes(20).toString('hex')}`;
+    const novo = await tx(currentCompany(), async (t) => {
+      if (kind === 'map') await t("DELETE FROM scn_media WHERE kind='map'");   // só existe um mapa: o novo substitui
+      return (await t(`INSERT INTO scn_media (sector_id, kind, caption, mime, data, token, position)
+        VALUES ($1,$2,$3,$4,$5,$6,(SELECT COALESCE(max(position),0)+1 FROM scn_media)) RETURNING id, sector_id, kind, caption, token`,
+        [setorId, kind, legenda || null, mime, buf, token])).rows[0];
+    });
+    res.status(201).json(midiaOut(req, novo));
+  }));
+  r.put('/scenarium/media/:id', comTratamento(async (req, res) => {
+    if (quem(req) === 'ia') return res.status(403).json({ error: 'Só pelo painel' });
+    const id = idOk(req.params.id); const legenda = txt(req.body?.caption ?? '', 120);
+    if (!id || legenda === null) return res.status(400).json({ error: 'Legenda inválida (até 120 letras)' });
+    const { rowCount } = await q('UPDATE scn_media SET caption=$2 WHERE id=$1', [id, legenda || null]);
+    rowCount ? res.json({ ok: true }) : res.status(404).json({ error: 'Imagem não encontrada' });
+  }));
+  r.delete('/scenarium/media/:id', comTratamento(async (req, res) => {
+    if (quem(req) === 'ia') return res.status(403).json({ error: 'Só pelo painel' });
+    const id = idOk(req.params.id);
+    const { rowCount } = id ? await q('DELETE FROM scn_media WHERE id=$1', [id]) : { rowCount: 0 };
+    rowCount ? res.json({ ok: true }) : res.status(404).json({ error: 'Imagem não encontrada' });
+  }));
+
   r.get('/scenarium/sectors', wrap(async (req, res) => res.json((await q(`${SETOR} ORDER BY position, id`)).rows)));
   function lerSetor(b, parcial) {
     const o = {};

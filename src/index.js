@@ -19,6 +19,7 @@ import { birthdayTickAll } from './aniversario.js';
 import { registerDocumentoPublico } from './documentos.js';
 import { registerIndicacoesAdmin, sincronizarTodas, usarCodigo, acharPorCodigo } from './indicacoes.js';
 import { startCortesias } from './pedidos.js';
+import { registerMidiaPublica } from './scenarium.js';
 import { bloqueioPorFuncao, registerEquipeRoutes, acessoDe } from './funcoes.js';
 
 const app = express();
@@ -392,6 +393,7 @@ app.put('/api/admin/companies/:id/labels', requireUser, requireAdmin, async (req
 });
 
 registerDocumentoPublico(app);
+registerMidiaPublica(app);
 
 // ---------- API do painel (JWT) e do N8N (x-api-key + x-company-id) ----------
 app.use('/api', requireUser, buildRouter());

@@ -365,6 +365,81 @@ function Reservas() {
   );
 }
 
+
+// ---------------------------------------------------------------- mapa e fotos
+// Reduz a imagem no próprio navegador (mais leve para enviar e para o cliente abrir no WhatsApp)
+async function reduzirImagem(file, max) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((ok, er) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => er(new Error('Não consegui abrir essa imagem')); i.src = url; });
+    const esc = Math.min(1, max / Math.max(img.width, img.height));
+    const c = document.createElement('canvas'); c.width = Math.round(img.width * esc); c.height = Math.round(img.height * esc);
+    const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height); ctx.drawImage(img, 0, 0, c.width, c.height);
+    return c.toDataURL('image/jpeg', 0.85);
+  } finally { URL.revokeObjectURL(url); }
+}
+
+function MapaDoEspaco() {
+  const [m, setM] = useState(undefined);
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const load = () => api('/scenarium/media').then((r) => setM(r.map)).catch((e) => setErr(e.message));
+  useEffect(() => { load(); }, []);
+  async function enviar(e) {
+    const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+    setErr(''); setBusy(true);
+    try { await api('/scenarium/media', { method: 'POST', body: { kind: 'map', data: await reduzirImagem(f, 1800) } }); await load(); } catch (e2) { setErr(e2.message); }
+    setBusy(false);
+  }
+  async function tirar() { if (!confirm('Remover o mapa do espaço?')) return; try { await api('/scenarium/media/' + m.id, { method: 'DELETE' }); load(); } catch (e) { setErr(e.message); } }
+  if (m === undefined) return null;
+  return (
+    <div className="card" style={{ marginBottom: 12 }}>
+      <strong>Mapa do espaço</strong>
+      <p className="muted" style={{ margin: '4px 0 8px' }}>O atendente envia este mapa ao cliente que quer saber onde ficam os setores.</p>
+      {err && <div className="error">{err}</div>}
+      {m && <a href={m.url} target="_blank" rel="noreferrer"><img src={m.url} alt="Mapa do espaço" style={{ maxWidth: '100%', maxHeight: 220, borderRadius: 8, display: 'block', marginBottom: 8 }} /></a>}
+      <label className="btn sm" style={{ cursor: 'pointer' }}>{busy ? 'Enviando…' : m ? 'Trocar o mapa' : 'Enviar o mapa'}<input type="file" accept="image/*" onChange={enviar} style={{ display: 'none' }} disabled={busy} /></label>
+      {m && <button className="btn sm" style={{ marginLeft: 6 }} onClick={tirar}>Remover</button>}
+    </div>
+  );
+}
+
+function FotosDoSetor({ setorId }) {
+  const [fotos, setFotos] = useState(null);
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const load = () => api('/scenarium/media?sector_id=' + setorId).then((r) => setFotos(r.sectors[0]?.photos || [])).catch((e) => setErr(e.message));
+  useEffect(() => { load(); }, [setorId]);
+  async function enviar(e) {
+    const arq = [...e.target.files]; e.target.value = ''; if (!arq.length) return;
+    setErr(''); setBusy(true);
+    try { for (const f of arq) await api('/scenarium/media', { method: 'POST', body: { kind: 'photo', sector_id: setorId, data: await reduzirImagem(f, 1400) } }); } catch (e2) { setErr(e2.message); }
+    await load(); setBusy(false);
+  }
+  async function legenda(f) {
+    const t = window.prompt('Legenda da foto (opcional):', f.caption || ''); if (t === null) return;
+    try { await api('/scenarium/media/' + f.id, { method: 'PUT', body: { caption: t } }); load(); } catch (e) { setErr(e.message); }
+  }
+  async function tirar(f) { if (!confirm('Remover esta foto?')) return; try { await api('/scenarium/media/' + f.id, { method: 'DELETE' }); load(); } catch (e) { setErr(e.message); } }
+  return (
+    <div className="field" style={{ marginTop: 10 }}>
+      <label>Fotos do setor (até 8)</label>
+      {err && <div className="error">{err}</div>}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
+        {(fotos || []).map((f) => (
+          <div key={f.id} style={{ width: 110 }}>
+            <img src={f.url} alt={f.caption || ''} style={{ width: 110, height: 80, objectFit: 'cover', borderRadius: 6, display: 'block' }} />
+            <div className="muted" style={{ fontSize: 11, minHeight: 14 }}>{f.caption || ''}</div>
+            <button type="button" className="btn sm" onClick={() => legenda(f)}>Legenda</button> <button type="button" className="btn sm" onClick={() => tirar(f)}>×</button>
+          </div>
+        ))}
+      </div>
+      <label className="btn sm" style={{ cursor: 'pointer' }}>{busy ? 'Enviando…' : '+ Adicionar fotos'}<input type="file" accept="image/*" multiple onChange={enviar} style={{ display: 'none' }} disabled={busy || (fotos || []).length >= 8} /></label>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------- setores
 function Setores() {
   const [rows, setRows] = useState([]);
@@ -405,6 +480,7 @@ function Setores() {
         <button className="btn primary" onClick={() => abrir(null)}>+ Novo setor</button>
       </div>
       {err && !edit && <div className="error">{err}</div>}
+      <MapaDoEspaco />
       <div className="card table-wrap">
         <table>
           <thead><tr><th>Setor</th><th>Espaço</th><th>Mesas aceitas</th><th>Observações</th><th>Situação</th><th></th></tr></thead>
@@ -430,6 +506,7 @@ function Setores() {
             <div className="field"><label>Nome *</label><input value={edit.name} maxLength={60} onChange={(e) => setEdit({ ...edit, name: e.target.value })} required /></div>
             <div className="field"><label>Espaço total *</label><input value={edit.space} onChange={(e) => setEdit({ ...edit, space: e.target.value })} required /></div>
             <div className="field"><label>Observações (visão, som, perto do bar…)</label><input value={edit.notes} maxLength={300} onChange={(e) => setEdit({ ...edit, notes: e.target.value })} /></div>
+            {edit.id ? <FotosDoSetor setorId={edit.id} /> : <p className="muted">Salve o setor para poder adicionar fotos.</p>}
             <label className="row" style={{ gap: 8 }}><input type="checkbox" checked={edit.restringe} onChange={(e) => setEdit({ ...edit, restringe: e.target.checked })} /> Este setor só aceita algumas mesas</label>
             {edit.restringe && (
               <div className="field" style={{ marginTop: 8 }}>

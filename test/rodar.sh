@@ -31,7 +31,7 @@ psql "$DB" -qc "drop table company_1.product_sales; update public.tenant_version
 node src/migrate.js
 psql "$DB" -qc "drop table company_1.commission_service_rates, company_1.commission_rates, company_1.commission_settings; update public.tenant_versions set version=21 where company_id=1"
 node src/migrate.js
-psql "$DB" -qc "drop table company_1.scn_reservations, company_1.scn_event_sectors, company_1.scn_sector_tables, company_1.scn_extras, company_1.scn_event_interest, company_1.scn_event_codes, company_1.scn_event_conditions, company_1.scn_table_types, company_1.scn_sectors; update public.tenant_versions set version=22 where company_id=1"
+psql "$DB" -qc "drop table company_1.scn_media, company_1.scn_reservations, company_1.scn_event_sectors, company_1.scn_sector_tables, company_1.scn_extras, company_1.scn_event_interest, company_1.scn_event_codes, company_1.scn_event_conditions, company_1.scn_table_types, company_1.scn_sectors; update public.tenant_versions set version=22 where company_id=1"
 node src/migrate.js
 psql "$DB" -qc "drop table company_1.birthday_sends, company_1.birthday_settings; alter table company_1.campaigns drop column kind; update public.tenant_versions set version=23 where company_id=1"
 node src/migrate.js
@@ -56,6 +56,9 @@ psql "$DB" -tc "select count(*) from company_1.agent_updates, company_1.assistan
 psql "$DB" -qc "drop table company_1.rst_payments, company_1.rst_tab_items, company_1.rst_tabs, company_1.rst_tables, company_1.rst_settings; alter table company_1.dlv_items drop column station; update public.tenant_versions set version=28 where company_id=1"
 node src/migrate.js
 psql "$DB" -tc "select count(*) from company_1.rst_settings" | grep -q 1 || { echo "FALHOU: migração do restaurante"; exit 1; }
+psql "$DB" -qc "drop table company_1.scn_media; update public.tenant_versions set version=29 where company_id=1"
+node src/migrate.js
+psql "$DB" -tc "select count(*) from company_1.scn_media" | grep -q 0 || { echo "FALHOU: migração das fotos do Scenarium"; exit 1; }
 node test/seed_extra.mjs
 # Redis de teste (bloqueios)
 redis-server --port 56379 --save '' --appendonly no --daemonize yes >/dev/null
@@ -80,6 +83,7 @@ BASE=http://localhost:3999 node test/comissoes.mjs || R=1
 BASE=http://localhost:3999 node test/lembrete_cliente.mjs || R=1
 BASE=http://localhost:3999 node test/planos.mjs || R=1
 BASE=http://localhost:3999 node test/scenarium.mjs || R=1
+BASE=http://localhost:3999 node test/scenarium_midia.mjs || R=1
 BASE=http://localhost:3999 node test/contratacoes.mjs || R=1
 BASE=http://localhost:3999 node test/indicacoes.mjs || R=1
 BASE=http://localhost:3999 node test/documentos.mjs || R=1
