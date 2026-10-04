@@ -7,6 +7,7 @@ export const MODULES = [
   { key: 'clube', label: 'Programa de benefícios', desc: 'Marcar clientes como membros de um programa com níveis e benefícios' },
   { key: 'pedidos', label: 'Pedidos', desc: 'Pedidos de música por live, com franquia do programa de benefícios e resumo do mês' },
   { key: 'financeiro', label: 'Recebimentos', desc: 'Chaves Pix aceitas e conferência dos comprovantes recebidos' },
+  { key: 'comissoes', label: 'Comissões', desc: 'Comissão dos profissionais sobre serviços e produtos, com fechamento por período' },
   { key: 'eventos', label: 'Eventos', desc: 'Compromissos avulsos (lives, reuniões, shows), sem profissional nem serviço' },
   { key: 'agenda', label: 'Agenda', desc: 'Agenda de horários' },
   { key: 'profissionais', label: 'Profissionais', desc: 'Cadastro e horários dos profissionais' },
@@ -26,5 +27,5 @@ const PAI = { fila: 'agenda', profissionais: 'agenda', servicos: 'agenda', inati
 // Um módulo só está desligado quando vale explicitamente false: empresas que nunca tiveram módulos configurados veem tudo.
 // O programa de benefícios e os Pedidos são opcionais: só aparece quando o administrador liga.
 export const moduleOn = (modules, key) =>
-  key === 'clube' || key === 'pedidos' || key === 'eventos' || key === 'financeiro' || key === 'assistente' ? modules?.[key] === true :
+  key === 'clube' || key === 'pedidos' || key === 'eventos' || key === 'financeiro' || key === 'assistente' || key === 'comissoes' ? modules?.[key] === true :
   modules?.[key] !== undefined ? modules[key] !== false : PAI[key] ? modules?.[PAI[key]] !== false : true;

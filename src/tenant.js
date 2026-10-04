@@ -7,6 +7,7 @@ import { EVENTOS_SQL } from './eventos.js';
 import { ASSISTENTE_SQL } from './assistente.js';
 import { PRODUTOS_SQL } from './produtos.js';
 import { VENDAS_SQL } from './vendas.js';
+import { COMISSOES_SQL } from './comissoes.js';
 import { FINANCEIRO_SQL, FINANCEIRO_ORIGEM_SQL, FINANCEIRO_DEDUP_SQL } from './financeiro.js';
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
@@ -139,6 +140,8 @@ export const TENANT_STEPS = [
   { version: 20, sql: PRODUTOS_SQL },
   // 21: vendas de produtos (base da comissão sobre produtos)
   { version: 21, sql: VENDAS_SQL },
+  // 22: comissões dos profissionais
+  { version: 22, sql: COMISSOES_SQL },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 
@@ -163,6 +166,7 @@ export async function createCompanySchema(cx, companyId) {
   await cx.query(ASSISTENTE_SQL);
   await cx.query(PRODUTOS_SQL);
   await cx.query(VENDAS_SQL);
+  await cx.query(COMISSOES_SQL);
   await cx.query('SET LOCAL search_path TO public');
   await cx.query('INSERT INTO tenant_versions (company_id, version) VALUES ($1, 1)', [companyId]);
 }

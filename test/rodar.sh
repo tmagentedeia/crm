@@ -26,6 +26,9 @@ psql "$DB" -qc "alter table company_1.services drop constraint services_kind_che
 node src/migrate.js
 psql "$DB" -qc "drop table company_1.product_sales; update public.tenant_versions set version=20 where company_id=1"
 node src/migrate.js
+psql "$DB" -qc "drop table company_1.commission_service_rates, company_1.commission_rates, company_1.commission_settings; update public.tenant_versions set version=21 where company_id=1"
+node src/migrate.js
+psql "$DB" -tc "select count(*) from company_1.commission_settings" | grep -q 1 || { echo "FALHOU: migração das comissões"; exit 1; }
 psql "$DB" -tc "select count(*) from company_1.product_sales" | grep -q 0 || { echo "FALHOU: migração das vendas"; exit 1; }
 psql "$DB" -tc "select count(*) from company_1.services where kind='service'" | grep -qv '^ *0$' || { echo "FALHOU: migração do catálogo"; exit 1; }
 psql "$DB" -tc "select count(*) from company_1.agent_updates, company_1.assistant_updates" | grep -q 0 || { echo "FALHOU: migração do Atendente"; exit 1; }
@@ -46,6 +49,7 @@ BASE=http://localhost:3999 node test/bloqueado.mjs || R=1
 BASE=http://localhost:3999 node test/maria_manual.mjs || R=1
 BASE=http://localhost:3999 node test/produtos.mjs || R=1
 BASE=http://localhost:3999 node test/vendas_produtos.mjs || R=1
+BASE=http://localhost:3999 node test/comissoes.mjs || R=1
 BASE=http://localhost:3999 node test/modelos.mjs || R=1
 BASE=http://localhost:3999 node test/acesso_admin.mjs || R=1
 BASE=http://localhost:3999 node test/sessao.mjs || R=1

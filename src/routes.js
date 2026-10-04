@@ -10,6 +10,7 @@ import { registerEventRoutes } from './eventos.js';
 import { registerFinanceRoutes } from './financeiro.js';
 import { TIPOS_ITEM } from './produtos.js';
 import { registerSalesRoutes } from './vendas.js';
+import { registerCommissionRoutes } from './comissoes.js';
 
 const digits = (s) => String(s || '').replace(/\D/g, '');
 const custPhone = normPhone;
@@ -1200,5 +1201,6 @@ export function buildRouter() {
   registerEventRoutes(r, wrap);
   registerFinanceRoutes(r, wrap);
   registerSalesRoutes(r, wrap);
+  registerCommissionRoutes(r, wrap);
   return r;
 }
