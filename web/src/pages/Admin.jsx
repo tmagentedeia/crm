@@ -332,9 +332,9 @@ export default function Admin() {
                 <button className="btn sm" title={abertas[s.id] ? 'Recolher' : 'Expandir'} onClick={() => setAbertas({ ...abertas, [s.id]: !abertas[s.id] })}>{abertas[s.id] ? '▾' : '▸'}</button>
               </Campo>
               <Campo rotulo="Código"><strong>{s.id}</strong></Campo>
-              <Campo rotulo="Empresa"><strong style={{ cursor: 'pointer' }} onClick={() => setAbertas({ ...abertas, [s.id]: !abertas[s.id] })}>{s.name}</strong></Campo>
+              <Campo rotulo="Empresa"><strong style={{ cursor: 'pointer', color: '#d4a017', fontSize: 16 }} onClick={() => setAbertas({ ...abertas, [s.id]: !abertas[s.id] })}>{s.name}</strong></Campo>
               <Campo rotulo=" ">
-                <button className="btn sm" style={{ fontWeight: 700 }} onClick={() => abrirPainel(s)}>Abrir painel</button>
+                <button className="btn" style={{ fontWeight: 700, fontSize: 14, padding: '7px 18px', background: '#d4a017', borderColor: '#d4a017', color: '#1a1a1a' }} onClick={() => abrirPainel(s)}>Abrir painel</button>
               </Campo>
               <Campo rotulo="E-mail do responsável">
                 {s.owner_email

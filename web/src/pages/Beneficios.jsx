@@ -69,6 +69,7 @@ function MeuSaldo({ titulo }) {
         <h1>{titulo}</h1>
         <p className="muted">Indicou um cliente que fechou contrato? Cada indicação vale {v.rules.pct_each}% de desconto na mensalidade, até {v.rules.max_per_month} por mês. O que passar disso fica acumulado e vale nos meses seguintes.</p>
       </div>
+      <Indicar />
       {v.company.billing_exempt ? (
         <div className="card"><p>Sua empresa é isenta de mensalidade, então não há desconto a aplicar.</p></div>
       ) : (
@@ -100,7 +101,6 @@ function MeuSaldo({ titulo }) {
           </table>
         </div>
       )}
-      <Indicar />
       <div className="card">
         <h3>Algo não confere?</h3>
         <p className="muted">Se uma indicação sua não aparece ou o desconto não foi lançado, peça uma conferência.</p>

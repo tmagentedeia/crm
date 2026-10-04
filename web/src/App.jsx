@@ -82,10 +82,13 @@ export default function App() {
   }, [theme]);
 
   useEffect(() => {
-    if (logged) api('/benefits/name').then((r) => setNomeProg(r?.name || '')).catch(() => {});
     if (logged) api('/me').then((m) => setAdmin(!!m.admin)).catch(() => setAdmin(false));
     else setAdmin(false);
   }, [logged]);
+  // O nome do programa de benefícios pode ter sido trocado pelo administrador: confere a cada tela aberta
+  useEffect(() => {
+    if (logged) api('/benefits/name').then((r) => setNomeProg(r?.name || '')).catch(() => {});
+  }, [logged, page]);
 
   // Atualiza os dados da empresa (inclusive os módulos) ao abrir, para uma mudança feita na Administração valer sem sair e entrar
   useEffect(() => {
