@@ -1,9 +1,35 @@
 import React, { useEffect, useState } from 'react';
 import { Nome } from '../menu.jsx';
 import { api, money } from '../api.js';
+import VendasProdutos from './VendasProdutos.jsx';
 import { useSelecao, CelulaTodos, CelulaLinha, ApagarSelecionados, resumoApagado } from '../selecao.jsx';
 
+// Catálogo e vendas de produtos na mesma tela. A aba de vendas só aparece quando há produto cadastrado ou venda feita.
 export default function Servicos() {
+  const [aba, setAba] = useState('catalogo');
+  const [tem, setTem] = useState(false);
+  const checa = () => Promise.all([api('/services?kind=product'), api('/product-sales')]).then(([p, v]) => setTem(p.length > 0 || v.rows.length > 0)).catch(() => {});
+  useEffect(() => { checa(); }, []);
+  const abas = tem ? (
+    <div className="row" style={{ marginBottom: 12 }}>
+      {[['catalogo', 'Catálogo'], ['vendas', 'Vendas de produtos']].map(([v, l]) => (
+        <button key={v} className={'btn' + (aba === v ? ' primary' : '')} onClick={() => setAba(v)}>{l}</button>
+      ))}
+    </div>
+  ) : null;
+  if (aba === 'vendas' && tem) {
+    return (
+      <>
+        <div style={{ marginBottom: 16 }}><h1><Nome id="servicos">Produtos e Serviços</Nome></h1><p className="muted">Vendas de produtos: base da comissão dos profissionais.</p></div>
+        {abas}
+        <VendasProdutos onMudou={checa} />
+      </>
+    );
+  }
+  return <Catalogo abas={abas} onMudou={checa} />;
+}
+
+function Catalogo({ abas, onMudou }) {
   const [list, setList] = useState([]);
   const [edit, setEdit] = useState(null);
   const [err, setErr] = useState('');
@@ -13,7 +39,7 @@ export default function Servicos() {
   const [filtro, setFiltro] = useState('all');
   const vistos = list.filter((x) => filtro === 'all' || x.kind === filtro);
   const sel = useSelecao(vistos);
-  const load = () => Promise.all([api('/services?kind=all'), api('/categories')]).then(([sv, c]) => { setList(sv); setCats(c); });
+  const load = () => Promise.all([api('/services?kind=all'), api('/categories')]).then(([sv, c]) => { setList(sv); setCats(c); onMudou?.(); });
   useEffect(() => { load(); }, []);
 
   async function save(e) {
@@ -59,6 +85,7 @@ export default function Servicos() {
           <button className="btn primary" onClick={() => { setErr(''); setEdit({ kind: 'service', name: '', price: '', duration_min: 30, category_id: '' }); }}>+ Novo serviço</button>
         </div>
       </div>
+      {abas}
       <div className="card" style={{ marginBottom: 16 }}>
         <strong>Categorias</strong>
         <div className="row" style={{ flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
