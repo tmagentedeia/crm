@@ -16,10 +16,10 @@ const marca = String(Date.now()).slice(-6);
 const em = (dias) => new Date(Date.now() + dias * 864e5).toISOString();
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
-// ---- local principal já existe
+// ---- o local inicial se chama Padrão
 const locais0 = (await api('GET', '/casa-de-shows/venues')).body;
 const principal = locais0[0];
-check('existe um local principal com formato padrão', principal && principal.layouts.length >= 1 && principal.layouts[0].is_default === true, JSON.stringify(locais0));
+check('existe um local chamado Padrão com formato padrão', principal && principal.name === 'Padrão' && principal.layouts.length >= 1 && principal.layouts[0].is_default === true, JSON.stringify(locais0));
 
 // ---- criar local
 check('local sem nome recusado', (await api('POST', '/casa-de-shows/venues', { name: '' })).status === 400);
@@ -32,17 +32,17 @@ check('editar o local', (await api('PUT', `/casa-de-shows/venues/${B.id}`, { not
 const tipo = (await api('POST', '/casa-de-shows/table-types', { name: 'Mesa Loc ' + marca, seats: 4, space: 2 })).body;
 const sPista = (await api('POST', '/casa-de-shows/sectors', { name: 'Pista ' + marca, space: 20 })).body;
 const sCam = (await api('POST', '/casa-de-shows/sectors', { name: 'Camarote ' + marca, space: 10 })).body;
-check('setor sem local vai para o local principal', String(sPista.venue_id) === String(principal.id), JSON.stringify(sPista));
+check('setor sem local vai para o primeiro local', String(sPista.venue_id) === String(principal.id), JSON.stringify(sPista));
 const sB1 = (await api('POST', '/casa-de-shows/sectors', { venue_id: B.id, name: 'Pista ' + marca, space: 8 })).body;
 check('mesmo nome de setor em outro local é permitido', sB1.id && String(sB1.venue_id) === String(B.id), JSON.stringify(sB1));
 check('mesmo nome no mesmo local = 409', (await api('POST', '/casa-de-shows/sectors', { venue_id: B.id, name: 'Pista ' + marca, space: 3 })).status === 409);
 check('lista de setores filtra por local', (await api('GET', `/casa-de-shows/sectors?venue_id=${B.id}`)).body.length === 1);
 check('local inexistente recusado', (await api('POST', '/casa-de-shows/sectors', { venue_id: '999999', name: 'X', space: 1 })).status === 400);
 
-// ---- sem escolha: local principal e formato padrão (como antes)
+// ---- sem escolha: primeiro local e formato padrão (como antes)
 const evA = (await api('POST', '/events', { title: 'Evento A ' + marca, starts_at: em(30) })).body;
 const dispA = (await api('GET', `/casa-de-shows/availability?event_id=${evA.id}`)).body;
-check('evento sem escolha usa o local principal', String(dispA.venue.id) === String(principal.id) && dispA.layout.name === 'Padrão' && dispA.sectors.some((s) => s.name === 'Pista ' + marca && s.space === 20) && !dispA.sectors.some((s) => s.space === 8), JSON.stringify(dispA.venue));
+check('evento sem escolha usa o primeiro local', String(dispA.venue.id) === String(principal.id) && dispA.layout.name === 'Padrão' && dispA.sectors.some((s) => s.name === 'Pista ' + marca && s.space === 20) && !dispA.sectors.some((s) => s.space === 8), JSON.stringify(dispA.venue));
 
 // ---- formatos
 const F = (await api('POST', '/casa-de-shows/layouts', { venue_id: principal.id, name: 'Show em pé ' + marca,
@@ -98,7 +98,7 @@ check('foto de setor do outro local', fotoB.status === 201 && (await api('GET', 
 check('voltar ao padrão com reservas no outro local = 409', (await api('PUT', `/casa-de-shows/events/${evC.id}/setup`, { venue_id: null })).status === 409);
 await api('PUT', `/casa-de-shows/events/${evA.id}/setup`, { venue_id: B.id });
 const volta = (await api('PUT', `/casa-de-shows/events/${evA.id}/setup`, { venue_id: null })).body;
-check('voltar ao local principal e formato padrão', volta.chosen === false && String(volta.venue.id) === String(principal.id) && volta.layout.name === 'Padrão', JSON.stringify(volta));
+check('voltar ao primeiro local e formato padrão', volta.chosen === false && String(volta.venue.id) === String(principal.id) && volta.layout.name === 'Padrão', JSON.stringify(volta));
 check('local com setores não é apagado', (await api('DELETE', `/casa-de-shows/venues/${B.id}`)).status === 409);
 
 // ---- limpeza

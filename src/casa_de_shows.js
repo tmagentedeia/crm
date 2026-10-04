@@ -193,7 +193,7 @@ export const SHOWS_LOCAIS_SQL = `
     active     BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
   );
-  INSERT INTO shows_venues (name) SELECT 'Local principal' WHERE NOT EXISTS (SELECT 1 FROM shows_venues);
+  INSERT INTO shows_venues (name) SELECT 'Padrão' WHERE NOT EXISTS (SELECT 1 FROM shows_venues);
   ALTER TABLE shows_sectors ADD COLUMN IF NOT EXISTS venue_id BIGINT REFERENCES shows_venues(id) ON DELETE RESTRICT;
   UPDATE shows_sectors SET venue_id = (SELECT id FROM shows_venues ORDER BY id LIMIT 1) WHERE venue_id IS NULL;
   ALTER TABLE shows_sectors ALTER COLUMN venue_id SET NOT NULL;
@@ -855,7 +855,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     if (!ev) return res.status(404).json({ error: 'Evento não encontrado' });
     res.json(setupOut(await configuracao(q, { event_id: ev.id })));
   }));
-  // Corpo: { venue_id, layout_id? } (sem formato, vale o padrão do local) ; { venue_id: null } volta ao local principal e formato padrão
+  // Corpo: { venue_id, layout_id? } (sem formato, vale o padrão do local) ; { venue_id: null } volta ao primeiro local e ao formato padrão
   r.put('/casa-de-shows/events/:id/setup', comTratamento(async (req, res) => {
     const ev = await eventoDe(req.params.id);
     if (!ev) return res.status(404).json({ error: 'Evento não encontrado' });
@@ -1471,4 +1471,9 @@ export const SHOWS_RENOMEAR_SQL = `
       END IF;
     END LOOP;
   END $r$;
+`;
+
+// Passo 34: o local criado na migração se chama "Padrão" (não existe necessariamente um local principal)
+export const SHOWS_LOCAL_PADRAO_SQL = `
+  UPDATE shows_venues SET name = 'Padrão' WHERE name = 'Local principal' AND NOT EXISTS (SELECT 1 FROM shows_venues WHERE name = 'Padrão');
 `;

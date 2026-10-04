@@ -69,6 +69,9 @@ psql "$DB" -qc "update public.companies set modules = modules - 'casa_de_shows' 
 psql "$DB" -qc "drop table company_1.shows_event_setup, company_1.shows_layout_tables, company_1.shows_layout_sectors, company_1.shows_layouts; alter table company_1.shows_media drop column venue_id; alter table company_1.shows_sectors drop column venue_id; drop table company_1.shows_venues; update public.tenant_versions set version=32 where company_id=1"
 node src/migrate.js
 psql "$DB" -tc "select count(*) = 1 and (select count(*) from company_1.shows_layouts where is_default) = 1 from company_1.shows_venues" | grep -q t || { echo "FALHOU: migração dos locais da Casa de Shows"; exit 1; }
+psql "$DB" -qc "update company_1.shows_venues set name='Local principal'; update public.tenant_versions set version=33 where company_id=1"
+node src/migrate.js
+psql "$DB" -tAc "select name from company_1.shows_venues" | grep -q '^Padrão$' || { echo "FALHOU: nome Padrão do local"; exit 1; }
 psql "$DB" -qc "alter table company_1.shows_media rename to scn_media; update public.tenant_versions set version=31 where company_id=1"
 node src/migrate.js
 psql "$DB" -tc "select count(*) from company_1.shows_media" | grep -q 0 || { echo "FALHOU: troca do prefixo das tabelas da Casa de Shows"; exit 1; }
