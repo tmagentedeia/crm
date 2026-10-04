@@ -30,3 +30,7 @@ Situação: [ ] pendente · [x] feito e confirmado.
 
 ## Delivery
 - Módulo `delivery` (opcional): passo 28 em `src/tenant.js`; guia do atendente em `docs/delivery-agente.md`.
+
+## Equipe e acessos / Restaurante
+- Funções e acessos: `src/funcoes.js` (tabela `company_funcoes`, colunas novas em `users`). O bloqueio vale no servidor (`bloqueioPorFuncao`); toda tela nova precisa entrar em `TELAS`, `ROTAS_DA_TELA` (e, se lê dados de outras, `LEITURAS_DA_TELA`).
+- Restaurante (módulo `restaurante`, passo 29): telas `rst_salao`, `rst_cozinha`, `rst_caixa`, `rst_gestao`. Usa o cardápio do Delivery (coluna `station` em `dlv_items`). Não é exposto ao atendente (n8n).

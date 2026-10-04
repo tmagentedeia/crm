@@ -18,7 +18,7 @@ const PROXIMA = (o) => ({
 }[o.status] || null);
 
 // Pequeno aviso sonoro quando chega pedido novo
-function bip() {
+export function bip() {
   try {
     const Ctx = window.AudioContext || window.webkitAudioContext; if (!Ctx) return;
     const c = new Ctx(); const o = c.createOscillator(); const g = c.createGain();
@@ -293,7 +293,7 @@ function NovoPedido({ fechar }) {
   );
 }
 
-function EscolherItem({ item, fechar, ok }) {
+export function EscolherItem({ item, fechar, ok }) {
   const [qty, setQty] = useState(1);
   const [sel, setSel] = useState([]);
   const [nota, setNota] = useState('');
@@ -337,7 +337,7 @@ function EscolherItem({ item, fechar, ok }) {
 }
 
 // ================= CARDÁPIO =================
-function Cardapio() {
+export function Cardapio() {
   const [menu, setMenu] = useState(null);
   const [editando, setEditando] = useState(null);     // item (ou {} para novo)
   const [nomeCat, setNomeCat] = useState('');
@@ -385,7 +385,7 @@ function Cardapio() {
 
 function EditarItem({ item, categorias, fechar }) {
   const [id, setId] = useState(item.id || null);
-  const [f, setF] = useState({ name: item.name || '', description: item.description || '', price: item.price ?? '', category_id: item.category_id || '' });
+  const [f, setF] = useState({ name: item.name || '', description: item.description || '', price: item.price ?? '', category_id: item.category_id || '', station: item.station || 'cozinha' });
   const [grupos, setGrupos] = useState(item.option_groups || []);
   const [err, setErr] = useState('');
   const [msg, setMsg] = useState('');
@@ -427,6 +427,7 @@ function EditarItem({ item, categorias, fechar }) {
           <div className="field"><label>Categoria</label><select value={f.category_id} onChange={set('category_id')}><option value="">Sem categoria</option>{categorias.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
         </div>
         <div className="field"><label>Descrição</label><input value={f.description} onChange={set('description')} maxLength={400} /></div>
+        <div className="field"><label>Onde é preparado (restaurante)</label><select value={f.station} onChange={set('station')}><option value="cozinha">Cozinha</option><option value="bar">Bar</option><option value="direto">Sai direto, sem preparo</option></select></div>
         <div className="row"><button className="btn primary" onClick={salvar}>Salvar item</button>{id && <button className="btn" onClick={apagar}>Apagar item</button>}<button className="btn" onClick={fechar}>Fechar</button></div>
         {id && (
           <>

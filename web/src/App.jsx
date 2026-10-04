@@ -12,6 +12,7 @@ import Inativos from './pages/Inativos.jsx';
 import Config from './pages/Config.jsx';
 import Delivery from './pages/Delivery.jsx';
 import Equipe from './pages/Equipe.jsx';
+import { RstSalao, RstCozinha, RstCaixa, RstGestao } from './pages/Restaurante.jsx';
 import Admin from './pages/Admin.jsx';
 import Atendente from './pages/Atendente.jsx';
 import Comandos from './pages/Comandos.jsx';
@@ -62,6 +63,10 @@ const BASE_MENU = [
   { id: 'bloqueios', module: 'bloqueios', label: 'Atendimentos bloqueados', icon: '🚫', comp: Bloqueios },
   { id: 'importar', module: 'importar', label: 'Importar planilha', icon: '📥', comp: Importar },
   { id: 'delivery', module: 'delivery', label: 'Delivery', icon: '⛟', comp: Delivery },
+  { id: 'rst_salao', module: 'restaurante', label: 'Salão', icon: '◫', comp: RstSalao },
+  { id: 'rst_cozinha', module: 'restaurante', label: 'Cozinha', icon: '♨', comp: RstCozinha },
+  { id: 'rst_caixa', module: 'restaurante', label: 'Caixa', icon: '◎', comp: RstCaixa },
+  { id: 'rst_gestao', module: 'restaurante', label: 'Restaurante', icon: '▣', comp: RstGestao },
   { id: 'documentos', module: 'documentos', label: 'Documentos', icon: '▤', comp: Documentos },
   { id: 'beneficios', module: 'beneficios', label: 'Programa de benefícios M2', icon: '◈', comp: Beneficios },
   { id: 'equipe', label: 'Equipe e acessos', icon: '☷', comp: Equipe, soDono: true },

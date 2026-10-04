@@ -17,7 +17,7 @@ export function cleanModules(input) {
 
 // Nomes e ícones do menu escolhidos pela empresa (companies.menu_custom: { profissionais: { icon: '💇', label: 'Equipe' } }).
 // É só aparência: o painel continua identificando cada tela pelo mesmo código, então nada da lógica interna muda.
-export const MENU_IDS = ['dashboard', 'agenda', 'fila', 'clientes', 'inativos', 'profissionais', 'servicos', 'importar', 'atendente', 'comandos', 'bloqueios', 'campanhas', 'clube', 'pedidos', 'eventos', 'financeiro', 'comissoes', 'scenarium', 'beneficios', 'documentos', 'delivery', 'config'];
+export const MENU_IDS = ['dashboard', 'agenda', 'fila', 'clientes', 'inativos', 'profissionais', 'servicos', 'importar', 'atendente', 'comandos', 'bloqueios', 'campanhas', 'clube', 'pedidos', 'eventos', 'financeiro', 'comissoes', 'scenarium', 'beneficios', 'documentos', 'delivery', 'rst_salao', 'rst_cozinha', 'rst_caixa', 'rst_gestao', 'config'];
 
 // Devolve o objeto limpo (campos vazios somem), ou null se algo estiver errado.
 export function cleanMenuCustom(input) {
