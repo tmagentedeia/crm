@@ -30,6 +30,12 @@ psql "$DB" -qc "drop table company_1.commission_service_rates, company_1.commiss
 node src/migrate.js
 psql "$DB" -qc "drop table company_1.scn_reservations, company_1.scn_event_sectors, company_1.scn_sector_tables, company_1.scn_extras, company_1.scn_event_interest, company_1.scn_event_codes, company_1.scn_event_conditions, company_1.scn_table_types, company_1.scn_sectors; update public.tenant_versions set version=22 where company_id=1"
 node src/migrate.js
+psql "$DB" -qc "drop table company_1.birthday_sends, company_1.birthday_settings; alter table company_1.campaigns drop column kind; update public.tenant_versions set version=23 where company_id=1"
+node src/migrate.js
+psql "$DB" -tc "select count(*) from company_1.birthday_settings" | grep -q 1 || { echo "FALHOU: migração dos aniversariantes"; exit 1; }
+psql "$DB" -qc "drop table company_1.scn_hirings; update public.tenant_versions set version=24 where company_id=1"
+node src/migrate.js
+psql "$DB" -tc "select count(*) from company_1.scn_hirings" | grep -q 0 || { echo "FALHOU: migração das contratações"; exit 1; }
 psql "$DB" -tc "select count(*) from company_1.scn_reservations" | grep -q 0 || { echo "FALHOU: migração do Scenarium"; exit 1; }
 psql "$DB" -tc "select count(*) from company_1.commission_settings" | grep -q 1 || { echo "FALHOU: migração das comissões"; exit 1; }
 psql "$DB" -tc "select count(*) from company_1.product_sales" | grep -q 0 || { echo "FALHOU: migração das vendas"; exit 1; }
@@ -56,6 +62,7 @@ BASE=http://localhost:3999 node test/comissoes.mjs || R=1
 BASE=http://localhost:3999 node test/lembrete_cliente.mjs || R=1
 BASE=http://localhost:3999 node test/planos.mjs || R=1
 BASE=http://localhost:3999 node test/scenarium.mjs || R=1
+BASE=http://localhost:3999 node test/contratacoes.mjs || R=1
 BASE=http://localhost:3999 node test/modelos.mjs || R=1
 BASE=http://localhost:3999 node test/acesso_admin.mjs || R=1
 BASE=http://localhost:3999 node test/sessao.mjs || R=1
@@ -70,6 +77,7 @@ BASE=http://localhost:3999 node test/venda.mjs || R=1
 node test/telefone.mjs || R=1
 node test/passos.mjs || R=1
 BASE=http://localhost:3999 node test/campanhas.mjs || R=1
+BASE=http://localhost:3999 node test/aniversario.mjs || R=1
 BASE=http://localhost:3999 node test/excecoes.mjs || R=1
 BASE=http://localhost:3999 node test/exclusao.mjs || R=1
 BASE=http://localhost:3999 node test/apagar_massa.mjs || R=1

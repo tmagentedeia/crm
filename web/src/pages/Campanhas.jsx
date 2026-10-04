@@ -29,6 +29,7 @@ export default function Campanhas() {
   useEffect(() => { carregar(); }, []);
 
   if (tela.nome === 'form') return <Form frases={() => setTela({ nome: 'frases', de: tela })} id={tela.id} voltar={() => { setTela({ nome: 'lista' }); carregar(); }} abrir={(id) => { setTela({ nome: 'detalhe', id }); carregar(); }} />;
+  if (tela.nome === 'aniversario') return <Aniversario voltar={() => setTela({ nome: 'lista' })} />;
   if (tela.nome === 'excecoes') return <Excecoes voltar={() => setTela({ nome: 'lista' })} />;
   if (tela.nome === 'frases') return <Frases voltar={() => setTela(tela.de?.nome === 'form' ? tela.de : { nome: 'lista' })} />;
   if (tela.nome === 'detalhe') return <Detalhe key={tela.id} id={tela.id} voltar={() => { setTela({ nome: 'lista' }); carregar(); }} editar={() => setTela({ nome: 'form', id: tela.id })} irPara={(id) => setTela({ nome: 'detalhe', id })} />;
@@ -38,6 +39,7 @@ export default function Campanhas() {
       <div className="topbar">
         <h1><Nome id="campanhas">Campanhas</Nome></h1>
         <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn" onClick={() => setTela({ nome: 'aniversario' })}>Aniversariantes</button>
           <button className="btn" onClick={() => setTela({ nome: 'excecoes' })}>Não enviar para</button>
           <button className="btn" onClick={() => setTela({ nome: 'frases', de: { nome: 'lista' } })}>Saudações e cumprimentos</button>
           <button className="btn primary" onClick={() => setTela({ nome: 'form' })}>Nova campanha</button>
@@ -497,6 +499,79 @@ function Excecoes({ voltar }) {
             {lista && !lista.length && <tr><td colSpan="4" className="muted">Nenhum número na lista.</td></tr>}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+// Campanha permanente de aniversariantes: um modelo pronto que a casa só liga e ajusta
+function Aniversario({ voltar }) {
+  const [d, setD] = useState(null);
+  const [f, setF] = useState(null);
+  const [aceite, setAceite] = useState(false);
+  const [erro, setErro] = useState('');
+  const [msg, setMsg] = useState('');
+  const aplicar = (r) => { setD(r); setF({ days_ahead: r.days_ahead, audience: r.audience, daily_limit: r.daily_limit, messages: r.messages }); };
+  useEffect(() => { api('/campaigns/birthday').then(aplicar).catch((e) => setErro(e.message)); }, []);
+  if (!d || !f) return <div>{erro ? <div className="error">{erro}</div> : 'Carregando…'}</div>;
+
+  const salvar = async (enabled) => {
+    setErro(''); setMsg('');
+    try {
+      aplicar(await api('/campaigns/birthday', { method: 'PUT', body: { ...f, days_ahead: Number(f.days_ahead), daily_limit: Number(f.daily_limit), enabled, accept: aceite } }));
+      setMsg(enabled ? 'Salvo. A campanha está ligada.' : 'Salvo. A campanha está desligada.');
+    } catch (e) { setErro(e.message); }
+  };
+  const c = d.campanha;
+  const msgs = f.messages;
+  return (
+    <div>
+      <div className="topbar">
+        <h1>Aniversariantes</h1>
+        <button className="btn" onClick={voltar}>Voltar</button>
+      </div>
+      {erro && <div className="error">{erro}</div>}
+      {msg && <p style={{ color: 'var(--ok)' }}>{msg}</p>}
+      <p className="muted">
+        Uma campanha pronta, que roda sozinha. Todos os dias o painel vê quem faz aniversário daqui a alguns dias e envia a oferta uma única vez por ano para cada pessoa,
+        no mesmo ritmo seguro das outras campanhas (horário comercial, intervalos e limite por dia). Só recebe quem tem a data de aniversário na ficha e não está em “Não enviar para”.
+      </p>
+      <div className="card" style={{ marginBottom: 14 }}>
+        <p><strong>Situação: {d.enabled ? (c?.status === 'paused' ? 'Pausada' : 'Ligada') : 'Desligada'}</strong>
+          {c && <span className="muted"> · {c.na_fila} na fila · {c.enviadas} enviadas nos últimos 12 meses</span>}</p>
+        {c?.pause_reason && <div className="error">{c.pause_reason}</div>}
+        <div className="row">
+          <div className="field"><label>Avisar quantos dias antes</label>
+            <input type="number" min="3" max="60" value={f.days_ahead} onChange={(e) => setF({ ...f, days_ahead: e.target.value })} /></div>
+          <div className="field"><label>Para quem</label>
+            <select value={f.audience} onChange={(e) => setF({ ...f, audience: e.target.value })}>
+              <option value="clients">Só clientes</option><option value="all">Clientes e contatos</option>
+            </select></div>
+          <div className="field"><label>Máximo por dia</label>
+            <input type="number" min="1" max={d.limites.daily_max} value={f.daily_limit} onChange={(e) => setF({ ...f, daily_limit: e.target.value })} /></div>
+        </div>
+      </div>
+      <div className="card" style={{ marginBottom: 14 }}>
+        <h3>Mensagem</h3>
+        <p className="muted">Três versões, usadas em rodízio. Use {'{nome}'} para o primeiro nome. Cada uma termina com a frase de saída em forma de pergunta (“tá?”, “ok?” ou “tudo bem?”). Sem links.</p>
+        {msgs.map((m, i) => (
+          <div className="field" key={i}><label>Versão {i + 1}</label>
+            <textarea rows={4} value={m} onChange={(e) => setF({ ...f, messages: msgs.map((x, j) => (j === i ? e.target.value : x)) })} /></div>
+        ))}
+        <button className="btn" onClick={() => setF({ ...f, messages: d.padrao })}>Voltar ao texto original</button>
+      </div>
+      {!d.enabled && (
+        <div className="card" style={{ marginBottom: 14 }}>
+          <p>{AVISO}</p>
+          <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input type="checkbox" checked={aceite} onChange={(e) => setAceite(e.target.checked)} /> Li e quero ligar mesmo assim
+          </label>
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: 8 }}>
+        {d.enabled
+          ? <><button className="btn primary" onClick={() => salvar(true)}>Salvar</button><button className="btn" onClick={() => salvar(false)}>Desligar</button></>
+          : <><button className="btn primary" disabled={!aceite} onClick={() => salvar(true)}>Ligar</button><button className="btn" onClick={() => salvar(false)}>Salvar sem ligar</button></>}
       </div>
     </div>
   );

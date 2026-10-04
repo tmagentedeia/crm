@@ -15,6 +15,7 @@ import { listar as listarBloqueios, bloquear, liberar, numeroDoContato, nomeVali
 import { requireUser, requireN8n, requireAdmin, isAdmin, signToken, signImpersonationToken } from './auth.js';
 import { buildRouter } from './routes.js';
 import { startCampaignScheduler } from './campaigns.js';
+import { birthdayTickAll } from './aniversario.js';
 import { startCortesias } from './pedidos.js';
 
 const app = express();
@@ -391,4 +392,7 @@ app.get('*', (req, res, next) => {
 
 app.listen(process.env.PORT || 3000, () => console.log('CRM rodando na porta', process.env.PORT || 3000));
 startCampaignScheduler();
+// aniversariantes: confere de hora em hora (a fila de cada empresa é montada no máximo uma vez por dia)
+setTimeout(birthdayTickAll, 20000).unref();
+setInterval(birthdayTickAll, Math.max(Number(process.env.BIRTHDAY_TICK_MS) || 3600000, 500)).unref();
 startCortesias();

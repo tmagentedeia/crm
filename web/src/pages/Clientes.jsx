@@ -270,6 +270,7 @@ function Detail({ c, perfis, nomePedidos, clube, club, onClose, onSaved, onDelet
             ))}</tbody></table>
           </>
         )}
+        {(perfis || c.hirings?.rows?.length > 0) && <Contratacoes c={c} />}
         <h2>Histórico</h2>
         {c.history.length ? (
           <table><tbody>{c.history.map((h, i) => (
@@ -307,5 +308,49 @@ function AddCustomer({ clube, club, onClose, onSaved }) {
         <div className="row"><button className="btn primary">Salvar</button><button type="button" className="btn" onClick={onClose}>Cancelar</button></div>
       </form>
     </div>
+  );
+}
+
+const SIT_CONTRATACAO = { proposal: 'Proposta', confirmed: 'Confirmada', done: 'Realizada', cancelled: 'Cancelada' };
+// Shows contratados pela pessoa (perfil Contratante), com o valor médio contratado
+function Contratacoes({ c }) {
+  const [d, setD] = useState(c.hirings || { rows: [], contracts: 0, total: 0, average_value: null });
+  const [f, setF] = useState({ show_date: '', venue: '', value: '', status: 'confirmed' });
+  const [err, setErr] = useState('');
+  const recarregar = () => api('/scenarium/hirings?customer_id=' + c.id).then((r) => setD(r.hirings));
+  async function add(e) {
+    e.preventDefault(); setErr('');
+    try { await api('/scenarium/hirings', { method: 'POST', body: { customer_id: c.id, ...f, show_date: f.show_date || null, value: f.value === '' ? null : f.value } }); setF({ show_date: '', venue: '', value: '', status: 'confirmed' }); recarregar(); }
+    catch (e2) { setErr(e2.message); }
+  }
+  const mudar = async (h, status) => { try { await api('/scenarium/hirings/' + h.id, { method: 'PUT', body: { status } }); recarregar(); } catch (e2) { setErr(e2.message); } };
+  const apagar = async (h) => { if (!window.confirm('Apagar esta contratação?')) return; try { await api('/scenarium/hirings/' + h.id, { method: 'DELETE' }); recarregar(); } catch (e2) { setErr(e2.message); } };
+  return (
+    <>
+      <h2>Contratações</h2>
+      <p className="muted">
+        {d.contracts} contratação(ões) confirmada(s) ou realizada(s) · total {money(d.total)}
+        {d.average_value !== null && ` · valor médio contratado ${money(d.average_value)}`}
+      </p>
+      {err && <div className="error">{err}</div>}
+      {d.rows.length > 0 && (
+        <table><tbody>{d.rows.map((h) => (
+          <tr key={h.id}>
+            <td>{h.date ? new Date(h.date + 'T12:00:00').toLocaleDateString('pt-BR') : 'Sem data'}</td><td>{h.venue || '—'}</td>
+            <td>{h.value !== null ? money(h.value) : '—'}</td>
+            <td><select value={h.status} onChange={(e) => mudar(h, e.target.value)}>{Object.entries(SIT_CONTRATACAO).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></td>
+            <td><button type="button" className="btn sm" onClick={() => apagar(h)}>Apagar</button></td>
+          </tr>
+        ))}</tbody></table>
+      )}
+      <form className="row" onSubmit={add} style={{ marginTop: 8, alignItems: 'flex-end' }}>
+        <div className="field"><label>Data do show</label><input type="date" value={f.show_date} onChange={(e) => setF({ ...f, show_date: e.target.value })} /></div>
+        <div className="field"><label>Local</label><input value={f.venue} onChange={(e) => setF({ ...f, venue: e.target.value })} /></div>
+        <div className="field"><label>Valor</label><input value={f.value} onChange={(e) => setF({ ...f, value: e.target.value })} placeholder="0,00" /></div>
+        <div className="field"><label>Situação</label>
+          <select value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>{Object.entries(SIT_CONTRATACAO).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
+        <button className="btn">Adicionar</button>
+      </form>
+    </>
   );
 }

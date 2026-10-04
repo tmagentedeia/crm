@@ -162,6 +162,11 @@ export async function claimNext(companyId) {
            AND (sent_at AT TIME ZONE $1)::date = (now() AT TIME ZONE $1)::date`, [tz])).rows[0].n;
       // o limite diário vale para todas as campanhas da empresa juntas
       if (sentToday >= Math.min(c.daily_limit, LIMITS.DAILY_MAX)) continue;
+      // duas campanhas ativas ao mesmo tempo (a de aniversariantes roda junto com as outras) nunca enviam coladas
+      const colada = (await t(`SELECT 1 FROM campaign_recipients r JOIN campaigns o ON o.id=r.campaign_id
+         WHERE r.campaign_id<>$1 AND o.status='running' AND r.claimed_at > now() - make_interval(mins => $2) LIMIT 1`,
+        [c.id, LIMITS.INTERVAL_MIN])).rowCount;
+      if (colada) continue;
       // quem entrou na lista de exceções depois de a campanha ser montada não recebe
       await t(`UPDATE campaign_recipients SET status='cancelled', error='Na lista de exceções'
                WHERE campaign_id=$1 AND status='pending' AND phone IN (SELECT phone FROM campaign_exclusions)`, [c.id]);
@@ -171,7 +176,7 @@ export async function claimNext(companyId) {
          ORDER BY random() LIMIT 1 FOR UPDATE SKIP LOCKED`, [c.id])).rows[0];
       if (!rec) {
         const open = (await t("SELECT 1 FROM campaign_recipients WHERE campaign_id=$1 AND status='sending'", [c.id])).rowCount;
-        if (!open) await t("UPDATE campaigns SET status='done', finished_at=now() WHERE id=$1", [c.id]);
+        if (!open && c.kind !== 'birthday') await t("UPDATE campaigns SET status='done', finished_at=now() WHERE id=$1", [c.id]);
         continue;
       }
       const st = (await t('SELECT * FROM campaign_settings WHERE id=1 FOR UPDATE')).rows[0] || {};
@@ -276,7 +281,7 @@ export function registerCampaignRoutes(r, wrap) {
   }
 
   const cheio = async (t) => {
-    const n = (await t('SELECT COUNT(*)::int AS n FROM campaigns')).rows[0].n;
+    const n = (await t("SELECT COUNT(*)::int AS n FROM campaigns WHERE kind='manual'")).rows[0].n;
     return n >= LIMITS.SAVED_MAX ? `Você já tem ${LIMITS.SAVED_MAX} campanhas guardadas. Apague alguma para criar outra.` : null;
   };
 
@@ -372,6 +377,7 @@ export function registerCampaignRoutes(r, wrap) {
          COUNT(r.id) FILTER (WHERE r.status='failed')::int AS failed,
          COUNT(r.id) FILTER (WHERE r.status IN ('pending','sending'))::int AS remaining
        FROM campaigns c LEFT JOIN campaign_recipients r ON r.campaign_id=c.id
+       WHERE c.kind='manual'
        GROUP BY c.id ORDER BY c.id DESC`);
     res.json(rows.map(toCampaign));
   }));
@@ -429,7 +435,7 @@ export function registerCampaignRoutes(r, wrap) {
   r.put('/campaigns/:id', wrap((req, res) => saveDraft(req, res, Number(req.params.id))));
 
   r.delete('/campaigns/:id', wrap(async (req, res) => {
-    const { rowCount } = await q("DELETE FROM campaigns WHERE id=$1 AND status IN ('draft','stopped','done')", [req.params.id]);
+    const { rowCount } = await q("DELETE FROM campaigns WHERE id=$1 AND kind='manual' AND status IN ('draft','stopped','done')", [req.params.id]);
     if (!rowCount) return res.status(409).json({ error: 'Pare a campanha antes de apagar' });
     res.json({ ok: true });
   }));
@@ -469,7 +475,7 @@ export function registerCampaignRoutes(r, wrap) {
     if (!c) return res.status(404).json({ error: 'Não encontrada' });
     if (c.status !== 'draft') return res.status(409).json({ error: 'Esta campanha já foi iniciada' });
     // só uma campanha ativa por vez (em andamento ou pausada)
-    const outra = (await q("SELECT name FROM campaigns WHERE status IN ('running','paused') AND id<>$1 LIMIT 1", [c.id])).rows[0];
+    const outra = (await q("SELECT name FROM campaigns WHERE status IN ('running','paused') AND kind='manual' AND id<>$1 LIMIT 1", [c.id])).rows[0];
     if (outra) return res.status(409).json({ error: `Já existe uma campanha ativa (“${outra.name}”). Pare ou conclua essa antes de iniciar outra.` });
     const err = validateConfig(toCampaign(c));
     if (err) return res.status(400).json({ error: err });
@@ -478,20 +484,20 @@ export function registerCampaignRoutes(r, wrap) {
     res.json({ ok: true });
   }));
   r.post('/campaigns/:id/pause', wrap(async (req, res) => {
-    const { rowCount } = await q("UPDATE campaigns SET status='paused', pause_reason=NULL WHERE id=$1 AND status='running'", [req.params.id]);
+    const { rowCount } = await q("UPDATE campaigns SET status='paused', pause_reason=NULL WHERE id=$1 AND kind='manual' AND status='running'", [req.params.id]);
     if (!rowCount) return res.status(409).json({ error: 'A campanha não está em andamento' });
     res.json({ ok: true });
   }));
   r.post('/campaigns/:id/resume', wrap(async (req, res) => {
     const { rowCount } = await q(
-      "UPDATE campaigns SET status='running', last_play_at=now(), pause_reason=NULL, consecutive_failures=0, next_send_at=GREATEST(COALESCE(next_send_at, now()), now()) WHERE id=$1 AND status='paused'",
+      "UPDATE campaigns SET status='running', last_play_at=now(), pause_reason=NULL, consecutive_failures=0, next_send_at=GREATEST(COALESCE(next_send_at, now()), now()) WHERE id=$1 AND kind='manual' AND status='paused'",
       [req.params.id]);
     if (!rowCount) return res.status(409).json({ error: 'A campanha não está pausada' });
     res.json({ ok: true });
   }));
   r.post('/campaigns/:id/stop', wrap(async (req, res) => {
     const out = await tx(currentCompany(), async (t) => {
-      const u = await t("UPDATE campaigns SET status='stopped', finished_at=now() WHERE id=$1 AND status IN ('running','paused') RETURNING id", [req.params.id]);
+      const u = await t("UPDATE campaigns SET status='stopped', finished_at=now() WHERE id=$1 AND kind='manual' AND status IN ('running','paused') RETURNING id", [req.params.id]);
       if (!u.rowCount) return false;
       await t("UPDATE campaign_recipients SET status='cancelled' WHERE campaign_id=$1 AND status='pending'", [req.params.id]);
       return true;

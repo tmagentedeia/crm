@@ -3,6 +3,8 @@ import { lerCaixas, juntarCaixas, tituloDe, acharCaixa, temSeparador } from './m
 import { q, qg, tx, currentCompany } from './db.js';
 import { runImport } from './importer.js';
 import { registerCampaignRoutes } from './campaigns.js';
+import { registerBirthdayRoutes } from './aniversario.js';
+import { registerHiringRoutes, historicoContratacoes } from './contratacoes.js';
 import { normPhone } from './phone.js';
 import { parseBirthday } from './ficha.js';
 import { registerOrderRoutes, historicoDoCliente } from './pedidos.js';
@@ -638,7 +640,7 @@ export function buildRouter() {
     const h = await q(
       'SELECT * FROM v_customer_history WHERE customer_id=$1 ORDER BY starts_at DESC',
       [req.params.id]);
-    res.json({ ...c.rows[0], history: h.rows, ...(await historicoDoCliente(req.params.id)), ...(await historicoScenarium(req.params.id)) });
+    res.json({ ...c.rows[0], history: h.rows, ...(await historicoDoCliente(req.params.id)), ...(await historicoScenarium(req.params.id)), ...(await historicoContratacoes(req.params.id)) });
   }));
   r.put('/customers/:id', wrap(async (req, res) => {
     const { name, phone, notes, status } = req.body;
@@ -1219,6 +1221,7 @@ export function buildRouter() {
     send({ action: /(\?|\.\.\.|…)$/.test(raw) ? 'resume' : 'pause', phrase: null, rule: 'geral' });
   }));
 
+  registerBirthdayRoutes(r, wrap); // antes das campanhas: /campaigns/birthday não pode cair em /campaigns/:id
   registerCampaignRoutes(r, wrap);
   registerOrderRoutes(r, wrap);
   registerEventRoutes(r, wrap);
@@ -1226,5 +1229,6 @@ export function buildRouter() {
   registerSalesRoutes(r, wrap);
   registerCommissionRoutes(r, wrap);
   registerScenariumRoutes(r, wrap);
+  registerHiringRoutes(r, wrap);
   return r;
 }
