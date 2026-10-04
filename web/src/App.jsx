@@ -10,6 +10,7 @@ import Fila from './pages/Fila.jsx';
 import Importar from './pages/Importar.jsx';
 import Inativos from './pages/Inativos.jsx';
 import Config from './pages/Config.jsx';
+import Delivery from './pages/Delivery.jsx';
 import Admin from './pages/Admin.jsx';
 import Atendente from './pages/Atendente.jsx';
 import Comandos from './pages/Comandos.jsx';
@@ -59,6 +60,7 @@ const BASE_MENU = [
   { id: 'comandos', module: 'comandos', label: 'Comandos', icon: '🎛️', comp: Comandos },
   { id: 'bloqueios', module: 'bloqueios', label: 'Atendimentos bloqueados', icon: '🚫', comp: Bloqueios },
   { id: 'importar', module: 'importar', label: 'Importar planilha', icon: '📥', comp: Importar },
+  { id: 'delivery', module: 'delivery', label: 'Delivery', icon: '⛟', comp: Delivery },
   { id: 'documentos', module: 'documentos', label: 'Documentos', icon: '▤', comp: Documentos },
   { id: 'beneficios', module: 'beneficios', label: 'Programa de benefícios M2', icon: '◈', comp: Beneficios },
   { id: 'config', label: 'Configurações', icon: '⚙️', comp: Config },

@@ -10,6 +10,7 @@ export const MODULES = [
   { key: 'comissoes', label: 'Comissões', desc: 'Comissão dos profissionais sobre serviços e produtos, com fechamento por período' },
   { key: 'beneficios', label: 'Programa de benefícios M2', desc: 'Programa de benefícios da M2: a empresa acompanha os descontos das indicações que fez e indica novos contatos' },
   { key: 'documentos', label: 'Documentos', desc: 'Modelos de ingresso, contrato e proposta em PDF, gerados pelo painel ou pelo atendente' },
+  { key: 'delivery', label: 'Delivery', desc: 'Cardápio, pedidos para entrega ou retirada, taxa por bairro, cupons, entregadores e relatório' },
   { key: 'scenarium', label: 'Scenarium', desc: 'Reservas de mesa por setor em casas de evento, controlando o espaço de cada setor' },
   { key: 'eventos', label: 'Eventos', desc: 'Compromissos avulsos (lives, reuniões, shows), sem profissional nem serviço' },
   { key: 'agenda', label: 'Agenda', desc: 'Agenda de horários' },
@@ -30,5 +31,5 @@ const PAI = { fila: 'agenda', profissionais: 'agenda', servicos: 'agenda', inati
 // Um módulo só está desligado quando vale explicitamente false: empresas que nunca tiveram módulos configurados veem tudo.
 // O programa de assinaturas e os Pedidos são opcionais: só aparece quando o administrador liga.
 export const moduleOn = (modules, key) =>
-  key === 'clube' || key === 'pedidos' || key === 'eventos' || key === 'financeiro' || key === 'assistente' || key === 'comissoes' || key === 'scenarium' || key === 'beneficios' || key === 'documentos' ? modules?.[key] === true :
+  key === 'clube' || key === 'pedidos' || key === 'eventos' || key === 'financeiro' || key === 'assistente' || key === 'comissoes' || key === 'scenarium' || key === 'beneficios' || key === 'documentos' || key === 'delivery' ? modules?.[key] === true :
   modules?.[key] !== undefined ? modules[key] !== false : PAI[key] ? modules?.[PAI[key]] !== false : true;

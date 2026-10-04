@@ -72,7 +72,7 @@ export function agendaDescontos(referrals, dueDay) {
 
 // ---------- ligação com a tabela de mensagens agendadas ----------
 let poolMsg = null;
-const msgPool = () => {
+export const msgPool = () => {
   if (!process.env.N8N_DATABASE_URL) return null;
   return (poolMsg ||= new pg.Pool({ connectionString: process.env.N8N_DATABASE_URL, max: 2 }));
 };

@@ -45,6 +45,9 @@ psql "$DB" -tc "select program_name from company_1.loyalty_settings" | grep -q "
 psql "$DB" -qc "drop table company_1.doc_files, company_1.doc_templates, company_1.doc_settings; update public.tenant_versions set version=26 where company_id=1"
 node src/migrate.js
 psql "$DB" -tc "select count(*) from company_1.doc_templates" | grep -q 0 || { echo "FALHOU: migração dos documentos"; exit 1; }
+psql "$DB" -qc "drop table company_1.dlv_order_events, company_1.dlv_order_items, company_1.dlv_orders, company_1.dlv_coupons, company_1.dlv_couriers, company_1.dlv_zones, company_1.dlv_options, company_1.dlv_option_groups, company_1.dlv_items, company_1.dlv_categories, company_1.dlv_settings; update public.tenant_versions set version=27 where company_id=1"
+node src/migrate.js
+psql "$DB" -tc "select count(*) from company_1.dlv_orders" | grep -q 0 || { echo "FALHOU: migração do delivery"; exit 1; }
 psql "$DB" -tc "select count(*) from company_1.scn_reservations" | grep -q 0 || { echo "FALHOU: migração do Scenarium"; exit 1; }
 psql "$DB" -tc "select count(*) from company_1.commission_settings" | grep -q 1 || { echo "FALHOU: migração das comissões"; exit 1; }
 psql "$DB" -tc "select count(*) from company_1.product_sales" | grep -q 0 || { echo "FALHOU: migração das vendas"; exit 1; }
@@ -77,6 +80,7 @@ BASE=http://localhost:3999 node test/scenarium.mjs || R=1
 BASE=http://localhost:3999 node test/contratacoes.mjs || R=1
 BASE=http://localhost:3999 node test/indicacoes.mjs || R=1
 BASE=http://localhost:3999 node test/documentos.mjs || R=1
+BASE=http://localhost:3999 node test/delivery.mjs || R=1
 BASE=http://localhost:3999 node test/modelos.mjs || R=1
 BASE=http://localhost:3999 node test/acesso_admin.mjs || R=1
 BASE=http://localhost:3999 node test/sessao.mjs || R=1

@@ -11,6 +11,7 @@ import { COMISSOES_SQL } from './comissoes.js';
 import { SCENARIUM_SQL } from './scenarium.js';
 import { ANIVERSARIO_SQL } from './aniversario.js';
 import { DOCUMENTOS_SQL } from './documentos.js';
+import { DELIVERY_SQL } from './delivery.js';
 import { CONTRATACOES_SQL } from './contratacoes.js';
 import { FINANCEIRO_SQL, FINANCEIRO_ORIGEM_SQL, FINANCEIRO_DEDUP_SQL } from './financeiro.js';
 
@@ -156,6 +157,8 @@ export const TENANT_STEPS = [
   { version: 26, sql: "UPDATE loyalty_settings SET program_name='Programa de assinaturas' WHERE program_name='Programa de benefícios'" },
   // 27: gerador de documentos em PDF (modelos, documentos gerados, dados fixos)
   { version: 27, sql: DOCUMENTOS_SQL },
+  // 28: módulo Delivery (cardápio, pedidos, entregadores, cupons)
+  { version: 28, sql: DELIVERY_SQL },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 
@@ -185,6 +188,7 @@ export async function createCompanySchema(cx, companyId) {
   await cx.query(ANIVERSARIO_SQL);
   await cx.query(CONTRATACOES_SQL);
   await cx.query(DOCUMENTOS_SQL);
+  await cx.query(DELIVERY_SQL);
   await cx.query('SET LOCAL search_path TO public');
   await cx.query('INSERT INTO tenant_versions (company_id, version) VALUES ($1, 1)', [companyId]);
 }

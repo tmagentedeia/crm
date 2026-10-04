@@ -27,3 +27,6 @@ Situação: [ ] pendente · [x] feito e confirmado.
 ## Plano de vendas / proposta comercial
 - [ ] Atualizar o plano de vendas com: Programa de assinaturas (antigo "Programa de benefícios"), Programa de benefícios por indicação (módulo próprio, fora dos planos), Scenarium (fora dos planos), Aniversariantes (benefício do plano Advanced, dentro de Campanhas), Contratações, geração de documentos em PDF.
 - [ ] Guardar uma cópia da proposta comercial como está antes de alterar (o Thiago ainda não tem o arquivo; ele trará o modelo).
+
+## Delivery
+- Módulo `delivery` (opcional): passo 28 em `src/tenant.js`; guia do atendente em `docs/delivery-agente.md`.
