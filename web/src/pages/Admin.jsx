@@ -47,6 +47,7 @@ export default function Admin() {
     } catch (e) { setErr(e.message); }
   };
   const [up, setUp] = useState({ phone: '', text: '' }); // contato e texto do aviso de upgrade
+  const [opAgenda, setOpAgenda] = useState(null); // id da empresa cujas opções da Agenda estão abertas
   const [opcoes, setOpcoes] = useState(null); // id da empresa cujas opções do Atendente estão abertas
   const [nomes, setNomes] = useState(null); // { id, empresa, modulo, valores } — nomes do módulo em edição
   const [abertas, setAbertas] = useState({});
@@ -264,6 +265,25 @@ export default function Admin() {
         </div>
       )}
 
+      {opAgenda && (() => {
+        const emp = list.find((x) => x.id === opAgenda);
+        if (!emp) return null;
+        return (
+          <div className="modal-bg" onClick={() => setOpAgenda(null)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <h2>Opções da Agenda — {emp.name}</h2>
+              <div className="field"><label>Como o atendente marca horários</label>
+                <select value={emp.booking_mode || 'auto'} onChange={(e) => salvarModo(emp, e.target.value)}>
+                  <option value="auto">Automático (horários fixos)</option>
+                  <option value="confirm">Sob confirmação</option>
+                </select></div>
+              {err && <div className="error">{err}</div>}
+              <div className="row"><button className="btn primary" onClick={() => setOpAgenda(null)}>Fechar</button></div>
+            </div>
+          </div>
+        );
+      })()}
+
       {opcoes && (() => {
         const emp = list.find((x) => x.id === opcoes);
         if (!emp) return null;
@@ -365,12 +385,6 @@ export default function Admin() {
                     onKeyDown={(e) => e.key === 'Enter' && changed && save(s)} />
                   {changed && <button className="btn sm primary" onClick={() => save(s)}>Salvar</button>}
                 </Campo>
-                <Campo rotulo="Agendamento">
-                  <select value={s.booking_mode || 'auto'} onChange={(e) => salvarModo(s, e.target.value)}>
-                    <option value="auto">Automático (horários fixos)</option>
-                    <option value="confirm">Sob confirmação</option>
-                  </select>
-                </Campo>
               </div>
               <div style={{ display: 'flex', gap: 22, flexWrap: 'wrap', alignItems: 'flex-end' }}>
                 <Campo rotulo="Bloqueios (instância e prefixo)">
@@ -414,11 +428,12 @@ export default function Admin() {
                         title={s.locked_modules?.[m.key] === true ? 'Aparece apagada para a empresa (convite de upgrade). Toque para esconder.' : 'Escondida da empresa. Toque para mostrar apagada, com convite de upgrade.'}
                         onClick={(e) => { e.preventDefault(); alternarVitrine(s, m.key); }}>{s.locked_modules?.[m.key] === true ? <IconeCadeado size={13} /> : <IconeOlho cortado size={13} />}</button>
                     )}
-                    {(ROTULOS[m.key] || m.key === 'atendente') && moduleOn(s.modules, m.key) && (
-                      <button type="button" className="btn sm" style={{ padding: '0 6px' }} title={m.key === 'atendente' ? 'Opções do atendente' : 'Personalizar os nomes deste módulo'}
+                    {(ROTULOS[m.key] || m.key === 'atendente' || m.key === 'agenda') && moduleOn(s.modules, m.key) && (
+                      <button type="button" className="btn sm" style={{ padding: '0 6px' }} title={m.key === 'atendente' ? 'Opções do atendente' : m.key === 'agenda' ? 'Opções da agenda' : 'Personalizar os nomes deste módulo'}
                         onClick={(e) => {
                           e.preventDefault();
                           if (m.key === 'atendente') setOpcoes(s.id);
+                          else if (m.key === 'agenda') setOpAgenda(s.id);
                           else setNomes({ id: s.id, empresa: s.name, modulo: m.key, valores: { ...(s.module_labels?.[m.key] || {}) } });
                         }}>✏️</button>
                     )}
