@@ -21,6 +21,7 @@ import Eventos from './pages/Eventos.jsx';
 import Financeiro from './pages/Financeiro.jsx';
 import Comissoes from './pages/Comissoes.jsx';
 import Scenarium from './pages/Scenarium.jsx';
+import Beneficios from './pages/Beneficios.jsx';
 import { moduleOn } from './modules.js';
 import UpgradeModal from './UpgradeModal.jsx';
 import { IconeCadeado } from './icones.jsx';
@@ -47,12 +48,13 @@ const BASE_MENU = [
   { id: 'servicos', module: 'servicos', label: 'Produtos e Serviços', icon: '🏢', comp: Servicos },
   { id: 'inativos', module: 'inativos', label: 'Retorno de inativos', icon: '🔁', comp: Inativos },
   { id: 'campanhas', module: 'campanhas', label: 'Campanhas', icon: '📣', comp: Campanhas },
-  { id: 'clube', module: 'clube', label: 'Programa de benefícios', icon: '⭐', comp: Clube },
+  { id: 'clube', module: 'clube', label: 'Programa de assinaturas', icon: '⭐', comp: Clube },
   { id: 'pedidos', module: 'pedidos', label: 'Pedidos', icon: '🎵', comp: Pedidos },
   { id: 'eventos', module: 'eventos', label: 'Eventos', icon: '🗓️', comp: Eventos },
   { id: 'financeiro', module: 'financeiro', label: 'Recebimentos', icon: '💰', comp: Financeiro },
   { id: 'comissoes', module: 'comissoes', label: 'Comissões', icon: '💸', comp: Comissoes },
   { id: 'scenarium', module: 'scenarium', label: 'Scenarium', icon: '▦', comp: Scenarium },
+  { id: 'beneficios', module: 'beneficios', label: 'Programa de benefícios', icon: '◈', comp: Beneficios },
   { id: 'fila', module: 'fila', label: 'Fila de espera', icon: '⏳', comp: Fila },
   { id: 'comandos', module: 'comandos', label: 'Comandos', icon: '🎛️', comp: Comandos },
   { id: 'bloqueios', module: 'bloqueios', label: 'Atendimentos bloqueados', icon: '🚫', comp: Bloqueios },

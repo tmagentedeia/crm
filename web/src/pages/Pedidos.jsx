@@ -81,7 +81,7 @@ export default function Pedidos({ company }) {
   return (
     <>
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: 12 }}>
-        <div><h1>{L.items}</h1><p className="muted">{L.items} por {g}, franquia do programa de benefícios e resumo do mês.</p></div>
+        <div><h1>{L.items}</h1><p className="muted">{L.items} por {g}, franquia do programa de assinaturas e resumo do mês.</p></div>
         <button className="btn primary" onClick={() => setNovo(true)}>+ Anotar {i}</button>
       </div>
       <div className="row" style={{ marginBottom: 12 }}>

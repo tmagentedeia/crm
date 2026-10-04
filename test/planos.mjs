@@ -31,7 +31,7 @@ check('o painel da empresa recebe a vitrine', painel.locked_modules?.comissoes =
 r = await plano('pro');
 e = await empresa();
 check('Pro liga Pedidos, Comissões, Atendimentos bloqueados e lembrete do cliente', ['pedidos', 'comissoes', 'bloqueios', 'lembrete_cliente'].every((k) => e.modules[k] === true));
-check('Pro ainda desliga Campanhas, Programa de benefícios e Assistente', ['campanhas', 'clube', 'assistente'].every((k) => e.modules[k] === false) && e.locked_modules.campanhas === true && e.locked_modules.comissoes === undefined, JSON.stringify(e.locked_modules));
+check('Pro ainda desliga Campanhas, Programa de assinaturas e Assistente', ['campanhas', 'clube', 'assistente'].every((k) => e.modules[k] === false) && e.locked_modules.campanhas === true && e.locked_modules.comissoes === undefined, JSON.stringify(e.locked_modules));
 
 r = await plano('advanced');
 e = await empresa();

@@ -26,7 +26,7 @@ const frasesSql = baseline.slice(baseline.indexOf('-- ========== CAMPANHAS: SAUD
 const clubeSql = `
     CREATE TABLE IF NOT EXISTS loyalty_settings (
       id SMALLINT PRIMARY KEY CHECK (id = 1),
-      program_name TEXT NOT NULL DEFAULT 'Programa de benefícios'
+      program_name TEXT NOT NULL DEFAULT 'Programa de assinaturas'
     );
     INSERT INTO loyalty_settings (id) VALUES (1) ON CONFLICT DO NOTHING;
     CREATE TABLE IF NOT EXISTS loyalty_levels (
@@ -151,6 +151,8 @@ export const TENANT_STEPS = [
   { version: 24, sql: ANIVERSARIO_SQL },
   // 25: contratações (shows contratados) na ficha do Contratante
   { version: 25, sql: CONTRATACOES_SQL },
+  // 26: o programa de assinantes passa a se chamar "Programa de assinaturas" (quem ainda tem o nome de fábrica acompanha; nome escolhido pela empresa fica)
+  { version: 26, sql: "UPDATE loyalty_settings SET program_name='Programa de assinaturas' WHERE program_name='Programa de benefícios'" },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 

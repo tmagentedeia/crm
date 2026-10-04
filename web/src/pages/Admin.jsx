@@ -1,5 +1,6 @@
 import CampoSenha from '../senha.jsx';
 import React, { useEffect, useState } from 'react';
+import { Mensalidade, AvisosDesconto } from './AdminIndicacoes.jsx';
 import { api, fmtDate, getToken, setToken, ADMIN_KEY } from '../api.js';
 import { MODULES, moduleOn } from '../modules.js';
 import { PLANOS, planoDe } from '../plans.js';
@@ -8,7 +9,7 @@ import { ROTULOS } from '../rotulos.js';
 
 const FORM_VAZIO = () => ({
   name: '', owner_name: '', email: '', password: '', template_id: '',
-  modules: Object.fromEntries(MODULES.map((m) => [m.key, m.key !== 'scenarium'])),  // Scenarium só entra quando o administrador marca
+  modules: Object.fromEntries(MODULES.map((m) => [m.key, !['scenarium', 'beneficios'].includes(m.key)])),  // Scenarium e Programa de benefícios só entram quando o administrador marca
 });
 
 // Campo com rótulo pequeno em cima (definido aqui fora para os campos não perderem o foco ao digitar)
@@ -321,6 +322,7 @@ export default function Admin() {
         </div>
       )}
 
+      <AvisosDesconto />
       {list.map((s) => {
         const changed = s.id in edit;
         return (
@@ -358,6 +360,7 @@ export default function Admin() {
                   </select>
                 </Campo>
               </div>
+              <Mensalidade key={s.id + ':' + (s.billing_due_day ?? '') + (s.billing_exempt ? 'i' : '')} s={s} recarregar={load} />
               <div style={{ display: 'flex', gap: 22, flexWrap: 'wrap', alignItems: 'flex-end' }}>
                 <Campo rotulo="Bloqueios (instância e prefixo)">
                   <input placeholder="instância do WhatsApp" style={{ width: 170 }} value={cx[s.id]?.i ?? s.whatsapp_instance ?? ''}

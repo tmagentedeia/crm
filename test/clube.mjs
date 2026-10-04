@@ -16,7 +16,7 @@ const T = (p, o = {}) => call(o.method || 'GET', p, { token: o.token || A, body:
 
 // programa e níveis
 let c = (await T('/api/club')).body;
-check('nome padrão do programa', c.program_name === 'Programa de benefícios' && Array.isArray(c.levels) && c.levels.length === 0, JSON.stringify(c));
+check('nome padrão do programa', c.program_name === 'Programa de assinaturas' && Array.isArray(c.levels) && c.levels.length === 0, JSON.stringify(c));
 check('renomeia o programa', (await T('/api/club', { method: 'PUT', body: { program_name: 'Clube do Miranda' } })).status === 200 && (await T('/api/club')).body.program_name === 'Clube do Miranda');
 check('nome vazio recusado', (await T('/api/club', { method: 'PUT', body: { program_name: '  ' } })).status === 400);
 const franquias = [['Nível 1', 0], ['Nível 2', 1], ['Nível 3', 2], ['Nível 4', 3], ['Nível 5', 4], ['Nível 6', 4]];
@@ -108,7 +108,7 @@ check('nível inexistente = 404', (await T('/api/club/levels/999999', { method: 
 
 // isolamento entre empresas
 const cb = (await T('/api/club', { token: B })).body;
-check('empresa 2 não vê o programa da 1', cb.program_name === 'Programa de benefícios' && cb.levels.length === 0, JSON.stringify(cb));
+check('empresa 2 não vê o programa da 1', cb.program_name === 'Programa de assinaturas' && cb.levels.length === 0, JSON.stringify(cb));
 check('empresa 2 não usa nível da 1', (await T('/api/customers', { token: B, method: 'POST', body: { name: 'Z', phone: '32977770001', club_status: 'member', club_level_id: niv['Nível 1'] } })).status === 400);
 check('empresa 2 não edita nível da 1', (await T('/api/club/levels/' + niv['Nível 1'], { token: B, method: 'PUT', body: { name: 'Hack' } })).status === 404);
 check('sem login = 401', (await call('GET', '/api/club')).status === 401);

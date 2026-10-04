@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { pool } from './db.js';
 import { upgradeAllCompanies } from './tenant.js';
+import { INDICACOES_SQL } from './indicacoes.js';
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const sql = fs.readFileSync(path.join(dir, '..', 'db', 'schema.sql'), 'utf8');
@@ -28,10 +29,12 @@ try {
       id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL UNIQUE, description TEXT, data JSONB NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
     await pool.query(`CREATE TABLE IF NOT EXISTS admin_access_log (
       id BIGSERIAL PRIMARY KEY, admin_user_id BIGINT NOT NULL, company_id BIGINT NOT NULL, target_user_id BIGINT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
+    await pool.query(INDICACOES_SQL);
     const n = await upgradeAllCompanies();
     console.log(`Estrutura em dia (${n} empresa(s)).`);
   } else {
     await pool.query(sql);
+    await pool.query(INDICACOES_SQL);
     console.log('Estrutura criada com sucesso.');
   }
 } catch (e) {

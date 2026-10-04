@@ -16,6 +16,7 @@ import { requireUser, requireN8n, requireAdmin, isAdmin, signToken, signImperson
 import { buildRouter } from './routes.js';
 import { startCampaignScheduler } from './campaigns.js';
 import { birthdayTickAll } from './aniversario.js';
+import { registerIndicacoesAdmin, sincronizarTodas } from './indicacoes.js';
 import { startCortesias } from './pedidos.js';
 
 const app = express();
@@ -175,9 +176,10 @@ app.get('/api/admin/access-log', requireUser, requireAdmin, async (req, res) => 
   res.json(rows);
 });
 
+registerIndicacoesAdmin(app, requireUser, requireAdmin);
 app.get('/api/admin/companies', requireUser, requireAdmin, async (req, res) => {
   const { rows } = await qg(
-    `SELECT c.id, c.name, c.max_professionals, c.created_at, c.modules, c.locked_modules, c.module_labels, c.whatsapp_instance, c.redis_prefix, c.campaign_webhook_url, c.booking_mode, c.api_key_hint, c.api_key_created_at,
+    `SELECT c.id, c.name, c.max_professionals, c.billing_due_day, c.billing_exempt, c.created_at, c.modules, c.locked_modules, c.module_labels, c.whatsapp_instance, c.redis_prefix, c.campaign_webhook_url, c.booking_mode, c.api_key_hint, c.api_key_created_at,
             (SELECT u.email FROM users u WHERE u.company_id = c.id ORDER BY (u.role = 'owner') DESC, u.id LIMIT 1) AS owner_email
      FROM companies c ORDER BY c.id`);
   // profissionais ativos: contados dentro do schema de cada empresa
@@ -394,5 +396,7 @@ app.listen(process.env.PORT || 3000, () => console.log('CRM rodando na porta', p
 startCampaignScheduler();
 // aniversariantes: confere de hora em hora (a fila de cada empresa é montada no máximo uma vez por dia)
 setTimeout(birthdayTickAll, 20000).unref();
+setTimeout(sincronizarTodas, 30000).unref();
+setInterval(sincronizarTodas, 3600000).unref();
 setInterval(birthdayTickAll, Math.max(Number(process.env.BIRTHDAY_TICK_MS) || 3600000, 500)).unref();
 startCortesias();

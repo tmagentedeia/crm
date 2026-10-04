@@ -5,6 +5,7 @@ import { runImport } from './importer.js';
 import { registerCampaignRoutes } from './campaigns.js';
 import { registerBirthdayRoutes } from './aniversario.js';
 import { registerHiringRoutes, historicoContratacoes } from './contratacoes.js';
+import { registerBeneficiosCliente } from './indicacoes.js';
 import { normPhone } from './phone.js';
 import { parseBirthday } from './ficha.js';
 import { registerOrderRoutes, historicoDoCliente } from './pedidos.js';
@@ -709,7 +710,7 @@ export function buildRouter() {
     const cont = (await q(`SELECT club_status, count(*)::int AS n FROM customers WHERE club_status IS NOT NULL GROUP BY 1`)).rows;
     const counts = { member: 0, former: 0, supporter: 0 };
     cont.forEach((c) => { counts[c.club_status] = c.n; });
-    res.json({ program_name: s?.program_name || 'Programa de benefícios', levels, counts });
+    res.json({ program_name: s?.program_name || 'Programa de assinaturas', levels, counts });
   }));
   r.put('/club', wrap(async (req, res) => {
     const nome = nomeOk(req.body.program_name, 30);
@@ -1230,5 +1231,6 @@ export function buildRouter() {
   registerCommissionRoutes(r, wrap);
   registerScenariumRoutes(r, wrap);
   registerHiringRoutes(r, wrap);
+  registerBeneficiosCliente(r, wrap);
   return r;
 }

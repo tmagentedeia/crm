@@ -15,6 +15,9 @@ PGBASE=${PGBASE:-"postgres://postgres@/postgres?host=/var/tmp/pgtest&port=55432"
 DB=$(echo "$PGBASE" | sed "s#@/postgres?#@/crmtest?#")
 psql "$PGBASE" -qc "drop database if exists crmtest" -c "create database crmtest"
 export DATABASE_URL="$DB" JWT_SECRET=x N8N_API_KEY=k ALLOW_SIGNUP=true ADMIN_EMAILS=demo@demo.com
+# tabela de mensagens agendadas do WhatsApp (no sistema real fica no banco do N8N); aqui é uma cópia no próprio banco de teste
+export N8N_DATABASE_URL="$DB"
+psql "$DB" -qc "create table agendamentos_mensagens (id bigserial primary key, telefone text, mensagem text, data_hora_envio timestamptz, instancia text, nome text, origem text, status text not null default 'pendente', tentativas int not null default 0)"
 node src/migrate.js
 node src/migrate.js   # rodar de novo não pode quebrar nem duplicar
 # empresa criada antes do módulo Atendente: tira as tabelas e volta a versão; o migrate tem que recriar
@@ -36,6 +39,9 @@ psql "$DB" -tc "select count(*) from company_1.birthday_settings" | grep -q 1 ||
 psql "$DB" -qc "drop table company_1.scn_hirings; update public.tenant_versions set version=24 where company_id=1"
 node src/migrate.js
 psql "$DB" -tc "select count(*) from company_1.scn_hirings" | grep -q 0 || { echo "FALHOU: migração das contratações"; exit 1; }
+psql "$DB" -qc "update company_1.loyalty_settings set program_name='Programa de benefícios'; update public.tenant_versions set version=25 where company_id=1"
+node src/migrate.js
+psql "$DB" -tc "select program_name from company_1.loyalty_settings" | grep -q "Programa de assinaturas" || { echo "FALHOU: migração do nome do programa de assinaturas"; exit 1; }
 psql "$DB" -tc "select count(*) from company_1.scn_reservations" | grep -q 0 || { echo "FALHOU: migração do Scenarium"; exit 1; }
 psql "$DB" -tc "select count(*) from company_1.commission_settings" | grep -q 1 || { echo "FALHOU: migração das comissões"; exit 1; }
 psql "$DB" -tc "select count(*) from company_1.product_sales" | grep -q 0 || { echo "FALHOU: migração das vendas"; exit 1; }
@@ -63,6 +69,7 @@ BASE=http://localhost:3999 node test/lembrete_cliente.mjs || R=1
 BASE=http://localhost:3999 node test/planos.mjs || R=1
 BASE=http://localhost:3999 node test/scenarium.mjs || R=1
 BASE=http://localhost:3999 node test/contratacoes.mjs || R=1
+BASE=http://localhost:3999 node test/indicacoes.mjs || R=1
 BASE=http://localhost:3999 node test/modelos.mjs || R=1
 BASE=http://localhost:3999 node test/acesso_admin.mjs || R=1
 BASE=http://localhost:3999 node test/sessao.mjs || R=1

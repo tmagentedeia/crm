@@ -89,7 +89,7 @@ export default function Clientes({ company }) {
         {clube && (
           <>
             <select value={sit} onChange={(e) => { setSit(e.target.value); setNivel(''); }} style={{ maxWidth: 190 }} title="Situação no programa">
-              <option value="">{club?.program_name || 'Programa de benefícios'}: todos</option>
+              <option value="">{club?.program_name || 'Programa de assinaturas'}: todos</option>
               {Object.entries(SITUACAO).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               <option value="none">Fora do programa</option>
             </select>
@@ -117,7 +117,7 @@ export default function Clientes({ company }) {
         descreve={(i) => <p>Também serão apagados {i.appointments} agendamento(s) e {i.orders} pedido(s) de música desses contatos, além do lugar deles na fila de espera.</p>} />
       <div className="card table-wrap">
         <table>
-          <thead><tr><CelulaTodos s={sel} /><th>Nome</th><th>Telefone</th><th>Tipo</th>{clube && <th>{club?.program_name || 'Programa de benefícios'}</th>}<th>Cidade</th><th>Última visita</th></tr></thead>
+          <thead><tr><CelulaTodos s={sel} /><th>Nome</th><th>Telefone</th><th>Tipo</th>{clube && <th>{club?.program_name || 'Programa de assinaturas'}</th>}<th>Cidade</th><th>Última visita</th></tr></thead>
           <tbody>
             {list.map((c) => (
               <tr key={c.id} className="click" onClick={() => open(c.id)}>
@@ -155,7 +155,7 @@ function FichaCampos({ f, setF, clube, club }) {
       </div>
       {clube && (
         <div className="row">
-          <div className="field"><label>{club?.program_name || 'Programa de benefícios'}</label>
+          <div className="field"><label>{club?.program_name || 'Programa de assinaturas'}</label>
             <select value={f.club_status} onChange={(e) => setF({ ...f, club_status: e.target.value, club_level_id: e.target.value === 'member' ? f.club_level_id : '' })}>
               <option value="">Fora do programa</option>{Object.entries(SITUACAO).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
           {f.club_status === 'member' && (

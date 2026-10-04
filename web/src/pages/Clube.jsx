@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
 
-// Programa de benefícios da empresa (Clube, Premium, VIP…): nome do programa e níveis com os benefícios de cada mês.
+// Programa de assinaturas da empresa (Clube, Premium, VIP…): nome do programa e níveis com os benefícios de cada mês.
 export default function Clube() {
   const [d, setD] = useState(null);
   const [nome, setNome] = useState('');

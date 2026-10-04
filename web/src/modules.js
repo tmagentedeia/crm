@@ -4,10 +4,11 @@ export const MODULES = [
   { key: 'dashboard', label: 'Dashboard', desc: 'Tela de números e gráficos' },
   { key: 'atendente', label: 'Atendente', desc: 'Manual e atualizações provisórias do atendente' },
   { key: 'clientes', label: 'Clientes e Leads', desc: 'Cadastro de clientes e leads' },
-  { key: 'clube', label: 'Programa de benefícios', desc: 'Marcar clientes como membros de um programa com níveis e benefícios' },
-  { key: 'pedidos', label: 'Pedidos', desc: 'Pedidos de música por live, com franquia do programa de benefícios e resumo do mês' },
+  { key: 'clube', label: 'Programa de assinaturas', desc: 'Marcar clientes como membros de um programa com níveis e benefícios' },
+  { key: 'pedidos', label: 'Pedidos', desc: 'Pedidos de música por live, com franquia do programa de assinaturas e resumo do mês' },
   { key: 'financeiro', label: 'Recebimentos', desc: 'Chaves Pix aceitas e conferência dos comprovantes recebidos' },
   { key: 'comissoes', label: 'Comissões', desc: 'Comissão dos profissionais sobre serviços e produtos, com fechamento por período' },
+  { key: 'beneficios', label: 'Programa de benefícios', desc: 'Descontos por indicação de clientes que fecham contrato, com saldo mês a mês' },
   { key: 'scenarium', label: 'Scenarium', desc: 'Reservas de mesa por setor em casas de evento, controlando o espaço de cada setor' },
   { key: 'eventos', label: 'Eventos', desc: 'Compromissos avulsos (lives, reuniões, shows), sem profissional nem serviço' },
   { key: 'agenda', label: 'Agenda', desc: 'Agenda de horários' },
@@ -26,7 +27,7 @@ export const MODULES = [
 const PAI = { fila: 'agenda', profissionais: 'agenda', servicos: 'agenda', inativos: 'clientes', campanhas: 'clientes', clube: 'clientes', importar: 'clientes', comandos: 'atendente', bloqueios: 'atendente' };
 
 // Um módulo só está desligado quando vale explicitamente false: empresas que nunca tiveram módulos configurados veem tudo.
-// O programa de benefícios e os Pedidos são opcionais: só aparece quando o administrador liga.
+// O programa de assinaturas e os Pedidos são opcionais: só aparece quando o administrador liga.
 export const moduleOn = (modules, key) =>
-  key === 'clube' || key === 'pedidos' || key === 'eventos' || key === 'financeiro' || key === 'assistente' || key === 'comissoes' || key === 'scenarium' ? modules?.[key] === true :
+  key === 'clube' || key === 'pedidos' || key === 'eventos' || key === 'financeiro' || key === 'assistente' || key === 'comissoes' || key === 'scenarium' || key === 'beneficios' ? modules?.[key] === true :
   modules?.[key] !== undefined ? modules[key] !== false : PAI[key] ? modules?.[PAI[key]] !== false : true;
