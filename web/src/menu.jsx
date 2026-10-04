@@ -31,11 +31,11 @@ export const MENU_PADRAO = [
   { id: 'eventos', label: 'Eventos', icon: '🗓️' },
   { id: 'comissoes', label: 'Comissões', icon: '💸' },
   { id: 'scenarium', label: 'Scenarium', icon: '▦' },
-  { id: 'beneficios', label: 'Programa de benefícios', icon: '◈' },
   { id: 'financeiro', label: 'Recebimentos', icon: '💰' },
   { id: 'fila', label: 'Fila de espera', icon: '⏳' },
   { id: 'comandos', label: 'Comandos', icon: '🎛️' },
   { id: 'bloqueios', label: 'Atendimentos bloqueados', icon: '🚫' },
   { id: 'importar', label: 'Importar planilha', icon: '📥' },
+  { id: 'beneficios', label: 'Programa de benefícios', icon: '◈' },
   { id: 'config', label: 'Configurações', icon: '⚙️' },
 ];

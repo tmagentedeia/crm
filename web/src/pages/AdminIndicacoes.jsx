@@ -4,47 +4,21 @@ import { api } from '../api.js';
 const brData = (iso) => new Date(iso + 'T12:00:00').toLocaleDateString('pt-BR');
 const nomeMes = (iso) => new Date(iso + 'T12:00:00').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
 
-// Mensalidade da empresa (dia do vencimento ou isenta) e acesso às indicações dela
-export function Mensalidade({ s, recarregar }) {
-  const [dia, setDia] = useState(s.billing_due_day ?? '');
-  const [isenta, setIsenta] = useState(!!s.billing_exempt);
-  const [sujo, setSujo] = useState(false);
-  const [aberto, setAberto] = useState(false);
-  const [err, setErr] = useState('');
-  async function salvar() {
-    setErr('');
-    try { await api(`/admin/companies/${s.id}/billing`, { method: 'PUT', body: { billing_due_day: dia === '' ? null : Number(dia), billing_exempt: isenta } }); setSujo(false); recarregar(); }
-    catch (e) { setErr(e.message); }
-  }
-  return (
-    <div style={{ display: 'flex', gap: 22, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-      <div className="field" style={{ margin: 0 }}>
-        <label>Vencimento da mensalidade (dia)</label>
-        <div className="row">
-          <input type="number" min="1" max="31" style={{ width: 80 }} disabled={isenta} value={isenta ? '' : dia}
-            onChange={(e) => { setDia(e.target.value); setSujo(true); }} />
-          <label style={{ display: 'flex', gap: 6, alignItems: 'center', margin: 0 }}>
-            <input type="checkbox" checked={isenta} onChange={(e) => { setIsenta(e.target.checked); setSujo(true); }} /> Isenta
-          </label>
-          {sujo && <button className="btn sm primary" onClick={salvar}>Salvar</button>}
-        </div>
-        {err && <div className="error">{err}</div>}
-      </div>
-      <div className="field" style={{ margin: 0 }}>
-        <label>Indicações</label>
-        <button className="btn sm" onClick={() => setAberto(true)}>Abrir</button>
-      </div>
-      {aberto && <Indicacoes s={s} fechar={() => { setAberto(false); recarregar(); }} />}
-    </div>
-  );
-}
-
-function Indicacoes({ s, fechar }) {
+export function Indicacoes({ s, fechar }) {
   const [v, setV] = useState(null);
   const [nome, setNome] = useState('');
   const [data, setData] = useState('');
   const [err, setErr] = useState('');
-  useEffect(() => { api(`/admin/companies/${s.id}/referrals`).then(setV).catch((e) => setErr(e.message)); }, [s.id]);
+  const [dia, setDia] = useState(s.billing_due_day ?? '');
+  const [isenta, setIsenta] = useState(!!s.billing_exempt);
+  const [sujo, setSujo] = useState(false);
+  const recarregar = () => api(`/admin/companies/${s.id}/referrals`).then(setV).catch((e) => setErr(e.message));
+  useEffect(() => { recarregar(); }, [s.id]);
+  async function salvarVenc() {
+    setErr('');
+    try { await api(`/admin/companies/${s.id}/billing`, { method: 'PUT', body: { billing_due_day: dia === '' ? null : Number(dia), billing_exempt: isenta } }); setSujo(false); await recarregar(); }
+    catch (e) { setErr(e.message); }
+  }
   async function add(e) {
     e.preventDefault(); setErr('');
     try { setV(await api(`/admin/companies/${s.id}/referrals`, { method: 'POST', body: { referred_name: nome, closed_on: data || undefined } })); setNome(''); setData(''); }
@@ -59,6 +33,14 @@ function Indicacoes({ s, fechar }) {
       <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 640 }}>
         <h2>Indicações de {s.name}</h2>
         {err && <div className="error">{err}</div>}
+        <div className="row" style={{ alignItems: 'flex-end', marginBottom: 10 }}>
+          <div className="field" style={{ margin: 0 }}><label>Vencimento da mensalidade (dia)</label>
+            <input type="number" min="1" max="31" style={{ width: 80 }} disabled={isenta} value={isenta ? '' : dia} onChange={(e) => { setDia(e.target.value); setSujo(true); }} /></div>
+          <label style={{ display: 'flex', gap: 6, alignItems: 'center', margin: 0 }}>
+            <input type="checkbox" checked={isenta} onChange={(e) => { setIsenta(e.target.checked); setSujo(true); }} /> Isenta
+          </label>
+          {sujo && <button className="btn sm primary" onClick={salvarVenc}>Salvar</button>}
+        </div>
         {!v ? <p className="muted">Carregando…</p> : (
           <>
             {v.company.billing_exempt && <p className="muted">Esta empresa é isenta: as indicações ficam registradas, mas não geram desconto nem lembrete.</p>}

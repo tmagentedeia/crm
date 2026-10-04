@@ -179,7 +179,7 @@ app.get('/api/admin/access-log', requireUser, requireAdmin, async (req, res) => 
 registerIndicacoesAdmin(app, requireUser, requireAdmin);
 app.get('/api/admin/companies', requireUser, requireAdmin, async (req, res) => {
   const { rows } = await qg(
-    `SELECT c.id, c.name, c.max_professionals, c.billing_due_day, c.billing_exempt, c.created_at, c.modules, c.locked_modules, c.module_labels, c.whatsapp_instance, c.redis_prefix, c.campaign_webhook_url, c.booking_mode, c.api_key_hint, c.api_key_created_at,
+    `SELECT c.id, c.name, c.max_professionals, c.billing_due_day, c.billing_exempt, (SELECT count(*) FROM partner_referrals pr WHERE pr.company_id=c.id)::int AS referrals_total, c.created_at, c.modules, c.locked_modules, c.module_labels, c.whatsapp_instance, c.redis_prefix, c.campaign_webhook_url, c.booking_mode, c.api_key_hint, c.api_key_created_at,
             (SELECT u.email FROM users u WHERE u.company_id = c.id ORDER BY (u.role = 'owner') DESC, u.id LIMIT 1) AS owner_email
      FROM companies c ORDER BY c.id`);
   // profissionais ativos: contados dentro do schema de cada empresa

@@ -178,7 +178,7 @@ async function visao(companyId) {
   const mesAtual = hoje.slice(0, 7) + '-01';
   return {
     company: { id: String(c.id), name: c.name, billing_due_day: c.billing_due_day, billing_exempt: c.billing_exempt },
-    referrals, schedule: agenda.filter((e) => e.month >= mesAtual),
+    referrals, schedule: agenda.filter((e) => e.month >= mesAtual).map((e) => ({ ...e, status: e.due_on <= hoje ? 'aplicado' : 'programado' })),
     next: futuros[0] || null, total: referrals.length, reminders: lembretesLigados(),
     rules: { pct_each: PCT_POR_INDICACAO, max_per_month: MAX_POR_MES },
   };
@@ -196,6 +196,16 @@ export function registerIndicacoesAdmin(app, requireUser, requireAdmin) {
   app.get('/api/admin/benefits', ...A, seguro(async (req, res) => {
     const cfg = await configAvisos();
     res.json({ notice_phone: cfg.phone, notice_instance: cfg.instance, reminders: lembretesLigados() });
+  }));
+  // Visão geral: todas as empresas com o desconto previsto (tela "Parceiros M2")
+  app.get('/api/admin/benefits/overview', ...A, seguro(async (req, res) => {
+    const { rows } = await qg('SELECT id FROM companies ORDER BY id');
+    const empresas = [];
+    for (const { id } of rows) {
+      const v = await visao(id);
+      if (v) empresas.push({ ...v.company, total: v.total, next: v.next });
+    }
+    res.json({ companies: empresas, rules: { pct_each: PCT_POR_INDICACAO, max_per_month: MAX_POR_MES } });
   }));
   app.put('/api/admin/benefits', ...A, seguro(async (req, res) => {
     const phone = req.body.notice_phone ? normPhone(req.body.notice_phone) : '';
@@ -252,5 +262,20 @@ export function registerBeneficiosCliente(r, wrap) {
     if (!v) return res.status(404).json({ error: 'Empresa não encontrada' });
     const { reminders, ...resto } = v;
     res.json(resto);
+  }));
+  // A empresa pede ao administrador que confira/atualize as indicações dela (no máximo um pedido por dia)
+  r.post('/benefits/request', wrap(async (req, res) => {
+    if (!lembretesLigados()) return res.status(503).json({ error: 'O envio de pedidos ainda não está disponível' });
+    const cfg = await configAvisos();
+    if (!cfg.phone || !cfg.instance) return res.status(503).json({ error: 'O envio de pedidos ainda não está disponível' });
+    const v = await visao(currentCompany());
+    if (!v) return res.status(404).json({ error: 'Empresa não encontrada' });
+    const nome = `Pedido de ${v.company.name}`.slice(0, 120);
+    const { rows: [x] } = await msgPool().query(
+      "SELECT 1 FROM agendamentos_mensagens WHERE origem='indicacao_m2' AND nome=$1 AND data_hora_envio > now() - interval '24 hours' LIMIT 1", [nome]);
+    if (x) return res.status(429).json({ error: 'Você já enviou um pedido hoje. Aguarde a resposta.' });
+    const nota = String(req.body?.message ?? '').replace(/[\u0000-\u001f<>]/g, ' ').trim().slice(0, 300);
+    await agendarMsg(cfg, nome, `${v.company.name} pediu a conferência do programa de parceria (indicações).` + (nota ? ` Mensagem: ${nota}` : ''), new Date());
+    res.json({ ok: true });
   }));
 }

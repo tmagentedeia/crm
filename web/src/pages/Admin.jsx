@@ -1,6 +1,5 @@
 import CampoSenha from '../senha.jsx';
 import React, { useEffect, useState } from 'react';
-import { Mensalidade, AvisosDesconto } from './AdminIndicacoes.jsx';
 import { api, fmtDate, getToken, setToken, ADMIN_KEY } from '../api.js';
 import { MODULES, moduleOn } from '../modules.js';
 import { PLANOS, planoDe } from '../plans.js';
@@ -50,6 +49,7 @@ export default function Admin() {
   const [up, setUp] = useState({ phone: '', text: '' }); // contato e texto do aviso de upgrade
   const [opcoes, setOpcoes] = useState(null); // id da empresa cujas opções do Atendente estão abertas
   const [nomes, setNomes] = useState(null); // { id, empresa, modulo, valores } — nomes do módulo em edição
+  const [abertas, setAbertas] = useState({});
   const [em, setEm] = useState({}); // id -> e-mail do responsável em edição
   const [trocaEmail, setTrocaEmail] = useState(null); // { id, empresa, de, para, senha }
   const [wh, setWh] = useState({}); // endereço do fluxo de campanhas em edição, por empresa
@@ -322,30 +322,41 @@ export default function Admin() {
         </div>
       )}
 
-      <AvisosDesconto />
       {list.map((s) => {
         const changed = s.id in edit;
         return (
-          <div key={s.id} className="card" style={{ marginBottom: 12, display: 'flex', gap: 24, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          <div key={s.id} className="card" style={{ marginBottom: 12 }}>
+            <div style={{ display: 'flex', gap: 22, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <Campo rotulo=" ">
+                <button className="btn sm" title={abertas[s.id] ? 'Recolher' : 'Expandir'} onClick={() => setAbertas({ ...abertas, [s.id]: !abertas[s.id] })}>{abertas[s.id] ? '▾' : '▸'}</button>
+              </Campo>
+              <Campo rotulo="Código"><strong>{s.id}</strong></Campo>
+              <Campo rotulo="Empresa"><strong style={{ cursor: 'pointer' }} onClick={() => setAbertas({ ...abertas, [s.id]: !abertas[s.id] })}>{s.name}</strong></Campo>
+              <Campo rotulo=" ">
+                <button className="btn sm" style={{ fontWeight: 700 }} onClick={() => abrirPainel(s)}>Abrir painel</button>
+              </Campo>
+              <Campo rotulo="E-mail do responsável">
+                {s.owner_email
+                  ? <input type="email" value={em[s.id] ?? s.owner_email} title="Clique, edite e aperte Enter para trocar" style={{ width: '22ch', minWidth: 0 }}
+                      onChange={(e) => setEm({ ...em, [s.id]: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') setEm((x) => { const n = { ...x }; delete n[s.id]; return n; });
+                        if (e.key === 'Enter' && em[s.id] !== undefined && em[s.id].trim().toLowerCase() !== s.owner_email.toLowerCase())
+                          setTrocaEmail({ id: s.id, empresa: s.name, de: s.owner_email, para: em[s.id].trim().toLowerCase(), senha: '' });
+                      }} />
+                  : <span className="muted">—</span>}
+              </Campo>
+              <Campo rotulo="Criado em"><span className="muted" style={{ fontSize: 12 }}>{fmtDate(s.created_at)}</span></Campo>
+              <Campo rotulo="Vencimento">
+                {s.billing_exempt ? <span className="muted">Isenta</span> : s.billing_due_day ? <span>dia {s.billing_due_day}</span> : <span className="muted">—</span>}
+              </Campo>
+              <Campo rotulo="Indicações"><span>{s.referrals_total ?? 0}</span></Campo>
+              <Campo rotulo="Plano"><strong>{planoDe(s.modules) || 'personalizado'}</strong></Campo>
+            </div>
+            {abertas[s.id] && (
+            <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border, #ddd)', display: 'flex', gap: 24, alignItems: 'flex-start', flexWrap: 'wrap' }}>
             <div style={{ flex: '1 1 560px', display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
               <div style={{ display: 'flex', gap: 22, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-                <Campo rotulo="Código"><strong>{s.id}</strong></Campo>
-                <Campo rotulo="Empresa"><strong>{s.name}</strong></Campo>
-                <Campo rotulo=" ">
-                  <button className="btn sm" style={{ fontWeight: 700 }} onClick={() => abrirPainel(s)}>Abrir painel</button>
-                </Campo>
-                <Campo rotulo="E-mail do responsável">
-                  {s.owner_email
-                    ? <input type="email" value={em[s.id] ?? s.owner_email} title="Clique, edite e aperte Enter para trocar" style={{ width: '13ch', minWidth: 0 }}
-                        onChange={(e) => setEm({ ...em, [s.id]: e.target.value })}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Escape') setEm((x) => { const n = { ...x }; delete n[s.id]; return n; });
-                          if (e.key === 'Enter' && em[s.id] !== undefined && em[s.id].trim().toLowerCase() !== s.owner_email.toLowerCase())
-                            setTrocaEmail({ id: s.id, empresa: s.name, de: s.owner_email, para: em[s.id].trim().toLowerCase(), senha: '' });
-                        }} />
-                    : <span className="muted">—</span>}
-                </Campo>
-                <Campo rotulo="Criado em"><span className="muted" style={{ fontSize: 12 }}>{fmtDate(s.created_at)}</span></Campo>
                 <Campo rotulo="Ativos">{s.ativos}</Campo>
                 <Campo rotulo="Limite">
                   <input type="number" min="0" placeholder="—" value={shown(s)} style={{ width: 50, minWidth: 50 }}
@@ -360,7 +371,6 @@ export default function Admin() {
                   </select>
                 </Campo>
               </div>
-              <Mensalidade key={s.id + ':' + (s.billing_due_day ?? '') + (s.billing_exempt ? 'i' : '')} s={s} recarregar={load} />
               <div style={{ display: 'flex', gap: 22, flexWrap: 'wrap', alignItems: 'flex-end' }}>
                 <Campo rotulo="Bloqueios (instância e prefixo)">
                   <input placeholder="instância do WhatsApp" style={{ width: 170 }} value={cx[s.id]?.i ?? s.whatsapp_instance ?? ''}
@@ -415,6 +425,8 @@ export default function Admin() {
                 ))}
               </div>
             </div>
+            </div>
+            )}
           </div>
         );
       })}

@@ -54,11 +54,11 @@ const BASE_MENU = [
   { id: 'financeiro', module: 'financeiro', label: 'Recebimentos', icon: '💰', comp: Financeiro },
   { id: 'comissoes', module: 'comissoes', label: 'Comissões', icon: '💸', comp: Comissoes },
   { id: 'scenarium', module: 'scenarium', label: 'Scenarium', icon: '▦', comp: Scenarium },
-  { id: 'beneficios', module: 'beneficios', label: 'Programa de benefícios', icon: '◈', comp: Beneficios },
   { id: 'fila', module: 'fila', label: 'Fila de espera', icon: '⏳', comp: Fila },
   { id: 'comandos', module: 'comandos', label: 'Comandos', icon: '🎛️', comp: Comandos },
   { id: 'bloqueios', module: 'bloqueios', label: 'Atendimentos bloqueados', icon: '🚫', comp: Bloqueios },
   { id: 'importar', module: 'importar', label: 'Importar planilha', icon: '📥', comp: Importar },
+  { id: 'beneficios', module: 'beneficios', label: 'Programa de benefícios', icon: '◈', comp: Beneficios },
   { id: 'config', label: 'Configurações', icon: '⚙️', comp: Config },
 ];
 
