@@ -50,6 +50,7 @@ BASE=http://localhost:3999 node test/maria_manual.mjs || R=1
 BASE=http://localhost:3999 node test/produtos.mjs || R=1
 BASE=http://localhost:3999 node test/vendas_produtos.mjs || R=1
 BASE=http://localhost:3999 node test/comissoes.mjs || R=1
+BASE=http://localhost:3999 node test/lembrete_cliente.mjs || R=1
 BASE=http://localhost:3999 node test/modelos.mjs || R=1
 BASE=http://localhost:3999 node test/acesso_admin.mjs || R=1
 BASE=http://localhost:3999 node test/sessao.mjs || R=1

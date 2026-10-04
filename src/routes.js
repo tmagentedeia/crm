@@ -291,7 +291,9 @@ export function buildRouter() {
       const semSeparadores = (t) => t.replace(/^={5}[ \t]*\r?\n?/gm, '');
       let prompt = man ? semSeparadores(man.content).trim() : '';
       // primeira linha: o nome do agente (definido na tela Atendente), para não precisar estar escrito no prompt do fluxo
-      const cfgRow = (await qg('SELECT agent_name, adm_name FROM companies WHERE id=$1', [req.user.companyId])).rows[0] || {};
+      const cfgRow = (await qg('SELECT agent_name, adm_name, modules FROM companies WHERE id=$1', [req.user.companyId])).rows[0] || {};
+      // lembrete a pedido do cliente: ligado por padrão; desligado, o atendente é instruído a não oferecer nem agendar
+      const lembreteCliente = ehAssistente || cfgRow.modules?.lembrete_cliente !== false;
       const agentName = ehAssistente ? '' : (cfgRow.agent_name || '').trim();
       const admName = (cfgRow.adm_name || '').trim();
       const abertura = [agentName && `Seu nome é ${agentName}.`, admName && `O proprietário (ADM) se chama ${admName}.`].filter(Boolean).join(' ');
@@ -300,9 +302,11 @@ export function buildRouter() {
         ? 'ATUALIZAÇÕES EM VIGOR — PRIORIDADE MÁXIMA. Estas instruções são soberanas: se contrariarem qualquer outra informação (este manual, regras, textos padrão, o contexto do cliente ou o histórico da conversa), vale SEMPRE a atualização. Aplique-as ao pé da letra:\n' +
           updates.map((n) => `- ${n.text}`).join('\n')
         : '';
-      const corpo = [avisos, prompt].filter(Boolean);
+      const semLembrete = lembreteCliente ? '' :
+        'LEMBRETES PEDIDOS PELO CLIENTE — NÃO DISPONÍVEL. Esta empresa não oferece lembrete a pedido do cliente. Se o cliente pedir para ser lembrado de algo, não agende nem prometa nenhum lembrete e não use a ferramenta de lembrete para clientes; explique com gentileza que não consegue fazer isso. Os avisos automáticos de horário marcado continuam funcionando normalmente.';
+      const corpo = [semLembrete, avisos, prompt].filter(Boolean);
       prompt = (corpo.length ? [abertura, ...corpo] : []).filter(Boolean).join('\n\n');
-      res.json({ enabled: true, prompt, agent_name: agentName || null, adm_name: admName || null, manual: man ? semSeparadores(man.content) : '', updates, published_at: man ? man.published_at : null });
+      res.json({ enabled: true, prompt, client_reminders: lembreteCliente, agent_name: agentName || null, adm_name: admName || null, manual: man ? semSeparadores(man.content) : '', updates, published_at: man ? man.published_at : null });
     }));
   };
   montarManual('agent', 'agent_manual_versions', 'agent_updates', false);

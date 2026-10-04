@@ -267,6 +267,10 @@ export default function Admin() {
                 <input type="checkbox" style={{ width: 'auto', marginTop: 3 }} checked={moduleOn(emp.modules, 'assistente')} onChange={() => alternarModulo(emp, 'assistente')} />
                 <span><strong>Assistente pessoal</strong><br /><span className="muted">Um segundo agente, o assistente pessoal do proprietário, com manual e atualizações provisórias próprios, ao lado do atendente. Desligado, a empresa vê a aba apagada, com convite de upgrade.</span></span>
               </label>
+              <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontWeight: 'normal', marginTop: 12 }}>
+                <input type="checkbox" style={{ width: 'auto', marginTop: 3 }} checked={moduleOn(emp.modules, 'lembrete_cliente')} onChange={() => alternarModulo(emp, 'lembrete_cliente')} />
+                <span><strong>Lembrete a pedido do cliente</strong><br /><span className="muted">O cliente pode pedir ao atendente para ser lembrado de algo, e o atendente agenda o aviso. Desligado, o atendente não oferece nem agenda esses lembretes (os avisos automáticos de horário continuam).</span></span>
+              </label>
               {err && <div className="error">{err}</div>}
               <div className="row"><button className="btn primary" onClick={() => setOpcoes(null)}>Fechar</button></div>
             </div>
