@@ -165,6 +165,22 @@ export const SCN_MEDIA_SQL = `
   );
   CREATE INDEX IF NOT EXISTS scn_media_sector ON scn_media (sector_id);
 `;
+// Pagamentos de cada reserva: forma (Pix, dinheiro, cartão, parceiro, cortesia...), chave Pix que recebeu e, se houver, o comprovante já validado em Recebimentos
+export const SCN_PAGAMENTOS_SQL = `
+  CREATE TABLE IF NOT EXISTS scn_res_payments (
+    id             BIGSERIAL PRIMARY KEY,
+    reservation_id BIGINT NOT NULL REFERENCES scn_reservations(id) ON DELETE CASCADE,
+    method         TEXT NOT NULL CHECK (method IN ('pix','dinheiro','cartao','parceiro','cortesia','outro')),
+    amount         NUMERIC(10,2) NOT NULL DEFAULT 0 CHECK (amount >= 0),
+    pix_key_id     BIGINT REFERENCES pix_keys(id) ON DELETE SET NULL,
+    payment_id     BIGINT REFERENCES payments(id) ON DELETE SET NULL,   -- comprovante de Recebimentos
+    note           TEXT,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+  CREATE INDEX IF NOT EXISTS scn_res_pay_res ON scn_res_payments (reservation_id);
+  CREATE UNIQUE INDEX IF NOT EXISTS scn_res_pay_comprovante ON scn_res_payments (payment_id) WHERE payment_id IS NOT NULL;
+`;
+const FORMAS = ['pix', 'dinheiro', 'cartao', 'parceiro', 'cortesia', 'outro'];
 const MIDIA_MAX_BYTES = 2.5 * 1024 * 1024, FOTOS_POR_SETOR = 8;
 // confere pelo conteúdo (não pelo nome) que é mesmo uma imagem aceita
 function tipoDaImagem(buf) {
@@ -763,7 +779,9 @@ export function registerScenariumRoutes(r, wrap) {
   // ---------- reservas ----------
   const RESERVA = `SELECT v.id, v.event_id, e.title AS event_title, v.occasion_date::text AS date, v.sector_id, s.name AS sector_name,
                           v.customer_id, v.name, v.phone, v.people, v.table_type_id, v.table_name, v.seats_each, v.space_each::float AS space_each,
-                          v.tables, (v.tables * v.space_each)::float AS space, (v.tables * v.seats_each) AS seats, v.status, v.note, v.guests, v.unit_price::float AS unit_price, (v.people * v.unit_price)::float AS total, v.code_word, v.created_at
+                          v.tables, (v.tables * v.space_each)::float AS space, (v.tables * v.seats_each) AS seats, v.status, v.note, v.guests, v.unit_price::float AS unit_price, (v.people * v.unit_price)::float AS total, v.code_word, v.created_at,
+                          COALESCE((SELECT SUM(p.amount) FROM scn_res_payments p WHERE p.reservation_id = v.id AND p.method <> 'cortesia'), 0)::float AS paid,
+                          EXISTS (SELECT 1 FROM scn_res_payments p WHERE p.reservation_id = v.id AND p.method = 'cortesia') AS courtesy
                    FROM scn_reservations v JOIN scn_sectors s ON s.id = v.sector_id LEFT JOIN events e ON e.id = v.event_id`;
 
   r.get('/scenarium/reservations', wrap(async (req, res) => {
@@ -962,6 +980,86 @@ export function registerScenariumRoutes(r, wrap) {
     if (p.erro) return res.status(p.status || 400).json({ error: p.erro });
     await gravar({ ...p.v, id: atual.id });
     res.json((await q(`${RESERVA} WHERE v.id=$1`, [atual.id])).rows[0]);
+  }));
+
+  // ---------- pagamentos da reserva ----------
+  const PAGTO = `SELECT p.id, p.reservation_id, p.method, p.amount::float AS amount, p.pix_key_id, k.beneficiary, k.key AS pix_key,
+                        p.payment_id, p.note, p.created_at
+                 FROM scn_res_payments p LEFT JOIN pix_keys k ON k.id = p.pix_key_id`;
+
+  r.get('/scenarium/reservations/:id/payments', wrap(async (req, res) => {
+    const id = idOk(req.params.id);
+    if (!id) return res.status(400).json({ error: 'Reserva inválida' });
+    const v = (await q(`${RESERVA} WHERE v.id=$1`, [id])).rows[0];
+    if (!v) return res.status(404).json({ error: 'Reserva não encontrada' });
+    res.json({ total: v.total, paid: v.paid, courtesy: v.courtesy, payments: (await q(`${PAGTO} WHERE p.reservation_id=$1 ORDER BY p.id`, [id])).rows });
+  }));
+
+  r.post('/scenarium/reservations/:id/payments', comTratamento(async (req, res) => {
+    const id = idOk(req.params.id);
+    if (!id) return res.status(400).json({ error: 'Reserva inválida' });
+    if (!(await q('SELECT 1 FROM scn_reservations WHERE id=$1', [id])).rows.length) return res.status(404).json({ error: 'Reserva não encontrada' });
+    const b = req.body || {};
+    const method = String(b.method || '').toLowerCase();
+    if (!FORMAS.includes(method)) return res.status(400).json({ error: 'Forma de pagamento inválida' });
+    let amount = b.amount === undefined || b.amount === null || b.amount === '' ? null : dinheiro(b.amount);
+    if (b.amount !== undefined && b.amount !== null && b.amount !== '' && amount === null) return res.status(400).json({ error: 'Valor inválido' });
+    let keyId = null, payId = null;
+    if (b.pix_key_id) {
+      keyId = idOk(b.pix_key_id);
+      if (!keyId || !(await q('SELECT 1 FROM pix_keys WHERE id=$1', [keyId])).rows.length) return res.status(400).json({ error: 'Chave Pix não encontrada' });
+      if (method !== 'pix') return res.status(400).json({ error: 'Chave Pix só vale para pagamento em Pix' });
+    }
+    if (b.payment_id) {
+      payId = idOk(b.payment_id);
+      const c = payId ? (await q('SELECT amount::float AS amount, status, pix_key_id FROM payments WHERE id=$1', [payId])).rows[0] : null;
+      if (!c) return res.status(400).json({ error: 'Comprovante não encontrado em Recebimentos' });
+      if (method !== 'pix') return res.status(400).json({ error: 'Comprovante só vale para pagamento em Pix' });
+      if (c.status !== 'accepted') return res.status(400).json({ error: 'Esse comprovante não foi aceito' });
+      if ((await q('SELECT 1 FROM scn_res_payments WHERE payment_id=$1', [payId])).rows.length) return res.status(409).json({ error: 'Esse comprovante já está ligado a uma reserva' });
+      if (amount === null) amount = c.amount;
+      if (!keyId && c.pix_key_id) keyId = String(c.pix_key_id);
+    }
+    if (method === 'cortesia') amount = 0;
+    else if (amount === null || amount <= 0) return res.status(400).json({ error: 'Informe o valor pago' });
+    const note = b.note ? String(b.note).slice(0, 300) : null;
+    const novo = (await q('INSERT INTO scn_res_payments (reservation_id, method, amount, pix_key_id, payment_id, note) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
+      [id, method, amount, keyId, payId, note])).rows[0].id;
+    res.status(201).json((await q(`${PAGTO} WHERE p.id=$1`, [novo])).rows[0]);
+  }));
+
+  r.delete('/scenarium/payments/:id', wrap(async (req, res) => {
+    if ((req.baseUrl || '').includes('n8n')) return res.status(403).json({ error: 'Só pelo painel' });
+    const { rowCount } = await q('DELETE FROM scn_res_payments WHERE id=$1', [req.params.id]);
+    rowCount ? res.json({ ok: true }) : res.status(404).json({ error: 'Pagamento não encontrado' });
+  }));
+
+  // Totais por evento ou data: previsto x recebido, por forma de pagamento e por chave Pix/beneficiário. Reservas canceladas ficam de fora.
+  r.get('/scenarium/payments/summary', wrap(async (req, res) => {
+    const w = ["v.status = ANY($1)"], a = [OCUPAM];
+    if (req.query.event_id) { const e = idOk(req.query.event_id); if (!e) return res.status(400).json({ error: 'Evento inválido' }); a.push(e); w.push(`v.event_id = $${a.length}`); }
+    if (req.query.date) { const d = dataOk(req.query.date); if (!d) return res.status(400).json({ error: 'Data inválida' }); a.push(d); w.push(`v.occasion_date = $${a.length}::date`); }
+    const onde = w.join(' AND ');
+    const base = (await q(`SELECT COUNT(*)::int AS reservations, COALESCE(SUM(v.people),0)::int AS people,
+                             COALESCE(SUM(v.people * v.unit_price),0)::float AS expected
+                           FROM scn_reservations v WHERE ${onde}`, a)).rows[0];
+    const formas = (await q(`SELECT p.method, COUNT(*)::int AS n, COALESCE(SUM(p.amount),0)::float AS total
+                             FROM scn_res_payments p JOIN scn_reservations v ON v.id = p.reservation_id WHERE ${onde} GROUP BY p.method ORDER BY p.method`, a)).rows;
+    const chaves = (await q(`SELECT p.pix_key_id, k.beneficiary, k.key AS pix_key, COUNT(*)::int AS n, COALESCE(SUM(p.amount),0)::float AS total
+                             FROM scn_res_payments p JOIN scn_reservations v ON v.id = p.reservation_id LEFT JOIN pix_keys k ON k.id = p.pix_key_id
+                             WHERE ${onde} AND p.method = 'pix' GROUP BY p.pix_key_id, k.beneficiary, k.key ORDER BY total DESC`, a)).rows;
+    const estado = (await q(`SELECT
+        COUNT(*) FILTER (WHERE x.courtesy)::int AS courtesy,
+        COUNT(*) FILTER (WHERE NOT x.courtesy AND x.paid >= x.total AND x.total > 0)::int AS paid,
+        COUNT(*) FILTER (WHERE NOT x.courtesy AND x.paid > 0 AND x.paid < x.total)::int AS partial,
+        COUNT(*) FILTER (WHERE NOT x.courtesy AND x.paid = 0 AND COALESCE(x.total,0) > 0)::int AS pending,
+        COALESCE(SUM(GREATEST(x.total - x.paid, 0)) FILTER (WHERE NOT x.courtesy),0)::float AS open_amount
+      FROM (SELECT v.id, COALESCE(v.people * v.unit_price, 0) AS total,
+                   COALESCE((SELECT SUM(p.amount) FROM scn_res_payments p WHERE p.reservation_id = v.id AND p.method <> 'cortesia'),0) AS paid,
+                   EXISTS (SELECT 1 FROM scn_res_payments p WHERE p.reservation_id = v.id AND p.method = 'cortesia') AS courtesy
+            FROM scn_reservations v WHERE ${onde}) x`, a)).rows[0];
+    const recebido = r2(formas.filter((f) => f.method !== 'cortesia').reduce((s, f) => s + f.total, 0));
+    res.json({ ...base, received: recebido, by_method: formas, by_pix_key: chaves, ...estado });
   }));
 
   r.delete('/scenarium/reservations/:id', wrap(async (req, res) => {

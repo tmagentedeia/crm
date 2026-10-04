@@ -8,7 +8,7 @@ import { ASSISTENTE_SQL } from './assistente.js';
 import { PRODUTOS_SQL } from './produtos.js';
 import { VENDAS_SQL } from './vendas.js';
 import { COMISSOES_SQL } from './comissoes.js';
-import { SCENARIUM_SQL, SCN_MEDIA_SQL } from './scenarium.js';
+import { SCENARIUM_SQL, SCN_MEDIA_SQL, SCN_PAGAMENTOS_SQL } from './scenarium.js';
 import { ANIVERSARIO_SQL } from './aniversario.js';
 import { DOCUMENTOS_SQL } from './documentos.js';
 import { DELIVERY_SQL } from './delivery.js';
@@ -164,6 +164,8 @@ export const TENANT_STEPS = [
   { version: 29, sql: RESTAURANTE_SQL },
   // 30: mapa do espaço e fotos dos setores (Scenarium)
   { version: 30, sql: SCN_MEDIA_SQL },
+  // 31: pagamentos das reservas do Scenarium (forma, chave Pix, comprovante)
+  { version: 31, sql: SCN_PAGAMENTOS_SQL },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 
@@ -196,6 +198,7 @@ export async function createCompanySchema(cx, companyId) {
   await cx.query(DELIVERY_SQL);
   await cx.query(RESTAURANTE_SQL);
   await cx.query(SCN_MEDIA_SQL);
+  await cx.query(SCN_PAGAMENTOS_SQL);
   await cx.query('SET LOCAL search_path TO public');
   await cx.query('INSERT INTO tenant_versions (company_id, version) VALUES ($1, 1)', [companyId]);
 }

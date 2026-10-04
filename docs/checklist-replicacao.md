@@ -37,3 +37,4 @@ Situação: [ ] pendente · [x] feito e confirmado.
 
 ## Scenarium: mapa e fotos dos setores
 - Passo 30 (`scn_media`). Painel: aba Setores (mapa do espaço no topo; fotos dentro da edição do setor). O atendente consulta `GET /n8n/scenarium/media` (ou `?sector_id=`) e recebe `map.url` e `sectors[].photos[].url` para enviar ao cliente; o envio e a exclusão são só do painel.
+- Passo 31 (`scn_res_payments`). Pagamentos da reserva do Scenarium: `POST /scenarium/reservations/:id/payments` (forma pix/dinheiro/cartao/parceiro/cortesia/outro, valor, `pix_key_id`, `payment_id` de um comprovante aceito em Recebimentos; um comprovante só paga uma reserva), `GET .../payments`, `DELETE /scenarium/payments/:id` (só painel) e `GET /scenarium/payments/summary?event_id=&date=` (previsto x recebido, por forma e por chave/beneficiário). A lista de reservas traz `paid` e `courtesy`.
