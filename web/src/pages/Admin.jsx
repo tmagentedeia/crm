@@ -1,5 +1,5 @@
 import CampoSenha from '../senha.jsx';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { api, fmtDate, getToken, setToken, ADMIN_KEY } from '../api.js';
 import { MODULES, moduleOn } from '../modules.js';
 import { PLANOS, planoDe } from '../plans.js';
@@ -29,6 +29,7 @@ export default function Admin() {
   const [menuPadrao, setMenuPadrao] = useState(null);
   const [origemMenu, setOrigemMenu] = useState('');
   const [acessos, setAcessos] = useState(null); // null = fechado
+  const cartaoChave = useRef(null);
   const [novaChave, setNovaChave] = useState(null); // { id, empresa, chave } — mostrada uma única vez
   const [copiada, setCopiada] = useState(false);
   const [form, setForm] = useState(null); // null = formulário "Nova empresa" fechado
@@ -185,6 +186,9 @@ export default function Admin() {
     } catch (e2) { setErr(e2.message); } finally { setCriando(false); }
   }
 
+  // a chave nova aparece no topo da página: leva a tela até lá para não passar despercebida
+  useEffect(() => { if (novaChave) cartaoChave.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, [novaChave]);
+
   async function copiar() {
     try { await navigator.clipboard.writeText(novaChave.chave); setCopiada(true); } catch { setCopiada(false); }
   }
@@ -253,7 +257,7 @@ export default function Admin() {
       )}
 
       {novaChave && (
-        <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card" ref={cartaoChave} style={{ marginBottom: 16, scrollMarginTop: 12 }}>
           <strong>Chave de "{novaChave.empresa}" · código da empresa: {novaChave.id}</strong>
           <p className="muted" style={{ margin: '6px 0 10px' }}>Copie e guarde agora: por segurança, a chave não será mostrada de novo.</p>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -404,6 +408,12 @@ export default function Admin() {
                     ? <><span style={{ fontFamily: 'monospace' }}>crm_…{s.api_key_hint}</span> <span className="muted">· gerada em {fmtDate(s.api_key_created_at)}</span></>
                     : <span className="muted">Sem chave</span>}
                   <button className="btn sm" onClick={() => gerarChave(s)}>{s.api_key_hint ? 'Regenerar' : 'Gerar chave'}</button>
+                  {novaChave?.id === s.id && (
+                    <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <input readOnly value={novaChave.chave} style={{ width: 280, fontFamily: 'monospace' }} onFocus={(e) => e.target.select()} />
+                      <button className="btn sm primary" onClick={copiar}>{copiada ? 'Copiada!' : 'Copiar'}</button>
+                    </span>
+                  )}
                 </Campo>
                 <Campo rotulo="Modelo">
                   <button className="btn sm" onClick={() => setSalvarModelo({ company_id: s.id, empresa: s.name, name: '', description: '' })}>Salvar como modelo</button>
