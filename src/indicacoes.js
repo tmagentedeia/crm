@@ -9,6 +9,7 @@ import { normPhone } from './phone.js';
 
 export const PCT_POR_INDICACAO = 10;
 export const MAX_POR_MES = 2;
+export const NOME_PADRAO = 'Programa de benefícios M2';   // nome do programa de parceria da M2 que todos os clientes enxergam (o administrador troca)
 const TZ = 'America/Sao_Paulo';
 const HORIZONTE_DIAS = 35;       // só agenda o lembrete quando faltam até 35 dias para ele (o resto o relógio do painel cuida)
 const HORA_LEMBRETE = '09:00:00';
@@ -36,7 +37,9 @@ export const INDICACOES_SQL = `
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (company_id, month)
   );
-  ALTER TABLE partner_reminders ADD COLUMN IF NOT EXISTS told_pct INT;`;
+  ALTER TABLE partner_reminders ADD COLUMN IF NOT EXISTS told_pct INT;
+  -- o Programa de benefícios nasce ligado: liga nas empresas que ainda não têm essa escolha (quem foi desligado à mão continua desligado)
+  UPDATE companies SET modules = COALESCE(modules, '{}'::jsonb) || '{"beneficios": true}'::jsonb WHERE NOT (COALESCE(modules, '{}'::jsonb) ? 'beneficios');`;
 
 // ---------- datas (sempre texto AAAA-MM-DD, sem fuso) ----------
 const hojeSP = () => new Date().toLocaleDateString('en-CA', { timeZone: TZ });
@@ -167,6 +170,47 @@ export async function sincronizarTodas() {
   }
 }
 
+// ---------- indicação por link: o cliente manda a mensagem, a Victoria recebe o código e o painel enxerga a conversa ----------
+// O código de indicação é "M2-" + nome da empresa tudo junto, sem espaços (ex.: M2-SalãoImagine). Na conferência não importam maiúsculas, acentos nem espaços.
+const norm = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, '');
+export const codigoDaEmpresa = (nome) => `M2-${String(nome || '').replace(/\s+/g, '')}`;
+export async function acharPorCodigo(codigo) {
+  const c = norm(codigo);
+  if (!c.startsWith('m2-') || c.length < 4) return null;
+  const { rows } = await qg('SELECT id, name FROM companies ORDER BY id');
+  return rows.find((r) => norm(codigoDaEmpresa(r.name)) === c) || null;
+}
+
+async function configConvite() {
+  const v = (await qg("SELECT value FROM platform_settings WHERE key='benefit_notices'")).rows[0]?.value || {};
+  return { phone: String(v.invite_phone || '').replace(/\D/g, ''), name: String(v.program_name || '').trim() || NOME_PADRAO };
+}
+
+export function montarConvite(empresa, codigo, victoriaPhone) {
+  const abrir = encodeURIComponent(`Olá, Victoria! Vim pela indicação de ${empresa}.`);
+  const link = `https://wa.me/${victoriaPhone}?text=${abrir}`;
+  const texto = `Oi! Passando para contar que sou cliente da M2 Soluções em atendimento e estou muito feliz com os resultados da minha empresa desde então. ` +
+    `Por isso recomendo conhecer os serviços deles. Use o meu código ${codigo} na hora de contratar e ganhe 10% de desconto na adesão de qualquer plano. ` +
+    `Se quiser, clique no link para conversar com a Victoria e fazer uma simulação de atendimento para o seu negócio: ${link}`;
+  return { link, texto };
+}
+
+// Chamada ao criar uma empresa com o código de indicação (cupom) informado: confere o código e lança a indicação
+export async function usarCodigo(codigo, nomeEmpresa) {
+  if (!String(codigo || '').trim()) return null;
+  const emp = await acharPorCodigo(codigo);
+  if (!emp) return { erro: 'Código de indicação não encontrado' };
+  const nome = String(nomeEmpresa || '').trim().slice(0, 120);
+  await qg("INSERT INTO partner_referrals (company_id, referred_name, closed_on, note) VALUES ($1,$2,$3,'Pelo código de indicação')", [emp.id, nome, hojeSP()]);
+  try { await sincronizarLembretes(emp.id); } catch (e) { console.error('indicações:', e.message); }
+  const cfg = await configAvisos();
+  if (cfg.phone && cfg.instance && lembretesLigados()) {
+    try { await agendarMsg(cfg, `Indicação de ${emp.name}`.slice(0, 120), `Indicação lançada: ${nome} usou o código de ${emp.name}. Lembre de dar 10% de desconto na adesão de ${nome}.`, new Date()); }
+    catch (e) { console.error('indicações:', e.message); }
+  }
+  return { indicadoPor: emp.name };
+}
+
 // ---------- visão de uma empresa ----------
 async function visao(companyId) {
   const c = (await qg('SELECT id, name, billing_due_day, billing_exempt FROM companies WHERE id=$1', [companyId])).rows[0];
@@ -195,7 +239,7 @@ export function registerIndicacoesAdmin(app, requireUser, requireAdmin) {
 
   app.get('/api/admin/benefits', ...A, seguro(async (req, res) => {
     const cfg = await configAvisos();
-    res.json({ notice_phone: cfg.phone, notice_instance: cfg.instance, reminders: lembretesLigados() });
+    res.json({ notice_phone: cfg.phone, notice_instance: cfg.instance, invite_phone: (await configConvite()).phone, program_name: (await configConvite()).name, reminders: lembretesLigados() });
   }));
   // Visão geral: todas as empresas com o desconto previsto (tela "Parceiros M2")
   app.get('/api/admin/benefits/overview', ...A, seguro(async (req, res) => {
@@ -212,10 +256,14 @@ export function registerIndicacoesAdmin(app, requireUser, requireAdmin) {
     if (req.body.notice_phone && (!phone || phone.length < 12)) return res.status(400).json({ error: 'Telefone inválido (use DDD + número)' });
     const inst = String(req.body.notice_instance ?? '').trim();
     if (inst.length > 60 || /[\u0000-\u001f<>]/.test(inst)) return res.status(400).json({ error: 'Nome da instância inválido' });
+    const convite = String(req.body.invite_phone ?? '').replace(/\D/g, '');
+    if (convite && (convite.length < 10 || convite.length > 15)) return res.status(400).json({ error: 'WhatsApp da Victoria inválido (use DDI + DDD + número)' });
+    const nomeProg = String(req.body.program_name ?? '').trim();
+    if (nomeProg.length > 40 || /[\u0000-\u001f<>]/.test(nomeProg)) return res.status(400).json({ error: 'Nome do programa inválido (até 40 letras)' });
     await qg(`INSERT INTO platform_settings (key, value) VALUES ('benefit_notices', $1::jsonb)
-              ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=now()`, [JSON.stringify({ phone, instance: inst })]);
+              ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=now()`, [JSON.stringify({ phone, instance: inst, invite_phone: convite, program_name: nomeProg })]);
     await sincronizarTodas();
-    res.json({ notice_phone: phone, notice_instance: inst, reminders: lembretesLigados() });
+    res.json({ notice_phone: phone, notice_instance: inst, invite_phone: convite, program_name: nomeProg || NOME_PADRAO, reminders: lembretesLigados() });
   }));
 
   app.put('/api/admin/companies/:id/billing', ...A, seguro(async (req, res) => {
@@ -261,7 +309,17 @@ export function registerBeneficiosCliente(r, wrap) {
     const v = await visao(currentCompany());
     if (!v) return res.status(404).json({ error: 'Empresa não encontrada' });
     const { reminders, ...resto } = v;
-    res.json(resto);
+    res.json({ ...resto, program_name: (await configConvite()).name });
+  }));
+  // Mensagem pronta de indicação (com o link da Victoria e o código da empresa)
+  r.get('/benefits/name', wrap(async (req, res) => res.json({ name: (await configConvite()).name })));
+  r.get('/benefits/invite', wrap(async (req, res) => {
+    const cfg = await configConvite();
+    if (!cfg.phone) return res.json({ available: false });
+    const id = currentCompany();
+    const v = (await qg('SELECT name FROM companies WHERE id=$1', [id])).rows[0];
+    if (!v) return res.status(404).json({ error: 'Empresa não encontrada' });
+    res.json({ available: true, program_name: cfg.name, codigo: codigoDaEmpresa(v.name), ...montarConvite(v.name, codigoDaEmpresa(v.name), cfg.phone) });
   }));
   // A empresa pede ao administrador que confira/atualize as indicações dela (no máximo um pedido por dia)
   r.post('/benefits/request', wrap(async (req, res) => {

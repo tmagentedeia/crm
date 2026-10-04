@@ -58,7 +58,7 @@ const BASE_MENU = [
   { id: 'comandos', module: 'comandos', label: 'Comandos', icon: '🎛️', comp: Comandos },
   { id: 'bloqueios', module: 'bloqueios', label: 'Atendimentos bloqueados', icon: '🚫', comp: Bloqueios },
   { id: 'importar', module: 'importar', label: 'Importar planilha', icon: '📥', comp: Importar },
-  { id: 'beneficios', module: 'beneficios', label: 'Programa de benefícios', icon: '◈', comp: Beneficios },
+  { id: 'beneficios', module: 'beneficios', label: 'Programa de benefícios M2', icon: '◈', comp: Beneficios },
   { id: 'config', label: 'Configurações', icon: '⚙️', comp: Config },
 ];
 
@@ -66,6 +66,7 @@ export default function App() {
   const [admin, setAdmin] = useState(false);
   const [logged, setLogged] = useState(!!getToken());
   const [page, setPage] = useState(() => location.hash.slice(1) || 'dashboard');
+  const [nomeProg, setNomeProg] = useState('');
   const [upgrade, setUpgrade] = useState(null); // nome da função apagada que a pessoa tocou
   const [collapsed, setCollapsed] = useState(window.innerWidth < 760);
   const [company, setCompany] = useState(() => JSON.parse(localStorage.getItem('crm_company') || '{}'));
@@ -79,6 +80,7 @@ export default function App() {
   }, [theme]);
 
   useEffect(() => {
+    if (logged) api('/benefits/name').then((r) => setNomeProg(r?.name || '')).catch(() => {});
     if (logged) api('/me').then((m) => setAdmin(!!m.admin)).catch(() => setAdmin(false));
     else setAdmin(false);
   }, [logged]);
@@ -99,7 +101,7 @@ export default function App() {
   // Só aparecem os módulos ligados da empresa; Configurações e Administração (para o administrador) sempre aparecem
   // nome e ícone que a empresa escolheu para cada item (em Configurações); sem escolha, vale o padrão
   const custom = company.menu_custom || {};
-  const personalizado = (m) => ({ ...m, label: nomeDoMenu(custom, m.id, m.label), icon: iconeDoMenu(custom, m.id, m.icon) });
+  const personalizado = (m) => ({ ...m, label: nomeDoMenu(custom, m.id, m.id === 'beneficios' && nomeProg ? nomeProg : m.label), icon: iconeDoMenu(custom, m.id, m.icon) });
   // Função desligada que o administrador deixou à vista aparece apagada, com cadeado, convidando ao upgrade
   const bloqueada = (m) => !!m.module && !moduleOn(company.modules, m.module) && company.locked_modules?.[m.module] === true;
   const visible = BASE_MENU.filter((m) => !m.module || moduleOn(company.modules, m.module) || bloqueada(m))

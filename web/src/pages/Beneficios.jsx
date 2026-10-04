@@ -8,7 +8,9 @@ const nomeMes = (iso) => new Date(iso + 'T12:00:00').toLocaleDateString('pt-BR',
 
 // Saldo do programa de benefícios por indicação (somente leitura; quem marca as indicações é o administrador)
 export default function Beneficios({ company }) {
-  const titulo = nomeDoMenu(company?.menu_custom || {}, 'beneficios', 'Programa de benefícios');
+  const [padrao, setPadrao] = useState('Programa de benefícios M2');
+  useEffect(() => { api('/benefits/name').then((r) => r?.name && setPadrao(r.name)).catch(() => {}); }, []);
+  const titulo = nomeDoMenu(company?.menu_custom || {}, 'beneficios', padrao);
   const [eu, setEu] = useState(null);
   useEffect(() => { api('/me').then(setEu).catch(() => setEu({})); }, []);
   if (!eu) return <p className="muted">Carregando…</p>;
@@ -99,6 +101,7 @@ function MeuSaldo({ titulo }) {
           </table>
         </div>
       )}
+      <Indicar />
       <div className="card">
         <h3>Algo não confere?</h3>
         <p className="muted">Se uma indicação sua não aparece ou o desconto não foi lançado, peça uma conferência.</p>
@@ -110,5 +113,43 @@ function MeuSaldo({ titulo }) {
         </div>
       </div>
     </>
+  );
+}
+
+// Indicar um contato: o painel monta a mensagem com o link e abre o WhatsApp do próprio cliente (ele aperta enviar)
+function Indicar() {
+  const [info, setInfo] = useState(null);
+  const [busca, setBusca] = useState('');
+  const [achados, setAchados] = useState([]);
+  const [fone, setFone] = useState('');
+  const [copiado, setCopiado] = useState(false);
+  useEffect(() => { api('/benefits/invite').then(setInfo).catch(() => setInfo({ available: false })); }, []);
+  useEffect(() => {
+    if (busca.trim().length < 2) { setAchados([]); return; }
+    const t = setTimeout(() => api('/customers?search=' + encodeURIComponent(busca.trim())).then((r) => setAchados(r.slice(0, 6))).catch(() => {}), 300);
+    return () => clearTimeout(t);
+  }, [busca]);
+  if (!info?.available) return null;
+  const digitos = String(fone).replace(/\D/g, '');
+  const destino = digitos.length >= 10 ? (digitos.length <= 11 ? '55' + digitos : digitos) : '';
+  const abrir = () => window.open(`https://wa.me/${destino}?text=${encodeURIComponent(info.texto)}`, '_blank', 'noopener');
+  async function copiar() { try { await navigator.clipboard.writeText(info.texto); setCopiado(true); setTimeout(() => setCopiado(false), 2000); } catch { /* sem permissão */ } }
+  return (
+    <div className="card" style={{ marginBottom: 12 }}>
+      <h3>Indicar alguém</h3>
+      <p>Seu código: <strong>{info.codigo}</strong></p>
+      <p className="muted">Escolha um contato seu e o WhatsApp abre com a mensagem pronta. A pessoa precisa informar o seu código ao contratar para ter o desconto; assim, o desconto da sua indicação é lançado para você.</p>
+      <div className="field"><label>Procurar entre seus clientes</label><input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Nome ou telefone" /></div>
+      {achados.length > 0 && (
+        <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+          {achados.map((c) => <button key={c.id} className="btn sm" onClick={() => { setFone(c.phone || ''); setBusca(''); setAchados([]); }}>{c.name || c.phone}</button>)}
+        </div>
+      )}
+      <div className="row" style={{ alignItems: 'flex-end' }}>
+        <div className="field"><label>WhatsApp (DDD + número)</label><input value={fone} onChange={(e) => setFone(e.target.value)} placeholder="32 99999-9999" /></div>
+        <button className="btn primary" disabled={!destino} onClick={abrir}>Abrir no WhatsApp</button>
+        <button className="btn" onClick={copiar}>{copiado ? 'Copiada!' : 'Copiar mensagem'}</button>
+      </div>
+    </div>
   );
 }

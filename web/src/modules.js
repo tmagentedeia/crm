@@ -8,7 +8,7 @@ export const MODULES = [
   { key: 'pedidos', label: 'Pedidos', desc: 'Pedidos de música por live, com franquia do programa de assinaturas e resumo do mês' },
   { key: 'financeiro', label: 'Recebimentos', desc: 'Chaves Pix aceitas e conferência dos comprovantes recebidos' },
   { key: 'comissoes', label: 'Comissões', desc: 'Comissão dos profissionais sobre serviços e produtos, com fechamento por período' },
-  { key: 'beneficios', label: 'Programa de benefícios', desc: 'Descontos por indicação de clientes que fecham contrato, com saldo mês a mês' },
+  { key: 'beneficios', label: 'Programa de benefícios M2', desc: 'Programa de benefícios da M2: a empresa acompanha os descontos das indicações que fez e indica novos contatos' },
   { key: 'scenarium', label: 'Scenarium', desc: 'Reservas de mesa por setor em casas de evento, controlando o espaço de cada setor' },
   { key: 'eventos', label: 'Eventos', desc: 'Compromissos avulsos (lives, reuniões, shows), sem profissional nem serviço' },
   { key: 'agenda', label: 'Agenda', desc: 'Agenda de horários' },

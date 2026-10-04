@@ -16,7 +16,7 @@ import { requireUser, requireN8n, requireAdmin, isAdmin, signToken, signImperson
 import { buildRouter } from './routes.js';
 import { startCampaignScheduler } from './campaigns.js';
 import { birthdayTickAll } from './aniversario.js';
-import { registerIndicacoesAdmin, sincronizarTodas } from './indicacoes.js';
+import { registerIndicacoesAdmin, sincronizarTodas, usarCodigo, acharPorCodigo } from './indicacoes.js';
 import { startCortesias } from './pedidos.js';
 
 const app = express();
@@ -259,6 +259,10 @@ app.post('/api/admin/companies', requireUser, requireAdmin, async (req, res) => 
   if (!name || !ownerName || !/^\S+@\S+\.\S+$/.test(email) || password.length < 8)
     return res.status(400).json({ error: 'Preencha o nome da empresa, o nome e o e-mail do responsável e uma senha com 8 ou mais caracteres' });
   if (!modules) return res.status(400).json({ error: 'Módulos inválidos' });
+  const codigo = String(req.body.referral_code || '').trim();
+  if (codigo) {
+    if (!(await acharPorCodigo(codigo))) return res.status(400).json({ error: 'Código de indicação não encontrado' });
+  }
   try {
     let template = null;
     if (req.body.template_id) {
@@ -266,7 +270,9 @@ app.post('/api/admin/companies', requireUser, requireAdmin, async (req, res) => 
       if (!template) return res.status(400).json({ error: 'Modelo não encontrado' });
     }
     const { company, apiKey } = await createCompany({ name, ownerName, email, password, modules, template });
-    res.status(201).json({ id: company.id, name: company.name, owner_email: email, modules: company.modules, api_key: apiKey });
+    let indicada = null;
+    if (codigo) indicada = await usarCodigo(codigo, name).catch((e) => { console.error('indicações:', e.message); return null; });
+    res.status(201).json({ id: company.id, name: company.name, owner_email: email, modules: company.modules, api_key: apiKey, indicada_por: indicada?.indicadoPor || null });
   } catch (e) {
     if (e.code === '23505') return res.status(409).json({ error: 'E-mail já cadastrado' });
     console.error(e); res.status(500).json({ error: 'Erro interno' });

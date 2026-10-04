@@ -178,7 +178,7 @@ check('módulos por item do menu são aceitos', ligaFino.status === 200 && ligaF
 check('módulo desconhecido = 400', (await call('PUT', urlMod, { token: A.token, body: { modules: { voo2: true } } })).status === 400);
 check('a lista de empresas mostra os módulos', (await call('GET', '/api/admin/companies', { token: A.token })).body.find((c) => c.id == criada.body.id)?.modules?.agenda === false);
 check('desligar módulo só esconde o menu: as rotas continuam respondendo', (await call('GET', '/api/services', { token: donaM.token })).status === 200);
-check('empresa antiga (sem módulos configurados) continua inteira', Object.keys(A.company.modules || {}).length === 0);
+check('empresa antiga (sem módulos configurados) continua inteira', Object.keys(A.company.modules || {}).filter((k) => k !== 'beneficios').length === 0);
 
 // ---- cadastro de empresa nova (cria schema) ----
 const reg = await call('POST', '/api/auth/register', { body: { company_name: 'Agência Teste', name: 'Zé', email: `ze${Date.now()}@x.com`, password: 'senhasenha' } });

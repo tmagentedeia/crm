@@ -106,6 +106,25 @@ await call('POST', '/api/admin/companies/1/referrals', { token: A.token, body: {
 const h3 = psql("select extract(epoch from data_hora_envio)::bigint from agendamentos_mensagens where origem='indicacao_m2' order by data_hora_envio").split('\n').map(Number);
 check('trocar um aviso mantém o intervalo entre todos', h3.length === 2 && h3.every((x, i) => i === 0 || x - h3[i - 1] >= 600), h3.join(','));
 
+// ---- indicação pelo link ----
+const cfgAtual = (await call('GET', '/api/admin/benefits', { token: A.token })).body;
+check('convite recusado com telefone inválido', (await call('PUT', '/api/admin/benefits', { token: A.token, body: { notice_phone: cfgAtual.notice_phone, notice_instance: cfgAtual.notice_instance, invite_phone: '12' } })).status === 400);
+const salvo = (await call('PUT', '/api/admin/benefits', { token: A.token, body: { notice_phone: cfgAtual.notice_phone, notice_instance: cfgAtual.notice_instance, invite_phone: '5532988887777', program_name: 'Indica & Ganha' } })).body;
+check('nome do programa salvo', salvo.program_name === 'Indica & Ganha', JSON.stringify(salvo));
+check('cliente enxerga o nome do programa', (await call('GET', '/api/benefits/name', { token: B.token })).body?.name === 'Indica & Ganha');
+const conv = (await call('GET', '/api/benefits/invite', { token: B.token })).body;
+check('convite traz link da Victoria com o código', conv.available && /^https:\/\/wa\.me\/5532988887777\?text=/.test(conv.link) && true, JSON.stringify(conv));
+check('mensagem inclui o link', conv.texto?.includes(conv.link) && conv.texto.includes('10% de desconto'));
+const conv2 = (await call('GET', '/api/benefits/invite', { token: B.token })).body;
+check('o código da empresa é sempre o mesmo', conv2.link === conv.link);
+const nomeB = psql('select name from companies where id=2');
+const codB = `M2-${nomeB.replace(/\s+/g, '')}`;
+check('mensagem traz o código como cupom', conv.texto.includes(codB) && conv.texto.includes('10% de desconto na adesão'));
+check('código inexistente recusado ao criar empresa', (await call('POST', '/api/admin/companies', { token: A.token, body: { name: 'Sem Cupom', owner_name: 'X', email: 'semcupom@x.com', password: 'senhasenha', referral_code: 'M2-EmpresaQueNaoExiste', modules: {} } })).status === 400);
+const cup = await call('POST', '/api/admin/companies', { token: A.token, body: { name: 'Empresa Cupom', owner_name: 'Y', email: 'cupom@x.com', password: 'senhasenha', referral_code: ' m2-' + nomeB.replace(/\s+/g, '').toUpperCase() + ' ', modules: {} } });
+check('criar empresa com o código lança a indicação', cup.status === 201 && !!cup.body.indicada_por && Number(psql("select count(*) from partner_referrals where referred_name='Empresa Cupom'")) === 1, JSON.stringify(cup.body));
+psql("delete from companies where name = 'Empresa Cupom'");
+
 // limpeza
 psql('delete from partner_referrals; delete from partner_reminders; delete from agendamentos_mensagens');
 for (const id of [1, 2]) await call('PUT', `/api/admin/companies/${id}/billing`, { token: A.token, body: { billing_due_day: null, billing_exempt: false } });

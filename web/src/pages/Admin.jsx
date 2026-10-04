@@ -7,8 +7,8 @@ import { IconeCadeado, IconeOlho } from '../icones.jsx';
 import { ROTULOS } from '../rotulos.js';
 
 const FORM_VAZIO = () => ({
-  name: '', owner_name: '', email: '', password: '', template_id: '',
-  modules: Object.fromEntries(MODULES.map((m) => [m.key, !['scenarium', 'beneficios'].includes(m.key)])),  // Scenarium e Programa de benefícios só entram quando o administrador marca
+  name: '', owner_name: '', email: '', referral_code: '', password: '', template_id: '',
+  modules: Object.fromEntries(MODULES.map((m) => [m.key, m.key !== 'scenarium'])),  // Scenarium só entra quando o administrador marca; o Programa de benefícios já nasce ligado
 });
 
 // Campo com rótulo pequeno em cima (definido aqui fora para os campos não perderem o foco ao digitar)
@@ -219,6 +219,7 @@ export default function Admin() {
           <div className="field"><label>Nome da empresa</label><input value={form.name} onChange={setF('name')} required /></div>
           <div className="field"><label>Nome do responsável</label><input value={form.owner_name} onChange={setF('owner_name')} required /></div>
           <div className="field"><label>E-mail do responsável (é o login dele)</label><input type="email" value={form.email} onChange={setF('email')} required /></div>
+          <div className="field"><label>Código de indicação (opcional; é o cupom que a pessoa informou ao contratar)</label><input value={form.referral_code} onChange={setF('referral_code')} placeholder="M2-NomeDaEmpresaQueIndicou" /></div>
           <div className="field"><label>Senha inicial (8 ou mais caracteres)</label><CampoSenha value={form.password} onChange={setF('password')} required minLength={8} autoComplete="new-password" /></div>
           <div className="field">
             <label>Módulos liberados</label>

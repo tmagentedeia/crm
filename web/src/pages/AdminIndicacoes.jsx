@@ -83,12 +83,17 @@ export function AvisosDesconto() {
   if (!f) return null;
   async function salvar() {
     setErr(''); setMsg('');
-    try { setF(await api('/admin/benefits', { method: 'PUT', body: { notice_phone: f.notice_phone, notice_instance: f.notice_instance } })); setMsg('Salvo'); }
+    try { setF(await api('/admin/benefits', { method: 'PUT', body: { notice_phone: f.notice_phone, notice_instance: f.notice_instance, invite_phone: f.invite_phone, program_name: f.program_name } })); setMsg('Salvo'); }
     catch (e) { setErr(e.message); }
   }
   return (
     <div className="card" style={{ marginBottom: 12 }}>
-      <h3>Avisos de desconto por indicação</h3>
+      <h3>Configuração do programa</h3>
+      <div className="row" style={{ alignItems: 'flex-end', marginBottom: 6 }}>
+        <div className="field"><label>Nome do programa (como seus clientes veem)</label><input value={f.program_name || ''} maxLength={40} onChange={(e) => setF({ ...f, program_name: e.target.value })} /></div>
+        <div className="field"><label>WhatsApp da Victoria nos convites (DDI + DDD + número)</label><input value={f.invite_phone || ''} placeholder="5532999999999" onChange={(e) => setF({ ...f, invite_phone: e.target.value })} /></div>
+      </div>
+      <h4 style={{ marginTop: 10 }}>Avisos de desconto por indicação</h4>
       <p className="muted">Na véspera do vencimento, você recebe no WhatsApp um lembrete para aplicar o desconto da empresa.</p>
       {err && <div className="error">{err}</div>}
       <div className="row" style={{ alignItems: 'flex-end' }}>
@@ -101,3 +106,4 @@ export function AvisosDesconto() {
     </div>
   );
 }
+
