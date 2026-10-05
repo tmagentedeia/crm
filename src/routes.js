@@ -18,6 +18,7 @@ import { TIPOS_ITEM } from './produtos.js';
 import { registerSalesRoutes } from './vendas.js';
 import { registerCommissionRoutes } from './comissoes.js';
 import { registerListaEventoRoutes } from './lista_evento.js';
+import { registerParceriasRoutes, textoDeParcerias } from './parcerias.js';
 import { registerCasaDeShowsRoutes, historicoCasaDeShows, KINDS as PERFIS } from './casa_de_shows.js';
 
 const digits = (s) => String(s || '').replace(/\D/g, '');
@@ -312,7 +313,8 @@ export function buildRouter() {
         : '';
       const semLembrete = lembreteCliente ? '' :
         'LEMBRETES PEDIDOS PELO CLIENTE — NÃO DISPONÍVEL. Esta empresa não oferece lembrete a pedido do cliente. Se o cliente pedir para ser lembrado de algo, não agende nem prometa nenhum lembrete e não use a ferramenta de lembrete para clientes; explique com gentileza que não consegue fazer isso. Os avisos automáticos de horário marcado continuam funcionando normalmente.';
-      const corpo = [semLembrete, avisos, prompt].filter(Boolean);
+      const parcerias = ehAssistente ? '' : await textoDeParcerias();
+      const corpo = [semLembrete, avisos, parcerias, prompt].filter(Boolean);
       prompt = (corpo.length ? [abertura, ...corpo] : []).filter(Boolean).join('\n\n');
       res.json({ enabled: true, prompt, client_reminders: lembreteCliente, agent_name: agentName || null, adm_name: admName || null, manual: man ? semSeparadores(man.content) : '', updates, published_at: man ? man.published_at : null });
     }));
@@ -715,6 +717,11 @@ export function buildRouter() {
     const counts = { member: 0, former: 0, supporter: 0 };
     cont.forEach((c) => { counts[c.club_status] = c.n; });
     res.json({ program_name: s?.program_name || 'Programa de assinaturas', levels, counts });
+  }));
+  // Só os assinantes (membros), com nível; ?search= filtra por nome ou telefone
+  r.get('/club/members', wrap(async (req, res) => {
+    const { rows } = await q(`${CUST} WHERE c.club_status = 'member' AND ($1::text IS NULL OR c.name ILIKE '%'||$1||'%' OR c.phone LIKE '%'||$1||'%') ORDER BY lower(NULLIF(btrim(c.name),'')) NULLS LAST, c.created_at DESC LIMIT 1000`, [String(req.query.search || '').trim() || null]);
+    res.json(rows);
   }));
   r.put('/club', wrap(async (req, res) => {
     const nome = nomeOk(req.body.program_name, 30);
@@ -1235,6 +1242,7 @@ export function buildRouter() {
   registerCommissionRoutes(r, wrap);
   registerCasaDeShowsRoutes(r, wrap);
   registerListaEventoRoutes(r, wrap);
+  registerParceriasRoutes(r, wrap);
   registerHiringRoutes(r, wrap);
   registerDocumentRoutes(r, wrap);
   registerDeliveryRoutes(r, wrap);

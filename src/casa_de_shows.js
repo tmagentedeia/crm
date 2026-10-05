@@ -9,6 +9,7 @@ import crypto from 'crypto';
 import { q, qg, tx, currentCompany, runAs } from './db.js';
 import { normPhone } from './phone.js';
 import { parseBirthday } from './ficha.js';
+import { beneficiosDeParceiros } from './parcerias.js';
 
 export const CASA_DE_SHOWS_SQL = `
   ALTER TABLE customers ADD COLUMN IF NOT EXISTS client_kinds TEXT[] NOT NULL DEFAULT '{}';   -- perfis do cliente: buyer (comprador), hirer (contratante)
@@ -909,6 +910,15 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     if (!phone && !cid) return false;
     return !!(await run(`SELECT 1 FROM customers WHERE club_status = 'member' AND (id = $1::bigint OR phone = $2) LIMIT 1`, [cid || null, phone || null])).rows[0];
   }
+  // Melhor desconto de clube para este telefone: o do próprio programa da empresa (se for membro) ou o de um programa parceiro com desconto em %
+  async function beneficioClube(run, phone, cid) {
+    const cfg = await clubeCfg(run);
+    const opcoes = [];
+    if (cfg.percent && await ehMembro(run, phone, cid)) opcoes.push({ percent: cfg.percent, companions: cfg.companions, source: 'own', label: null });
+    if (phone) for (const b of await beneficiosDeParceiros(phone)) if (b.discount_percent) opcoes.push({ percent: b.discount_percent, companions: b.companions, source: 'partner', label: `${b.program} (${b.partner})` });
+    opcoes.sort((a, b) => b.percent - a.percent || b.companions - a.companions);
+    return opcoes[0] || null;
+  }
   // Quanto abate da venda: para o membro e os acompanhantes (os primeiros da venda), o preço do clube se for menor que o preço já valendo
   function descontoClube(unit, base, people, cfg) {
     if (!cfg.percent || unit === null || unit === undefined || base === null || base === undefined) return 0;
@@ -1092,19 +1102,21 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     const pr = await precoPara(q, ev.id, String(req.query.code || '').trim(), outro, null);
     const ins = (await q('SELECT instructions FROM shows_event_conditions WHERE event_id=$1', [ev.id])).rows[0]?.instructions || null;
     const pix = await chavesDoEvento(q, ev.id);
-    // Clube: com ?phone= o preço confere se a pessoa é membro; devolve quanto abate para ele e os acompanhantes
+    // Clube: com ?phone= o preço confere se a pessoa é membro (do programa da empresa ou de um parceiro); devolve quanto abate para ele e os acompanhantes
     const cfgClube = await clubeCfg(q);
-    let clube = null;
-    if (cfgClube.percent) {
-      const fone = req.query.phone ? normPhone(req.query.phone) : null;
-      const membro = fone ? await ehMembro(q, fone, null) : null;
-      clube = { percent: cfgClube.percent, companions: cfgClube.companions, member: membro };
-      if (membro && pr.unit_price !== null) {
-        clube.discount = descontoClube(pr.unit_price, pr.base_price, people || 1 + cfgClube.companions, cfgClube);
-        clube.price = r2(Math.min(pr.unit_price, pr.base_price * (1 - cfgClube.percent / 100)));
+    let clube = null, cfgUsado = cfgClube;
+    const fone = req.query.phone ? normPhone(req.query.phone) : null;
+    const bene = fone ? await beneficioClube(q, fone, null) : null;
+    if (bene) cfgUsado = { percent: bene.percent, companions: bene.companions };
+    if (cfgClube.percent || bene) {
+      const p0 = bene ? bene.percent : cfgClube.percent;
+      clube = { percent: p0, companions: cfgUsado.companions, member: fone ? !!bene : null, via: bene?.label || null };
+      if (bene && pr.unit_price !== null) {
+        clube.discount = descontoClube(pr.unit_price, pr.base_price, people || 1 + cfgUsado.companions, cfgUsado);
+        clube.price = r2(Math.min(pr.unit_price, pr.base_price * (1 - bene.percent / 100)));
       }
     }
-    const abate = clube?.member && people && pr.unit_price !== null ? descontoClube(pr.unit_price, pr.base_price, people, cfgClube) : 0;
+    const abate = bene && people && pr.unit_price !== null ? descontoClube(pr.unit_price, pr.base_price, people, cfgUsado) : 0;
     res.json({ event: { id: ev.id, title: ev.title }, ...pr, code_id: undefined, club: clube, club_discount: abate, people, total: people && pr.unit_price !== null ? r2(people * pr.unit_price - abate) : null, instructions: ins, pix_key: chaveOut(pix.current), pix_all_full: pix.all_full });
   }));
 
@@ -1560,10 +1572,10 @@ export function registerCasaDeShowsRoutes(r, wrap) {
       const unit = preco !== undefined ? preco.unit_price : (atual?.unit_price == null ? null : Number(atual.unit_price));
       const manual = tem('unit_price') && b.unit_price !== null && b.unit_price !== '';
       if (oc.event_id && unit !== null && !manual && !atual?.host_sale_id) {
-        const cfg = await clubeCfg(q);
-        if (cfg.percent && await ehMembro(q, phone, cid)) {
+        const bene = await beneficioClube(q, phone, cid);
+        if (bene) {
           const pr = await precoPara(q, oc.event_id, '', 0, atual?.id);
-          clube = descontoClube(unit, pr.base_price, people, cfg);
+          clube = descontoClube(unit, pr.base_price, people, bene);
         }
       }
     }

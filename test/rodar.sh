@@ -110,6 +110,7 @@ BASE=http://localhost:3999 node test/casa_de_shows_pix_evento.mjs || R=1
 BASE=http://localhost:3999 node test/casa_de_shows_lotes.mjs || R=1
 BASE=http://localhost:3999 node test/casa_de_shows_mesa_reservada.mjs || R=1
 BASE=http://localhost:3999 node test/casa_de_shows_clube.mjs || R=1
+BASE=http://localhost:3999 node test/parcerias.mjs || R=1
 BASE=http://localhost:3999 node test/lista_evento.mjs || R=1
 BASE=http://localhost:3999 node test/contratacoes.mjs || R=1
 BASE=http://localhost:3999 node test/indicacoes.mjs || R=1

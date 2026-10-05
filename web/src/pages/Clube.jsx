@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { api } from '../api.js';
+import { api, fmtPhone } from '../api.js';
+import Parcerias from './ParceriasClube.jsx';
 
 // Programa de assinaturas da empresa (Clube, Premium, VIP…): nome do programa e níveis com os benefícios de cada mês.
-export default function Clube() {
+function Programa() {
   const [d, setD] = useState(null);
   const [nome, setNome] = useState('');
   const [novo, setNovo] = useState({ name: '', benefit_qty: 0 });
@@ -18,7 +19,6 @@ export default function Clube() {
   if (!d) return <p className="muted">Carregando…</p>;
   return (
     <>
-      <h1>{d.program_name}</h1>
       <p className="muted" style={{ marginBottom: 16 }}>Marque seus clientes como membros de um programa com níveis e benefícios. Aqui você dá nome ao programa e define os níveis e os benefícios de cada um.</p>
       {err && <div className="error">{err}</div>}
       {msg && <p className="muted" style={{ marginBottom: 8 }}>{msg}</p>}
@@ -71,6 +71,62 @@ export default function Clube() {
           <button className="btn primary">+ Adicionar nível</button>
         </form>
       </div>
+    </>
+  );
+}
+
+// Só os assinantes (membros) do programa
+function Assinantes({ nomePrograma }) {
+  const [rows, setRows] = useState(null);
+  const [busca, setBusca] = useState('');
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => api('/club/members?search=' + encodeURIComponent(busca.trim())).then((r) => { setRows(r); setErr(''); }).catch((e) => setErr(e.message)), 250);
+    return () => clearTimeout(t);
+  }, [busca]);
+  return (
+    <>
+      {err && <div className="error">{err}</div>}
+      <div className="row" style={{ marginBottom: 12 }}>
+        <input placeholder="Buscar por nome ou telefone" value={busca} onChange={(e) => setBusca(e.target.value)} style={{ maxWidth: 320 }} />
+        {rows && <span className="muted">{rows.length} assinante(s) de {nomePrograma}</span>}
+      </div>
+      <div className="card table-wrap">
+        <table>
+          <thead><tr><th>Nome</th><th>Telefone</th><th>Nível</th><th>Cidade</th></tr></thead>
+          <tbody>
+            {(rows || []).map((c) => (
+              <tr key={c.id}>
+                <td>{[c.name, c.last_name].filter(Boolean).join(' ') || <span className="muted">Sem nome</span>}</td>
+                <td>{c.phone ? fmtPhone(c.phone) : '—'}</td>
+                <td>{c.club_level_name || <span className="muted">—</span>}</td>
+                <td>{[c.city, c.state].filter(Boolean).join(' / ') || <span className="muted">—</span>}</td>
+              </tr>
+            ))}
+            {rows && !rows.length && <tr><td colSpan="4" className="muted">Nenhum assinante encontrado.</td></tr>}
+            {!rows && <tr><td colSpan="4" className="muted">Carregando…</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+export default function Clube() {
+  const [aba, setAba] = useState('programa');
+  const [nome, setNome] = useState('Programa de assinaturas');
+  useEffect(() => { api('/club').then((x) => setNome(x.program_name)).catch(() => {}); }, [aba]);
+  return (
+    <>
+      <h1>{nome}</h1>
+      <div className="row" style={{ margin: '8px 0 14px' }}>
+        {[['programa', 'Programa'], ['assinantes', 'Assinantes'], ['parcerias', 'Parcerias']].map(([v, l]) => (
+          <button key={v} className={'btn' + (aba === v ? ' primary' : '')} onClick={() => setAba(v)}>{l}</button>
+        ))}
+      </div>
+      {aba === 'programa' && <Programa />}
+      {aba === 'assinantes' && <Assinantes nomePrograma={nome} />}
+      {aba === 'parcerias' && <Parcerias nomePrograma={nome} />}
     </>
   );
 }

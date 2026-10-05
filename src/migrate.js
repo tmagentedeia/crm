@@ -5,6 +5,7 @@ import { pool } from './db.js';
 import { upgradeAllCompanies } from './tenant.js';
 import { INDICACOES_SQL } from './indicacoes.js';
 import { FUNCOES_SQL } from './funcoes.js';
+import { PARCERIAS_SQL } from './parcerias.js';
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const sql = fs.readFileSync(path.join(dir, '..', 'db', 'schema.sql'), 'utf8');
@@ -43,6 +44,7 @@ try {
       id BIGSERIAL PRIMARY KEY, admin_user_id BIGINT NOT NULL, company_id BIGINT NOT NULL, target_user_id BIGINT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
     await pool.query(INDICACOES_SQL);
     await pool.query(FUNCOES_SQL);
+    await pool.query(PARCERIAS_SQL);
     await trocarNomeAntigoDoModulo();
     const n = await upgradeAllCompanies();
     console.log(`Estrutura em dia (${n} empresa(s)).`);
@@ -50,6 +52,7 @@ try {
     await pool.query(sql);
     await pool.query(INDICACOES_SQL);
     await pool.query(FUNCOES_SQL);
+    await pool.query(PARCERIAS_SQL);
     console.log('Estrutura criada com sucesso.');
   }
 } catch (e) {
