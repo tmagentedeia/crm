@@ -1,7 +1,7 @@
 // Lista do evento: uma linha por pessoa que vai ao evento (no lugar da planilha), montada a partir das vendas da Casa de Shows.
 // Cada pessoa pode ter nome, telefone e observações próprios; a portaria marca quem entrou. Toda mudança fica registrada.
 // Acessos (telas da equipe): lista_evento = só consulta · lista_evento_comentarista = marca entrada e comenta · lista_evento_editor = edita tudo.
-import { q, qg } from './db.js';
+import { q, qg, runAs, currentCompany } from './db.js';
 import { normPhone } from './phone.js';
 
 export const SHOWS_LISTA_SQL = `
@@ -30,10 +30,60 @@ export const SHOWS_LISTA_SQL = `
   CREATE INDEX IF NOT EXISTS idx_shows_attendee_log_event ON shows_attendee_log (event_id, at DESC);
 `;
 
+// Envio da lista pelo WhatsApp: quem recebe, se está ligado e o registro do que já foi enviado por evento
+export const SHOWS_LISTA_ENVIO_SQL = `
+  CREATE TABLE IF NOT EXISTS shows_list_settings (
+    id      BOOLEAN PRIMARY KEY DEFAULT true CHECK (id),
+    enabled BOOLEAN NOT NULL DEFAULT false,
+    phones  TEXT[] NOT NULL DEFAULT '{}',
+    to_admin   BOOLEAN NOT NULL DEFAULT true,
+    to_company BOOLEAN NOT NULL DEFAULT false
+  );
+  ALTER TABLE shows_list_settings ADD COLUMN IF NOT EXISTS to_admin BOOLEAN NOT NULL DEFAULT true;
+  ALTER TABLE shows_list_settings ADD COLUMN IF NOT EXISTS to_company BOOLEAN NOT NULL DEFAULT false;
+  CREATE TABLE IF NOT EXISTS shows_list_dispatch (
+    event_id BIGINT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
+    sent_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    ok       BOOLEAN,
+    detail   TEXT
+  );`;
+
 const OCUPAM = ['confirmed', 'attended'];
 const idOk = (v) => (/^\d+$/.test(String(v ?? '')) ? String(v) : null);
 const txt = (v, max) => { const s = String(v ?? '').trim(); return s.length <= max && !/[\u0000-\u0008\u000b-\u001f<>]/.test(s) ? s : null; };
 const PAGAMENTO = { courtesy: 'Cortesia', paid: 'Pago', partial: 'Parcial', pending: 'Pendente', no_price: '—' };
+
+const cel = (v) => { const s = String(v ?? ''); return /[;"\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+function csvDe(rows) {
+  const cab = ['Nome', 'Setor', 'Mesa', 'Telefone', 'Valor', 'Pagamento', 'Entrou', 'Observações', 'Observações da portaria'];
+  const linhasCsv = rows.map((x) => [x.name, x.sector, x.table, x.phone || '', x.unit_price === null ? '' : String(x.unit_price).replace('.', ','), x.payment_label,
+    x.entered_at ? 'Sim' : '', x.note, x.door_note].map(cel).join(';'));
+  return '\ufeff' + [cab.join(';'), ...linhasCsv].join('\r\n') + '\r\n';
+}
+
+// Conexão do WhatsApp da empresa (configurada pelo administrador do sistema): endereço do serviço e chave
+async function conexaoWhats(companyId) {
+  const c = (await qg('SELECT wa_api_url, wa_api_token FROM companies WHERE id=$1', [companyId])).rows[0];
+  return c?.wa_api_url && c?.wa_api_token ? { base: String(c.wa_api_url).replace(/\/+$/, ''), token: c.wa_api_token } : null;
+}
+async function postarWhats(con, caminho, corpo) {
+  const r = await fetch(con.base + caminho, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json', token: con.token }, body: JSON.stringify(corpo), signal: AbortSignal.timeout(30000) });
+  if (!r.ok) throw new Error(`O WhatsApp respondeu ${r.status}`);
+}
+const pausa = (ms) => new Promise((ok) => setTimeout(ok, process.env.LISTA_PAUSA_RAPIDA ? 5 : ms));
+let servico = null;   // preenchido por registerListaEventoRoutes
+
+// Todo minuto: para cada empresa com o envio ligado, manda a lista dos eventos cuja casa já abriu (uma vez por evento)
+export function startListaScheduler() {
+  const passo = async () => {
+    if (!servico) return;
+    try {
+      const empresas = (await qg("SELECT id FROM companies WHERE COALESCE(modules->>'casa_de_shows','true') <> 'false' AND wa_api_url IS NOT NULL AND wa_api_token IS NOT NULL")).rows;
+      for (const e of empresas) await runAs(e.id, () => servico.rodar(e.id)).catch((x) => console.error('lista do evento:', x.message));
+    } catch (x) { console.error('lista do evento:', x.message); }
+  };
+  setInterval(passo, 60000).unref();
+}
 
 export function registerListaEventoRoutes(r, wrap) {
   const erro = (status, msg) => { const e = new Error(msg); e.status = status; return e; };
@@ -94,13 +144,9 @@ export function registerListaEventoRoutes(r, wrap) {
   r.get('/event-list/export', tratar(async (req, res) => {
     const ev = await eventoDe(req.query.event_id);
     const rows = await linhas(ev.id);
-    const cel = (v) => { const s = String(v ?? ''); return /[;"\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-    const cab = ['Nome', 'Setor', 'Mesa', 'Telefone', 'Valor', 'Pagamento', 'Entrou', 'Observações', 'Observações da portaria'];
-    const linhasCsv = rows.map((x) => [x.name, x.sector, x.table, x.phone || '', x.unit_price === null ? '' : String(x.unit_price).replace('.', ','), x.payment_label,
-      x.entered_at ? 'Sim' : '', x.note, x.door_note].map(cel).join(';'));
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="lista-${ev.id}.csv"`);
-    res.send('﻿' + [cab.join(';'), ...linhasCsv].join('\r\n') + '\r\n');
+    res.send(csvDe(rows));
   }));
 
   r.get('/event-list/log', tratar(async (req, res) => {
@@ -183,5 +229,103 @@ export function registerListaEventoRoutes(r, wrap) {
     await q('UPDATE shows_attendees SET door_note=NULLIF($3,\'\') WHERE sale_id=$1 AND seq=$2', [p.s.id, p.seq, v]);
     await registrar(p.s.event_id, p.s.id, p.seq, p.nome, por, 'comentario', v || '(apagada)');
     res.json({ ok: true });
+  }));
+
+  // ---- envio da lista pelo WhatsApp, quando a casa abre ----
+  const foneValido = (v) => { const n = normPhone(v); return /^\d{12,13}$/.test(n) ? n : null; };
+  // o serviço de WhatsApp recebe o celular com o 9 (como nos avisos que a empresa já envia)
+  const paraEnvio = (n) => (/^55\d{2}[6-9]\d{7}$/.test(n) ? n.slice(0, 4) + '9' + n.slice(4) : n);
+  // Por padrão o envio está ligado e vai para o WhatsApp do administrador (Configurações > Dados do administrador; se faltar, o telefone da empresa); a empresa pode marcar também o telefone da empresa e somar outras pessoas
+  const configEnvio = async () => (await q('SELECT enabled, phones, to_admin, to_company FROM shows_list_settings WHERE id')).rows[0] || { enabled: true, phones: [], to_admin: true, to_company: false };
+  const destinatarios = async (cfg) => {
+    const c = (await qg('SELECT phone, admin_phone FROM companies WHERE id=$1', [currentCompany()])).rows[0] || {};
+    const adm = foneValido(c.admin_phone || ''), emp = foneValido(c.phone || '');
+    const a = adm || emp;   // sem WhatsApp do administrador, vale o telefone da empresa
+    return { adm: a, empresa: emp, todos: [...new Set([cfg.to_admin ? a : null, cfg.to_company ? emp : null, ...cfg.phones].filter(Boolean))] };
+  };
+  const quandoBr = async (d) => {
+    const tz = (await qg('SELECT timezone FROM companies WHERE id=$1', [currentCompany()])).rows[0]?.timezone || 'America/Sao_Paulo';
+    return new Date(d).toLocaleString('pt-BR', { timeZone: tz, dateStyle: 'short', timeStyle: 'short' });
+  };
+
+  async function enviarLista(ev) {
+    const con = await conexaoWhats(currentCompany());
+    if (!con) throw erro(409, 'O envio pelo WhatsApp ainda não foi liberado para esta empresa');
+    const cfg = await configEnvio();
+    const dest = (await destinatarios(cfg)).todos;
+    if (!dest.length) throw erro(409, 'Cadastre o WhatsApp do administrador em Configurações ou inclua quem recebe a lista');
+    const rows = await linhas(ev.id);
+    const entraram = rows.filter((x) => x.entered_at).length, pendentes = rows.filter((x) => ['pending', 'partial'].includes(x.payment)).length;
+    const resumo = `Lista do evento\n*${ev.title}*\n${await quandoBr(ev.starts_at)}\n\n${rows.length} pessoa(s) · ${entraram} já entraram · ${pendentes} com pagamento pendente`;
+    const csv = Buffer.from(csvDe(rows), 'utf8').toString('base64');
+    const linhasTxt = rows.map((x) => `${x.name} — ${x.sector}, ${x.table}${x.payment === 'pending' || x.payment === 'partial' ? ' (pagamento ' + x.payment_label.toLowerCase() + ')' : ''}`);
+    let comPlanilha = true;
+    for (const [i, n] of dest.entries()) {
+      if (i) await pausa(5000);
+      const numero = paraEnvio(n);
+      await postarWhats(con, '/send/text', { number: numero, text: resumo + '\n\nA planilha vai logo abaixo.', readchat: true });
+      await pausa(3000);
+      try {
+        await postarWhats(con, '/send/media', { number: numero, type: 'document', file: csv, docName: `lista-${ev.title}.csv`.replace(/[^\w.\- ]+/g, '').slice(0, 80) || 'lista.csv', readchat: true });
+      } catch (e) {
+        // sem a planilha, manda os nomes em texto (em partes, devagar)
+        comPlanilha = false;
+        let parte = '';
+        const partes = [];
+        for (const l of linhasTxt) { if ((parte + l).length > 3200) { partes.push(parte); parte = ''; } parte += l + '\n'; }
+        if (parte) partes.push(parte);
+        for (const t of partes.slice(0, 8)) { await pausa(3000); await postarWhats(con, '/send/text', { number: numero, text: t, readchat: true }); }
+      }
+    }
+    return { recipients: dest.length, spreadsheet: comPlanilha, people: rows.length };
+  }
+
+  async function rodar() {
+    const cfg = await configEnvio();
+    if (!cfg.enabled || !(await destinatarios(cfg)).todos.length) return;
+    const evs = (await q(
+      `SELECT e.id, e.title, e.starts_at FROM events e
+       WHERE COALESCE(e.doors_at, e.starts_at) <= now() AND e.starts_at + interval '3 hours' > now()
+         AND NOT EXISTS (SELECT 1 FROM shows_list_dispatch d WHERE d.event_id = e.id)
+         AND EXISTS (SELECT 1 FROM shows_sales s WHERE s.event_id = e.id AND s.status = ANY($1))
+       ORDER BY e.starts_at`, [OCUPAM])).rows;
+    for (const ev of evs) {
+      const vez = await q('INSERT INTO shows_list_dispatch (event_id) VALUES ($1) ON CONFLICT DO NOTHING RETURNING event_id', [ev.id]);
+      if (!vez.rowCount) continue;
+      try { const o = await enviarLista(ev); await q('UPDATE shows_list_dispatch SET ok=true, detail=$2 WHERE event_id=$1', [ev.id, o.spreadsheet ? 'planilha enviada' : 'enviado em texto']); }
+      catch (e) { await q('UPDATE shows_list_dispatch SET ok=false, detail=$2 WHERE event_id=$1', [ev.id, String(e.message).slice(0, 300)]); }
+    }
+  }
+  servico = { rodar };
+
+  r.get('/event-list-settings', tratar(async (req, res) => {
+    const cfg = await configEnvio();
+    const prox = (await q(
+      `SELECT e.id, e.title, COALESCE(e.doors_at, e.starts_at) AS envia_em FROM events e
+       WHERE e.starts_at + interval '3 hours' > now() AND NOT EXISTS (SELECT 1 FROM shows_list_dispatch d WHERE d.event_id = e.id)
+       ORDER BY e.starts_at LIMIT 1`)).rows[0] || null;
+    const dest = await destinatarios(cfg);
+    res.json({ enabled: cfg.enabled, phones: cfg.phones, to_admin: cfg.to_admin, to_company: cfg.to_company, admin_phone: dest.adm, company_phone: dest.empresa, recipients: dest.todos.length, connected: !!(await conexaoWhats(currentCompany())), next: prox });
+  }));
+  // Corpo: { enabled: true|false, phones: ['32999999999', ...] } (até 5 pessoas)
+  r.put('/event-list-settings', tratar(async (req, res) => {
+    if ((req.baseUrl || '').includes('n8n')) throw erro(403, 'Só pelo painel');
+    const b = req.body || {};
+    if (typeof b.enabled !== 'boolean') throw erro(400, 'Informe se o envio está ligado');
+    const lista = Array.isArray(b.phones) ? b.phones : [];
+    if (lista.length > 5) throw erro(400, 'No máximo 5 pessoas recebem a lista');
+    const fones = [];
+    for (const v of lista) { if (String(v ?? '').trim() === '') continue; const n = foneValido(v); if (!n) throw erro(400, `Telefone inválido: ${v} (use DDD + número)`); if (!fones.includes(n)) fones.push(n); }
+    const toAdmin = b.to_admin === undefined ? true : b.to_admin === true, toCompany = b.to_company === true;
+    await q(`INSERT INTO shows_list_settings (id, enabled, phones, to_admin, to_company) VALUES (true, $1, $2, $3, $4)
+             ON CONFLICT (id) DO UPDATE SET enabled=$1, phones=$2, to_admin=$3, to_company=$4`, [b.enabled, fones, toAdmin, toCompany]);
+    res.json({ enabled: b.enabled, phones: fones, to_admin: toAdmin, to_company: toCompany });
+  }));
+  // Envia agora (teste ou reenvio): Corpo { event_id }
+  r.post('/event-list/send-now', tratar(async (req, res) => {
+    if ((req.baseUrl || '').includes('n8n')) throw erro(403, 'Só pelo painel');
+    const ev = await eventoDe(req.body?.event_id);
+    try { res.json(await enviarLista(ev)); }
+    catch (e) { if (e.status) throw e; throw erro(502, 'Não foi possível enviar pelo WhatsApp agora. Tente de novo em instantes.'); }
   }));
 }

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
+import ListaDoEvento from './ListaDoEvento.jsx';
 import { useSelecao, CelulaTodos, CelulaLinha, ApagarSelecionados, resumoApagado } from '../selecao.jsx';
 
 const quando = (d) => (d ? new Date(d).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—');
@@ -10,6 +11,7 @@ export default function Eventos() {
   const [rows, setRows] = useState([]);
   const [edit, setEdit] = useState(null);
   const [aviso, setAviso] = useState('');
+  const [lista, setLista] = useState(null);   // evento cuja lista está aberta
   const sel = useSelecao(rows);
   const load = () => api('/events?quando=' + aba).then(setRows).catch((e) => setAviso(e.message));
   useEffect(() => { setAviso(''); load(); }, [aba]);
@@ -17,6 +19,7 @@ export default function Eventos() {
     if (!confirm(`Apagar o evento "${e.title}"?`)) return;
     try { await api('/events/' + e.id, { method: 'DELETE' }); load(); } catch (x) { setAviso(x.message); }
   };
+  if (lista) return <ListaDoEvento eventoId={lista} onVoltar={() => setLista(null)} />;
   return (
     <>
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: 12 }}>
@@ -42,6 +45,7 @@ export default function Eventos() {
                 <td>{e.place || <span className="muted">—</span>}</td>
                 <td>{e.notes || <span className="muted">—</span>}</td>
                 <td className="row">
+                  <button className="btn" onClick={() => setLista(e.id)}>Lista</button>
                   <button className="btn" onClick={() => setEdit({ id: e.id, title: e.title, doors_at: paraInput(e.doors_at), starts_at: paraInput(e.starts_at), ends_at: paraInput(e.ends_at), place: e.place || '', notes: e.notes || '' })}>Editar</button>
                   <button className="btn bad" onClick={() => apagar(e)}>Apagar</button>
                 </td>

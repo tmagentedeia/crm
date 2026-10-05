@@ -12,8 +12,9 @@ const dinheiro = (v) => (v === null || v === undefined ? '—' : Number(v).toLoc
 
 // Lista do evento: uma linha por pessoa. Três níveis de acesso:
 // editor edita, comentarista marca entrada e comenta, leitor só consulta.
-export default function ListaDoEvento() {
+export default function ListaDoEvento({ eventoId = null, onVoltar = null }) {
   const [nivel, setNivel] = useState(null);
+  const [dono, setDono] = useState(false);   // dono da empresa (a equipe não mexe no envio)
   const [eventos, setEventos] = useState([]);
   const [ev, setEv] = useState('');
   const [d, setD] = useState(null);
@@ -29,12 +30,13 @@ export default function ListaDoEvento() {
   useEffect(() => {
     api('/me').then((m) => {
       const t = m.equipe?.telas;
+      setDono(!t);
       setNivel(!t || t.includes('lista_evento_editor') ? 'editor' : t.includes('lista_evento_comentarista') ? 'comentarista' : 'leitor');
     }).catch(() => setNivel('leitor'));
     Promise.all([api('/events?quando=proximos'), api('/events?quando=passados').catch(() => [])]).then(([p, o]) => {
       const l = [...p, ...o.slice(0, 60)];
       setEventos(l);
-      if (l[0]) setEv(String(l[0].id));
+      setEv(eventoId ? String(eventoId) : l[0] ? String(l[0].id) : '');
     }).catch((e) => setErro(e.message));
   }, []);
 
@@ -122,6 +124,24 @@ export default function ListaDoEvento() {
     setNota(null);
   };
 
+  const [envio, setEnvio] = useState(null);   // { enabled, phones, connected, next }
+  const [telefones, setTelefones] = useState('');
+  const [paraAdm, setParaAdm] = useState(true);
+  const [paraEmpresa, setParaEmpresa] = useState(false);
+  const [aviso, setAviso] = useState('');
+  const carregarEnvio = () => api('/event-list-settings').then((x) => { setEnvio(x); setTelefones(x.phones.join('\n')); setParaAdm(x.to_admin); setParaEmpresa(x.to_company); }).catch(() => {});
+  useEffect(() => { if (dono) carregarEnvio(); }, [dono]);
+  const salvarEnvio = async (enabled) => {
+    setAviso(''); setErro('');
+    try {
+      await api('/event-list-settings', { method: 'PUT', body: { enabled, to_admin: paraAdm, to_company: paraEmpresa, phones: telefones.split(/[\n,;]+/).map((x) => x.trim()).filter(Boolean) } });
+      await carregarEnvio(); setAviso(enabled ? 'Envio ligado.' : 'Envio salvo.');
+    } catch (e) { setErro(e.message); }
+  };
+  const enviarAgora = async () => {
+    setAviso(''); setErro('');
+    try { await api('/event-list/send-now', { method: 'POST', body: { event_id: ev } }); setAviso('Lista enviada.'); } catch (e) { setErro(e.message); }
+  };
   const podeMarcar = nivel === 'editor' || nivel === 'comentarista';
   return (
     <>
@@ -138,14 +158,41 @@ export default function ListaDoEvento() {
       {offline && <p className="error">Sem conexão. Mostrando a lista salva neste aparelho às {hora(offline)}. Você pode continuar marcando as entradas: elas sobem sozinhas quando a internet voltar.</p>}
       {fila.length > 0 && <p className="muted">{fila.length} marcação(ões) aguardando para enviar.</p>}
       <div className="row" style={{ marginBottom: 12, gap: 8, flexWrap: 'wrap' }}>
-        <select value={ev} onChange={(e) => setEv(e.target.value)} style={{ minWidth: 220, flex: '1 1 220px' }}>
-          {!eventos.length && <option value="">Nenhum evento</option>}
-          {eventos.map((e) => <option key={e.id} value={e.id}>{e.title} · {new Date(e.starts_at).toLocaleDateString('pt-BR')}</option>)}
-        </select>
+        {onVoltar && <button className="btn" onClick={onVoltar}>← Eventos</button>}
+        {!eventoId && (
+          <select value={ev} onChange={(e) => setEv(e.target.value)} style={{ minWidth: 220, flex: '1 1 220px' }}>
+            {!eventos.length && <option value="">Nenhum evento</option>}
+            {eventos.map((e) => <option key={e.id} value={e.id}>{e.title} · {new Date(e.starts_at).toLocaleDateString('pt-BR')}</option>)}
+          </select>
+        )}
         <input placeholder="Buscar por nome, mesa ou telefone" value={busca} onChange={(e) => setBusca(e.target.value)} style={{ flex: '2 1 220px' }} />
         <button className="btn" onClick={baixar} disabled={!ev}>Baixar planilha</button>
         <button className="btn" onClick={abrirRegistro} disabled={!ev}>Quem mexeu</button>
       </div>
+      {dono && envio && (
+        <details className="card" style={{ padding: 12, marginBottom: 12 }}>
+          <summary style={{ cursor: 'pointer' }}>Enviar a lista pelo WhatsApp {envio.enabled ? <span className="muted">· ligado</span> : null}</summary>
+          {!envio.connected
+            ? <p className="muted" style={{ marginTop: 8 }}>O envio pelo WhatsApp ainda não foi liberado para esta empresa. Peça ao administrador do sistema.</p>
+            : (
+              <div style={{ marginTop: 8 }}>
+                <p className="muted" style={{ fontSize: 13 }}>No horário em que a casa abre (ou no começo do show, se não houver horário de abertura), a lista do evento chega em planilha, uma vez por evento. Escolha quem recebe:</p>
+                <label style={{ display: 'block' }}><input type="checkbox" checked={paraAdm} onChange={(e) => setParaAdm(e.target.checked)} /> WhatsApp do administrador{envio.admin_phone ? ' (' + fmtPhone(envio.admin_phone) + ')' : ' — cadastre em Configurações'}</label>
+                <label style={{ display: 'block' }}><input type="checkbox" checked={paraEmpresa} onChange={(e) => setParaEmpresa(e.target.checked)} /> Telefone da empresa{envio.company_phone ? ' (' + fmtPhone(envio.company_phone) + ')' : ' — cadastre em Configurações'}</label>
+                <label style={{ display: 'block', opacity: 0.6 }}><input type="checkbox" disabled /> E-mail (em breve)</label>
+                <label>Incluir outras pessoas (um telefone por linha, com DDD)</label>
+                <textarea rows="3" value={telefones} onChange={(e) => setTelefones(e.target.value)} placeholder="32 99999-9999" style={{ maxWidth: 320 }} />
+                {envio.next && <p className="muted" style={{ fontSize: 13 }}>Próximo envio: <strong>{envio.next.title}</strong>, {new Date(envio.next.envia_em).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}.</p>}
+                <div className="row" style={{ marginTop: 8 }}>
+                  <button className="btn primary" onClick={() => salvarEnvio(true)}>{envio.enabled ? 'Salvar' : 'Ligar o envio'}</button>
+                  {envio.enabled && <button className="btn" onClick={() => salvarEnvio(false)}>Desligar</button>}
+                  <button className="btn" onClick={enviarAgora} disabled={!ev || !envio.recipients}>Enviar agora a lista deste evento</button>
+                </div>
+                {aviso && <p className="muted" style={{ marginTop: 6 }}>{aviso}</p>}
+              </div>
+            )}
+        </details>
+      )}
       {d && (
         <>
           <div className="row" style={{ gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>

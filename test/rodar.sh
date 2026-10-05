@@ -86,7 +86,7 @@ export REDIS_URL=redis://127.0.0.1:56379
 FAKE_GOTENBERG_PORT=53000 node test/fake_gotenberg.mjs &
 PIDG=$!
 export GOTENBERG_URL=http://127.0.0.1:53000
-PORT=3999 node src/index.js > /tmp/crm-test.log 2>&1 &
+PORT=3999 LISTA_PAUSA_RAPIDA=1 node src/index.js > /tmp/crm-test.log 2>&1 &
 PID=$!
 PORT=3998 ALLOW_GLOBAL_KEY=false node src/index.js > /tmp/crm-test2.log 2>&1 &
 PID2=$!
@@ -112,6 +112,7 @@ BASE=http://localhost:3999 node test/casa_de_shows_mesa_reservada.mjs || R=1
 BASE=http://localhost:3999 node test/casa_de_shows_clube.mjs || R=1
 BASE=http://localhost:3999 node test/parcerias.mjs || R=1
 BASE=http://localhost:3999 node test/lista_evento.mjs || R=1
+BASE=http://localhost:3999 node test/lista_evento_envio.mjs || R=1
 BASE=http://localhost:3999 node test/contratacoes.mjs || R=1
 BASE=http://localhost:3999 node test/indicacoes.mjs || R=1
 BASE=http://localhost:3999 node test/documentos.mjs || R=1

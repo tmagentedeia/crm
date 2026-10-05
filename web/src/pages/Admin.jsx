@@ -62,6 +62,14 @@ export default function Admin() {
       const { [s.id]: _, ...resto } = wh; setWh(resto); setMsg('Endereço do envio de campanhas de ' + s.name + ' atualizado.'); load();
     } catch (e) { setErr(e.message); }
   };
+  const [wa, setWa] = useState({}); // conexão do WhatsApp para avisos, em edição por empresa: { id: { u: endereço, t: chave } }
+  const salvarWa = async (s) => {
+    setErr(''); setMsg('');
+    try {
+      await api(`/admin/companies/${s.id}/whatsapp`, { method: 'PUT', body: { url: wa[s.id].u ?? s.wa_api_url ?? '', token: wa[s.id].t || '' } });
+      const { [s.id]: _, ...resto } = wa; setWa(resto); setMsg('Conexão do WhatsApp de ' + s.name + ' atualizada.'); load();
+    } catch (e) { setErr(e.message); }
+  };
   const load = () => { loadModelos(); return api('/admin/companies').then(setList).catch((e) => setErr(e.message)); };
   useEffect(() => { load(); }, []);
 
@@ -400,6 +408,13 @@ export default function Admin() {
                   <input placeholder="https://…/webhook/campanhas-envio" style={{ width: 300 }} value={wh[s.id] ?? s.campaign_webhook_url ?? ''}
                     onChange={(e) => setWh({ ...wh, [s.id]: e.target.value })} />
                   {s.id in wh && <button className="btn sm primary" onClick={() => salvarWh(s)}>Salvar</button>}
+                </Campo>
+                <Campo rotulo="WhatsApp para avisos do painel (endereço e chave)">
+                  <input placeholder="https://…" style={{ width: 240 }} value={wa[s.id]?.u ?? s.wa_api_url ?? ''}
+                    onChange={(e) => setWa({ ...wa, [s.id]: { u: e.target.value, t: wa[s.id]?.t ?? '' } })} />
+                  <input type="password" autoComplete="new-password" placeholder={s.wa_api_set ? 'chave guardada (deixe em branco para manter)' : 'chave'} style={{ width: 210 }} value={wa[s.id]?.t ?? ''}
+                    onChange={(e) => setWa({ ...wa, [s.id]: { u: wa[s.id]?.u ?? s.wa_api_url ?? '', t: e.target.value } })} />
+                  {s.id in wa && <button className="btn sm primary" onClick={() => salvarWa(s)}>Salvar</button>}
                 </Campo>
                 <Campo rotulo="Chave de integração">
                   {s.api_key_hint

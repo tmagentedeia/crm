@@ -15,6 +15,7 @@ import { listar as listarBloqueios, bloquear, liberar, numeroDoContato, nomeVali
 import { requireUser, requireN8n, requireAdmin, isAdmin, signToken, signImpersonationToken } from './auth.js';
 import { buildRouter } from './routes.js';
 import { startCampaignScheduler } from './campaigns.js';
+import { startListaScheduler } from './lista_evento.js';
 import { birthdayTickAll } from './aniversario.js';
 import { registerDocumentoPublico } from './documentos.js';
 import { registerIndicacoesAdmin, sincronizarTodas, usarCodigo, acharPorCodigo } from './indicacoes.js';
@@ -64,12 +65,14 @@ const comUpgrade = async (c) => (c ? { ...c, upgrade: await upgradeInfo() } : c)
 
 // ---------- Configurações da empresa ----------
 app.get('/api/company', requireUser, async (req, res) => {
-  const { rows } = await qg('SELECT id,name,phone,inactive_days,logo,max_professionals,reminder_minutes,modules,locked_modules,menu_custom,module_labels FROM companies WHERE id=$1', [req.user.companyId]);
+  const { rows } = await qg('SELECT id,name,phone,admin_name,admin_phone,admin_email,inactive_days,logo,max_professionals,reminder_minutes,modules,locked_modules,menu_custom,module_labels FROM companies WHERE id=$1', [req.user.companyId]);
   res.json(await comUpgrade(rows[0]));
 });
 
 app.put('/api/company', requireUser, async (req, res) => {
-  const { name, phone, inactive_days, logo, reminder_minutes, menu_custom } = req.body;
+  const { name, phone, inactive_days, logo, reminder_minutes, menu_custom, admin_name, admin_phone, admin_email } = req.body;
+  if (admin_email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(admin_email).trim())) return res.status(400).json({ error: 'E-mail do administrador inválido' });
+  const adm = (v) => (v === undefined ? null : String(v ?? '').trim());
   const menu = menu_custom === undefined ? undefined : cleanMenuCustom(menu_custom);
   if (menu === null) return res.status(400).json({ error: 'Nome ou ícone do menu inválido (nome até 30 letras, ícone curto)' });
   if (reminder_minutes != null && (!Number.isInteger(Number(reminder_minutes)) || Number(reminder_minutes) < 30 || Number(reminder_minutes) > 4320))
@@ -82,11 +85,14 @@ app.put('/api/company', requireUser, async (req, res) => {
      inactive_days=COALESCE($4,inactive_days),
      logo = CASE WHEN $5::boolean THEN NULLIF($6,'') ELSE logo END,
      reminder_minutes = CASE WHEN $7::boolean THEN $8::int ELSE reminder_minutes END,
-     menu_custom = CASE WHEN $9::boolean THEN $10::jsonb ELSE menu_custom END
-     WHERE id=$1 RETURNING id,name,phone,inactive_days,logo,max_professionals,reminder_minutes,modules,locked_modules,menu_custom,module_labels`,
+     menu_custom = CASE WHEN $9::boolean THEN $10::jsonb ELSE menu_custom END,
+     admin_name = CASE WHEN $11::text IS NULL THEN admin_name ELSE NULLIF($11,'') END,
+     admin_phone = CASE WHEN $12::text IS NULL THEN admin_phone ELSE NULLIF($12,'') END,
+     admin_email = CASE WHEN $13::text IS NULL THEN admin_email ELSE NULLIF($13,'') END
+     WHERE id=$1 RETURNING id,name,phone,admin_name,admin_phone,admin_email,inactive_days,logo,max_professionals,reminder_minutes,modules,locked_modules,menu_custom,module_labels`,
     [req.user.companyId, name, phone, inactive_days, logo !== undefined, logo ?? null,
      reminder_minutes !== undefined, reminder_minutes == null ? null : Number(reminder_minutes),
-     menu !== undefined, JSON.stringify(menu ?? {})]);
+     menu !== undefined, JSON.stringify(menu ?? {}), adm(admin_name), adm(admin_phone), adm(admin_email)]);
   res.json(await comUpgrade(rows[0]));
 });
 
@@ -158,6 +164,24 @@ app.put('/api/admin/companies/:id/campaign-webhook', requireUser, requireAdmin, 
   rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Empresa não encontrada' });
 });
 
+// Administração: conexão do WhatsApp da empresa para avisos enviados pelo painel (endereço do serviço e chave; a chave nunca volta nas respostas)
+app.put('/api/admin/companies/:id/whatsapp', requireUser, requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id <= 0) return res.status(404).json({ error: 'Empresa não encontrada' });
+  const url = String(req.body.url ?? '').trim().replace(/\/+$/, '');
+  const token = String(req.body.token ?? '').trim();
+  if (url) {
+    let ok = url.length <= 300;
+    try { const u = new URL(url); ok = ok && (u.protocol === 'https:' || u.protocol === 'http:'); } catch { ok = false; }
+    if (!ok) return res.status(400).json({ error: 'Endereço inválido (use um endereço completo, começando com https://)' });
+  }
+  if (token.length > 200 || /\s/.test(token)) return res.status(400).json({ error: 'Chave inválida' });
+  // sem endereço = desliga; chave em branco = mantém a atual
+  const { rows } = await qg(
+    `UPDATE companies SET wa_api_url = NULLIF($2,''), wa_api_token = CASE WHEN $2 = '' THEN NULL WHEN $3 <> '' THEN $3 ELSE wa_api_token END WHERE id=$1 RETURNING id, wa_api_url, (wa_api_token IS NOT NULL) AS wa_api_set`, [id, url, token]);
+  rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Empresa não encontrada' });
+});
+
 // ---------- Administração da plataforma (só e-mails em ADMIN_EMAILS) ----------
 app.get('/api/me', requireUser, async (req, res) => {
   const acc = req.user.role === 'staff' && !req.user.imp ? await acessoDe(req.user.id) : null;
@@ -186,7 +210,7 @@ registerIndicacoesAdmin(app, requireUser, requireAdmin);
 registerEquipeRoutes(app, requireUser);
 app.get('/api/admin/companies', requireUser, requireAdmin, async (req, res) => {
   const { rows } = await qg(
-    `SELECT c.id, c.name, c.max_professionals, c.billing_due_day, c.billing_exempt, (SELECT count(*) FROM partner_referrals pr WHERE pr.company_id=c.id)::int AS referrals_total, c.created_at, c.modules, c.locked_modules, c.module_labels, c.whatsapp_instance, c.redis_prefix, c.campaign_webhook_url, c.booking_mode, c.api_key_hint, c.api_key_created_at,
+    `SELECT c.id, c.name, c.max_professionals, c.billing_due_day, c.billing_exempt, (SELECT count(*) FROM partner_referrals pr WHERE pr.company_id=c.id)::int AS referrals_total, c.created_at, c.modules, c.locked_modules, c.module_labels, c.whatsapp_instance, c.redis_prefix, c.campaign_webhook_url, c.wa_api_url, (c.wa_api_token IS NOT NULL) AS wa_api_set, c.booking_mode, c.api_key_hint, c.api_key_created_at,
             (SELECT u.email FROM users u WHERE u.company_id = c.id ORDER BY (u.role = 'owner') DESC, u.id LIMIT 1) AS owner_email
      FROM companies c ORDER BY c.id`);
   // profissionais ativos: contados dentro do schema de cada empresa
@@ -410,6 +434,7 @@ app.get('*', (req, res, next) => {
 
 app.listen(process.env.PORT || 3000, () => console.log('CRM rodando na porta', process.env.PORT || 3000));
 startCampaignScheduler();
+startListaScheduler();
 // aniversariantes: confere de hora em hora (a fila de cada empresa é montada no máximo uma vez por dia)
 setTimeout(birthdayTickAll, 20000).unref();
 setTimeout(sincronizarTodas, 30000).unref();

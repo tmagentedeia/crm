@@ -137,10 +137,15 @@ export default function Config() {
           </div>
           <p className="muted" style={{ marginTop: 8 }}>PNG, JPG, WEBP ou SVG. Aparece no menu lateral.</p>
         </div>
-        <form className="card" onSubmit={(e) => { e.preventDefault(); save({ name: s.name, phone: s.phone, inactive_days: Number(s.inactive_days), reminder_minutes: s.reminder_minutes ? Number(s.reminder_minutes) : null }); }}>
+        <form className="card" onSubmit={(e) => { e.preventDefault(); save({ name: s.name, phone: s.phone, admin_name: s.admin_name || '', admin_phone: s.admin_phone || '', admin_email: s.admin_email || '', inactive_days: Number(s.inactive_days), reminder_minutes: s.reminder_minutes ? Number(s.reminder_minutes) : null }); }}>
           <h2>Dados da empresa</h2>
           <div className="field"><label>Nome</label><input value={s.name || ''} onChange={(e) => setS({ ...s, name: e.target.value })} required /></div>
           <div className="field"><label>Telefone</label><input value={s.phone || ''} onChange={(e) => setS({ ...s, phone: e.target.value })} /></div>
+          <h2 style={{ marginTop: 16 }}>Dados do administrador</h2>
+          <p className="muted">Quem responde pela empresa. O WhatsApp daqui recebe avisos do painel (como a lista do evento) e é o número com o qual a assistente pessoal conversa.</p>
+          <div className="field"><label>Nome do administrador</label><input value={s.admin_name || ''} onChange={(e) => setS({ ...s, admin_name: e.target.value })} /></div>
+          <div className="field"><label>WhatsApp do administrador</label><input value={s.admin_phone || ''} onChange={(e) => setS({ ...s, admin_phone: e.target.value })} placeholder="(32) 99999-9999" /></div>
+          <div className="field"><label>E-mail do administrador</label><input type="email" value={s.admin_email || ''} onChange={(e) => setS({ ...s, admin_email: e.target.value })} /></div>
           <div className="field">
             <label>Considerar cliente inativo após (dias)</label>
             <input type="number" min="1" value={s.inactive_days} onChange={(e) => setS({ ...s, inactive_days: e.target.value })} />

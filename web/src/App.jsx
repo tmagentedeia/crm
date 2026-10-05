@@ -121,7 +121,9 @@ export default function App() {
   const bloqueada = (m) => !!m.module && !moduleOn(company.modules, m.module) && company.locked_modules?.[m.module] === true;
   const NIVEIS_LISTA = ['lista_evento', 'lista_evento_comentarista', 'lista_evento_editor'];
   const liberada = (m) => !equipe || (!m.soDono && (equipe.telas.includes(m.id) || (m.id === 'lista_evento' && equipe.telas.some((t) => NIVEIS_LISTA.includes(t)))));
-  const visible = BASE_MENU.filter(liberada).filter((m) => !m.module || moduleOn(company.modules, m.module) || bloqueada(m))
+  // a lista do evento fica dentro de Eventos; só aparece no menu para quem não tem acesso a Eventos (ex.: a portaria)
+  const listaDentroDeEventos = (m) => m.id === 'lista_evento' && moduleOn(company.modules, 'eventos') && (!equipe || equipe.telas.includes('eventos'));
+  const visible = BASE_MENU.filter(liberada).filter((m) => !listaDentroDeEventos(m)).filter((m) => !m.module || moduleOn(company.modules, m.module) || bloqueada(m))
     .map((m) => ({ ...personalizado(m), locked: bloqueada(m) }));
   const MENU = admin ? [...visible, ADMIN_ITEM] : visible;
   // Sem nenhum módulo ligado, o administrador começa direto na Administração
