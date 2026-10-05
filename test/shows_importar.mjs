@@ -32,6 +32,27 @@ const regras = (await api('POST', '/casa-de-shows/import', { sectors: [{ Setor: 
 const sa = (await api('GET', '/casa-de-shows/sectors')).body.find((x) => x.name === 'ZZI A');
 check('mesas aceitas gravadas com máximo', regras.sectors.updated === 1 && JSON.stringify((sa.tables || []).map((x) => x.max_tables).sort()) === JSON.stringify([null, 4].sort()) || (sa.tables || []).length === 2, JSON.stringify(sa.tables));
 check('mesa aceita desconhecida vira aviso de erro', regras.errors.length === 1 && /inexistente/.test(regras.errors[0]), JSON.stringify(regras.errors));
+// ficha do setor: visão, som, características, grupo ideal, última opção
+const ficha = (await api('POST', '/casa-de-shows/import', { sectors: [
+  { Setor: 'ZZI A', Capacidade: 24, 'Visão': '8,5', Som: '7 e 8', 'Características': 'longe das janelas', 'Grupo ideal de': 1, 'Grupo ideal até': 2 },
+  { Setor: 'ZZI B', Capacidade: 24, 'Só se não houver outro': 'sim' },
+  { Setor: 'ZZI D', Capacidade: 8, 'Visão': 11 }], dry_run: false })).body;
+const fa = (await api('GET', '/casa-de-shows/sectors')).body.filter((x) => x.name.startsWith('ZZI'));
+const a1 = fa.find((x) => x.name === 'ZZI A'), b1 = fa.find((x) => x.name === 'ZZI B');
+check('ficha do setor importada', a1.view_score === 8.5 && a1.sound === '7 e 8' && a1.traits === 'longe das janelas' && a1.ideal_min === 1 && a1.ideal_max === 2 && b1.last_resort === true, JSON.stringify(a1));
+check('nota de visão fora de 0 a 10 é recusada', ficha.errors.length === 1 && /ZZI D/.test(ficha.errors[0]), JSON.stringify(ficha.errors));
+const pu = await api('PUT', '/casa-de-shows/sectors/' + a1.id, { ideal_min: 5, ideal_max: 2 });
+check('grupo ideal com mínimo maior que o máximo é recusado', pu.status === 400, JSON.stringify(pu.body));
+const pu2 = await api('PUT', '/casa-de-shows/sectors/' + a1.id, { view_score: 12 });
+check('nota 12 recusada pelo painel', pu2.status === 400);
+const pu3 = await api('PUT', '/casa-de-shows/sectors/' + a1.id, { sound: '9 e 10', last_resort: true });
+check('editar a ficha pelo painel', pu3.status === 200 && pu3.body.sound === '9 e 10' && pu3.body.last_resort === true && pu3.body.view_score === 8.5, JSON.stringify(pu3.body));
+await api('PUT', '/casa-de-shows/sectors/' + a1.id, { last_resort: false });
+// ordem sugerida: ideal primeiro, "só se não houver outro" por último
+const dia = new Date(Date.now() + 86400000 * 40).toISOString().slice(0, 10);
+const disp = (await api('GET', `/casa-de-shows/availability?date=${dia}&people=2`)).body;
+const sug = disp.suggested_sectors || [];
+check('ordem sugerida: ideal antes do resto e última opção no fim', sug.indexOf('ZZI A') !== -1 && sug.indexOf('ZZI A') < sug.indexOf('ZZI B') && sug.indexOf('ZZI B') === sug.length - 1, JSON.stringify(sug));
 limpa();
 console.log(`shows_importar: ${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);

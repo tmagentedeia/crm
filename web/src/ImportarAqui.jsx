@@ -27,8 +27,8 @@ const TIPOS = {
     ],
   },
   shows_sectors: {
-    nome: 'setores', arquivo: 'modelo-setores.xlsx', chave: 'sectors', aviso: 'Informe a capacidade em pessoas, ou então quantas mesas e quantos lugares por mesa (a capacidade sai da conta). Em Mesas aceitas, escreva as mesas separadas por ponto e vírgula, com o máximo depois de dois-pontos (Mesa de 2:4). Vazio = aceita todas.',
-    exemplo: [{ Setor: 'Setor 1', Capacidade: 24, 'Mesas aceitas': '', Observações: '' }, { Setor: 'Setor 2', Mesas: 6, 'Lugares por mesa': 4, 'Mesas aceitas': 'Mesa de 4:6', Observações: 'Perto do palco' }],
+    nome: 'setores', arquivo: 'modelo-setores.xlsx', chave: 'sectors', aviso: 'Informe a capacidade em pessoas, ou então quantas mesas e quantos lugares por mesa (a capacidade sai da conta). Em Mesas aceitas, escreva as mesas separadas por ponto e vírgula, com o máximo depois de dois-pontos (Mesa de 2:4). Vazio = aceita todas. Visão (nota de 0 a 10), Som, Características, Grupo ideal de/até e Só se não houver outro (sim) são opcionais.',
+    exemplo: [{ Setor: 'Setor 1', Capacidade: 24, 'Mesas aceitas': '', Visão: 8, Som: '7 e 8', Características: 'Leve elevação, longe das janelas', 'Grupo ideal de': 5, 'Grupo ideal até': '', 'Só se não houver outro': '', Observações: '' }, { Setor: 'Setor 2', Mesas: 6, 'Lugares por mesa': 4, 'Mesas aceitas': 'Mesa de 4:6', Visão: 9, Som: 8, Características: 'Bom pra conversar', 'Grupo ideal de': 1, 'Grupo ideal até': 2, 'Só se não houver outro': '', Observações: 'Perto do palco' }],
   },
   shows_tables: {
     nome: 'mesas', arquivo: 'modelo-mesas.xlsx', chave: 'tables', aviso: 'Cada lugar ocupa um ponto do setor. A coluna Pontos é opcional: vazia, vale o número de lugares.',

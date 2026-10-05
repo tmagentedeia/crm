@@ -981,12 +981,12 @@ function Setores() {
   const abrir = (s) => {
     setErr('');
     const regras = Object.fromEntries((s?.tables || []).map((g) => [String(g.table_type_id), g.max_tables ? String(g.max_tables) : '']));
-    setEdit({ id: s?.id, venue_id: String(s?.venue_id || filtroLocal || locais[0]?.id || ''), name: s?.name || '', space: s ? String(s.space).replace('.', ',') : '', notes: s?.notes || '', active: s ? s.active : true, restringe: !!s?.tables?.length, regras });
+    setEdit({ id: s?.id, venue_id: String(s?.venue_id || filtroLocal || locais[0]?.id || ''), name: s?.name || '', space: s ? String(s.space).replace('.', ',') : '', notes: s?.notes || '', view_score: s?.view_score != null ? String(s.view_score).replace('.', ',') : '', sound: s?.sound || '', traits: s?.traits || '', ideal_min: s?.ideal_min != null ? String(s.ideal_min) : '', ideal_max: s?.ideal_max != null ? String(s.ideal_max) : '', last_resort: !!s?.last_resort, active: s ? s.active : true, restringe: !!s?.tables?.length, regras });
   };
   async function salvar(e) {
     e.preventDefault(); setErr('');
     const tables = edit.restringe ? Object.entries(edit.regras).filter(([, v]) => v !== undefined && v !== null).map(([id, v]) => ({ table_type_id: id, max_tables: v === '' ? null : Number(v) })) : [];
-    const body = { name: edit.name, space: edit.space, notes: edit.notes, active: edit.active, tables, ...(edit.id ? {} : { venue_id: edit.venue_id }) };
+    const body = { name: edit.name, space: edit.space, notes: edit.notes, view_score: edit.view_score, sound: edit.sound, traits: edit.traits, ideal_min: edit.ideal_min, ideal_max: edit.ideal_max, last_resort: edit.last_resort, active: edit.active, tables, ...(edit.id ? {} : { venue_id: edit.venue_id }) };
     try {
       if (edit.id) await api('/casa-de-shows/sectors/' + edit.id, { method: 'PUT', body });
       else await api('/casa-de-shows/sectors', { method: 'POST', body });
@@ -1019,18 +1019,18 @@ function Setores() {
       )}
       <div className="card table-wrap">
         <table>
-          <thead><tr><th>Setor</th>{locais.length > 1 && <th>Local</th>}<th>Capacidade</th><th>Mesas aceitas</th><th>Observações</th><th>Situação</th><th></th></tr></thead>
+          <thead><tr><th>Setor</th>{locais.length > 1 && <th>Local</th>}<th>Capacidade</th><th>Mesas aceitas</th><th>Visão</th><th>Som</th><th>Observações</th><th>Situação</th><th></th></tr></thead>
           <tbody>
             {visiveis.map((s) => (
               <tr key={s.id}>
-                <td>{s.name}</td>{locais.length > 1 && <td>{s.venue_name}</td>}<td>{n1(s.space)}</td><td>{nomeMesas(s)}</td><td className="muted">{s.notes || '—'}</td><td>{s.active ? 'Ativo' : 'Desativado'}</td>
+                <td>{s.name}</td>{locais.length > 1 && <td>{s.venue_name}</td>}<td>{n1(s.space)}</td><td>{nomeMesas(s)}</td><td>{s.view_score != null ? n1(s.view_score) : '—'}</td><td>{s.sound || '—'}</td><td className="muted">{s.notes || '—'}</td><td>{s.active ? 'Ativo' : 'Desativado'}</td>
                 <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                   <button className="btn sm" onClick={() => abrir(s)}>Editar</button>{' '}
                   <button className="btn sm" onClick={() => apagar(s)}>Apagar</button>
                 </td>
               </tr>
             ))}
-            {!visiveis.length && <tr><td colSpan="7" className="muted">Nenhum setor cadastrado.</td></tr>}
+            {!visiveis.length && <tr><td colSpan="9" className="muted">Nenhum setor cadastrado.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -1045,7 +1045,20 @@ function Setores() {
             )}
             <div className="field"><label>Nome *</label><input value={edit.name} maxLength={60} onChange={(e) => setEdit({ ...edit, name: e.target.value })} required /></div>
             <div className="field"><label>Capacidade (pontos) *</label><input value={edit.space} onChange={(e) => setEdit({ ...edit, space: e.target.value })} required /></div>
-            <div className="field"><label>Observações (visão, som, perto do bar…)</label><input value={edit.notes} maxLength={300} onChange={(e) => setEdit({ ...edit, notes: e.target.value })} /></div>
+            <div className="row" style={{ gap: 8 }}>
+              <div className="field" style={{ flex: 1 }}><label>Visão do palco (0 a 10)</label><input value={edit.view_score} inputMode="decimal" onChange={(e) => setEdit({ ...edit, view_score: e.target.value })} /></div>
+              <div className="field" style={{ flex: 1 }}><label>Som (volume)</label><input value={edit.sound} maxLength={40} placeholder="ex.: 7 e 8" onChange={(e) => setEdit({ ...edit, sound: e.target.value })} /></div>
+            </div>
+            <div className="field"><label>Características</label><input value={edit.traits} maxLength={200} placeholder="ex.: leve elevação, longe das janelas, bom pra conversar" onChange={(e) => setEdit({ ...edit, traits: e.target.value })} /></div>
+            <div className="field"><label>Grupo ideal para este setor</label>
+              <div className="row" style={{ gap: 8 }}>
+                <span className="muted">de</span><input type="number" min="1" style={{ maxWidth: 90 }} value={edit.ideal_min} onChange={(e) => setEdit({ ...edit, ideal_min: e.target.value })} />
+                <span className="muted">até</span><input type="number" min="1" style={{ maxWidth: 90 }} value={edit.ideal_max} onChange={(e) => setEdit({ ...edit, ideal_max: e.target.value })} />
+                <span className="muted">pessoas</span>
+              </div>
+            </div>
+            <label className="row" style={{ gap: 8, marginBottom: 8 }}><input type="checkbox" checked={edit.last_resort} onChange={(e) => setEdit({ ...edit, last_resort: e.target.checked })} /> Só oferecer se não houver outro setor</label>
+            <div className="field"><label>Observações</label><input value={edit.notes} maxLength={300} onChange={(e) => setEdit({ ...edit, notes: e.target.value })} /></div>
             {edit.id ? <FotosDoSetor setorId={edit.id} /> : <p className="muted">Salve o setor para poder adicionar fotos.</p>}
             <label className="row" style={{ gap: 8 }}><input type="checkbox" checked={edit.restringe} onChange={(e) => setEdit({ ...edit, restringe: e.target.checked })} /> Este setor só aceita algumas mesas</label>
             {edit.restringe && (

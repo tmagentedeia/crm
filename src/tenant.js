@@ -9,7 +9,7 @@ import { PRODUTOS_SQL } from './produtos.js';
 import { VENDAS_SQL } from './vendas.js';
 import { COMISSOES_SQL } from './comissoes.js';
 import { SHOWS_LISTA_SQL, SHOWS_LISTA_ENVIO_SQL } from './lista_evento.js';
-import { CASA_DE_SHOWS_SQL, SHOWS_MEDIA_SQL, SHOWS_PAGAMENTOS_SQL, SHOWS_RENOMEAR_SQL, SHOWS_LOCAIS_SQL, SHOWS_LOCAL_PADRAO_SQL, SHOWS_PIX_EVENTO_SQL, SHOWS_LOTES_SQL, SHOWS_VENDAS_SQL, SHOWS_MESA_RESERVADA_SQL, SHOWS_CLUBE_SQL } from './casa_de_shows.js';
+import { CASA_DE_SHOWS_SQL, SHOWS_MEDIA_SQL, SHOWS_PAGAMENTOS_SQL, SHOWS_RENOMEAR_SQL, SHOWS_LOCAIS_SQL, SHOWS_LOCAL_PADRAO_SQL, SHOWS_PIX_EVENTO_SQL, SHOWS_LOTES_SQL, SHOWS_VENDAS_SQL, SHOWS_MESA_RESERVADA_SQL, SHOWS_CLUBE_SQL, SHOWS_FICHA_SETOR_SQL } from './casa_de_shows.js';
 import { ANIVERSARIO_SQL } from './aniversario.js';
 import { DOCUMENTOS_SQL } from './documentos.js';
 import { DELIVERY_SQL } from './delivery.js';
@@ -189,6 +189,8 @@ export const TENANT_STEPS = [
   { version: 41, sql: EVENTOS_ABERTURA_SQL },
   // 42: envio da lista do evento pelo WhatsApp
   { version: 42, sql: SHOWS_LISTA_ENVIO_SQL },
+  // 43: ficha do setor (visão, som, características, grupo ideal)
+  { version: 43, sql: SHOWS_FICHA_SETOR_SQL },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 
@@ -232,6 +234,7 @@ export async function createCompanySchema(cx, companyId) {
   await cx.query(SHOWS_CLUBE_SQL);
   await cx.query(EVENTOS_ABERTURA_SQL);
   await cx.query(SHOWS_LISTA_ENVIO_SQL);
+  await cx.query(SHOWS_FICHA_SETOR_SQL);
   await cx.query('SET LOCAL search_path TO public');
   await cx.query('INSERT INTO tenant_versions (company_id, version) VALUES ($1, 1)', [companyId]);
 }

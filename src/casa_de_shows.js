@@ -282,7 +282,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
   const quem = (req) => (req.baseUrl || '').includes('n8n') ? 'ia' : 'manual';
 
   // ---------- setores ----------
-  const SETOR = `SELECT id, venue_id, (SELECT v.name FROM shows_venues v WHERE v.id = shows_sectors.venue_id) AS venue_name, name, space::float AS space, notes, position, active,
+  const SETOR = `SELECT id, venue_id, (SELECT v.name FROM shows_venues v WHERE v.id = shows_sectors.venue_id) AS venue_name, name, space::float AS space, notes, view_score::float AS view_score, sound, traits, ideal_min, ideal_max, last_resort, position, active,
     COALESCE((SELECT json_agg(json_build_object('table_type_id', st.table_type_id::text, 'max_tables', st.max_tables) ORDER BY st.table_type_id)
               FROM shows_sector_tables st WHERE st.sector_id = shows_sectors.id), '[]'::json) AS tables
     FROM shows_sectors`;
@@ -372,6 +372,11 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     const o = {};
     if (!parcial || b.name !== undefined) { o.name = txt(b.name, 60); if (!o.name) return { erro: 'Informe o nome do setor (até 60 letras)' }; }
     if (!parcial || b.space !== undefined) { o.space = espaco(b.space, 0); if (o.space === null) return { erro: 'Informe o espaço do setor (número, 0 ou mais)' }; }
+    if (b.view_score !== undefined) { if (b.view_score === null || b.view_score === '') o.view_score = null; else { const v = Number(String(b.view_score).replace(',', '.')); if (!Number.isFinite(v) || v < 0 || v > 10) return { erro: 'A nota de visão vai de 0 a 10' }; o.view_score = Math.round(v * 10) / 10; } }
+    if (b.sound !== undefined) { o.sound = txt(b.sound, 40) || null; }
+    if (b.traits !== undefined) { o.traits = txt(b.traits, 200) || null; }
+    for (const k of ['ideal_min', 'ideal_max']) if (b[k] !== undefined) { if (b[k] === null || b[k] === '') o[k] = null; else { o[k] = inteiro(b[k], 1, 1000); if (o[k] === null) return { erro: 'Grupo ideal: use números de 1 a 1000' }; } }
+    if (b.last_resort !== undefined) { if (typeof b.last_resort !== 'boolean') return { erro: 'Valor inválido em "só se não houver outro"' }; o.last_resort = b.last_resort; }
     if (b.notes !== undefined) { o.notes = txt(b.notes, 300); if (o.notes === null) return { erro: 'Observação inválida (até 300 letras)' }; }
     if (b.position !== undefined) { o.position = inteiro(b.position, 0, 9999); if (o.position === null) return { erro: 'Posição inválida' }; }
     if (b.active !== undefined) { if (typeof b.active !== 'boolean') return { erro: 'Ativo inválido' }; o.active = b.active; }
@@ -406,7 +411,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     if (lv.erro) return res.status(400).json({ error: lv.erro });
     try {
       const pos = o.position ?? (await q('SELECT COALESCE(MAX(position), 0) + 1 AS p FROM shows_sectors WHERE venue_id=$1', [lv.venue_id])).rows[0].p;
-      const id = (await q('INSERT INTO shows_sectors (venue_id, name, space, notes, position) VALUES ($5,$1,$2,NULLIF($3,\'\'),$4) RETURNING id', [o.name, o.space, o.notes || '', pos, lv.venue_id])).rows[0].id;
+      const id = (await q('INSERT INTO shows_sectors (venue_id, name, space, notes, position, view_score, sound, traits, ideal_min, ideal_max, last_resort) VALUES ($5,$1,$2,NULLIF($3,\'\'),$4,$6,$7,$8,$9,$10,$11) RETURNING id', [o.name, o.space, o.notes || '', pos, lv.venue_id, o.view_score ?? null, o.sound ?? null, o.traits ?? null, o.ideal_min ?? null, o.ideal_max ?? null, !!o.last_resort])).rows[0].id;
       await salvarRegras(id, rg.regras);
       res.status(201).json((await q(`${SETOR} WHERE id=$1`, [id])).rows[0]);
     } catch (e) {
@@ -423,7 +428,8 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     if (!atual) return res.status(404).json({ error: 'Setor não encontrado' });
     const n = { ...atual, ...o };
     try {
-      await q('UPDATE shows_sectors SET name=$2, space=$3, notes=NULLIF($4,\'\'), position=$5, active=$6 WHERE id=$1', [req.params.id, n.name, n.space, n.notes || '', n.position, n.active]);
+      if (n.ideal_min != null && n.ideal_max != null && n.ideal_min > n.ideal_max) return res.status(400).json({ error: 'Grupo ideal: o mínimo não pode passar do máximo' });
+      await q('UPDATE shows_sectors SET name=$2, space=$3, notes=NULLIF($4,\'\'), position=$5, active=$6, view_score=$7, sound=$8, traits=$9, ideal_min=$10, ideal_max=$11, last_resort=$12 WHERE id=$1', [req.params.id, n.name, n.space, n.notes || '', n.position, n.active, n.view_score ?? null, n.sound ?? null, n.traits ?? null, n.ideal_min ?? null, n.ideal_max ?? null, !!n.last_resort]);
     } catch (e) {
       if (e.code === '23505') return res.status(409).json({ error: 'Já existe um setor com esse nome neste local' });
       throw e;
@@ -525,6 +531,14 @@ export function registerCasaDeShowsRoutes(r, wrap) {
           }
           const capacidade = cap === '' ? null : espaco(cap, 0.01);
           const obs = txt(pega(row, 'observacoes', 'obs', 'notas'), 400) ?? '';
+          const visaoBruta = pega(row, 'visao', 'nota de visao', 'nota visao');
+          const visao = visaoBruta === '' ? undefined : Number(String(visaoBruta).replace(',', '.'));
+          if (visao !== undefined && (!Number.isFinite(visao) || visao < 0 || visao > 10)) { rep.errors.push(`${linha}: a nota de visão vai de 0 a 10`); continue; }
+          const som = txt(pega(row, 'som', 'volume do som'), 40) || undefined;
+          const carac = txt(pega(row, 'caracteristicas', 'ambiente'), 200) || undefined;
+          const gi = inteiro(pega(row, 'grupo ideal de', 'ideal de', 'grupo de'), 1, 1000), gf = inteiro(pega(row, 'grupo ideal ate', 'ideal ate', 'grupo ate'), 1, 1000);
+          if (gi !== null && gf !== null && gi > gf) { rep.errors.push(`${linha}: grupo ideal, o mínimo não pode passar do máximo`); continue; }
+          const ultima = ['sim', 's', 'x', '1', 'true'].includes(norma(pega(row, 'so se nao houver outro', 'ultima opcao')));
           if (capacidade === null) { rep.errors.push(`${linha}: informe a capacidade (ou mesas e lugares por mesa)`); continue; }
           // mesas aceitas: "Mesa de 2:4; Mesa de 4" (o número depois dos dois-pontos é o máximo de mesas daquele tipo); vazio = aceita todas
           const tipos = new Map((await t('SELECT id, name FROM shows_table_types')).rows.map((x) => [norma(x.name), x.id]));
@@ -533,16 +547,17 @@ export function registerCasaDeShowsRoutes(r, wrap) {
             const [nm, mx] = parte.split(':').map((x) => x.trim());
             const tid = tipos.get(norma(nm));
             const max = mx === undefined || mx === '' ? null : inteiro(mx, 1, 100);
-            if (!tid || (mx !== undefined && mx !== '' && max === null) || regras.some((r) => r[0] === tid)) { rep.errors.push(`${linha}: mesa aceita "${parte}" não entendida (use o nome de uma mesa cadastrada, com :máximo se quiser)`); regraRuim = true; break; }
+            if (!tid) { rep.errors.push(`${linha}: a mesa "${nm}" ainda não está cadastrada. Importe primeiro a planilha de mesas (ou confira se o nome está igual).`); regraRuim = true; break; }
+            if ((mx !== undefined && mx !== '' && max === null) || regras.some((r) => r[0] === tid)) { rep.errors.push(`${linha}: mesa aceita "${parte}" não entendida (use o nome da mesa, com :máximo se quiser, sem repetir a mesma mesa)`); regraRuim = true; break; }
             regras.push([tid, max]);
           }
           if (regraRuim) continue;
           const ex = (await t('SELECT id FROM shows_sectors WHERE venue_id=$1 AND lower(name) = lower($2)', [local.id, nome])).rows[0];
           let sid;
-          if (ex) { sid = ex.id; await t(`UPDATE shows_sectors SET space=$2, notes=COALESCE(NULLIF($3,''), notes), active=true WHERE id=$1`, [ex.id, capacidade, obs]); rep.sectors.updated++; }
+          if (ex) { sid = ex.id; await t(`UPDATE shows_sectors SET space=$2, notes=COALESCE(NULLIF($3,''), notes), active=true, view_score=COALESCE($4, view_score), sound=COALESCE($5, sound), traits=COALESCE($6, traits), ideal_min=COALESCE($7, ideal_min), ideal_max=COALESCE($8, ideal_max), last_resort=(last_resort OR $9) WHERE id=$1`, [ex.id, capacidade, obs, visao ?? null, som ?? null, carac ?? null, gi, gf, ultima]); rep.sectors.updated++; }
           else {
             const pos = (await t('SELECT COALESCE(MAX(position), 0) + 1 AS p FROM shows_sectors WHERE venue_id=$1', [local.id])).rows[0].p;
-            sid = (await t(`INSERT INTO shows_sectors (venue_id, name, space, notes, position) VALUES ($1,$2,$3,NULLIF($4,''),$5) RETURNING id`, [local.id, nome, capacidade, obs, pos])).rows[0].id;
+            sid = (await t(`INSERT INTO shows_sectors (venue_id, name, space, notes, position, view_score, sound, traits, ideal_min, ideal_max, last_resort) VALUES ($1,$2,$3,NULLIF($4,''),$5,$6,$7,$8,$9,$10,$11) RETURNING id`, [local.id, nome, capacidade, obs, pos, visao ?? null, som ?? null, carac ?? null, gi, gf, ultima])).rows[0].id;
             rep.sectors.created++;
           }
           if (regras.length) {
@@ -671,7 +686,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
       });
       const cabe = (t) => { const porEspaco = Math.floor((livre + 1e-9) / t.space); return t.left === undefined ? porEspaco : Math.min(porEspaco, t.left); };
       const out = {
-        sector_id: s.id, name: s.name, notes: s.notes, base_space: baseDoFormato, space: total, custom_space: !!o, extra_space: espacoExtra, extra_tables: meusExtras.reduce((a, x) => a + x.qtd, 0),
+        sector_id: s.id, name: s.name, notes: s.notes, view_score: s.view_score ?? null, sound: s.sound ?? null, traits: s.traits ?? null, ideal_min: s.ideal_min ?? null, ideal_max: s.ideal_max ?? null, last_resort: !!s.last_resort, base_space: baseDoFormato, space: total, custom_space: !!o, extra_space: espacoExtra, extra_tables: meusExtras.reduce((a, x) => a + x.qtd, 0),
         used: usado, free: livre, sales: u.sales, people: u.people, seats_reserved: u.seats,
         max_table_seats: permitidos.reduce((m, t) => Math.max(m, t.seats), 0),
         // quantas mesas de cada tipo ainda cabem se só esse tipo fosse usado (respeitando as regras do setor)
@@ -704,7 +719,12 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     res.json({
       event: oc.event ? { id: oc.event.id, title: oc.event.title, starts_at: oc.event.starts_at } : null,
       date: oc.date, venue: cfg.venue, layout: cfg.layout, people, sectors,
-      ...(people ? { sectors_with_room: sectors.filter((s) => s.can_fit).map((s) => s.name) } : {}),
+      ...(people ? {
+        sectors_with_room: sectors.filter((s) => s.can_fit).map((s) => s.name),
+        // ordem para oferecer: primeiro os setores ideais para esse tamanho de grupo, depois os demais, e por último os "só se não houver outro"
+        suggested_sectors: sectors.filter((s) => s.can_fit).map((s, i) => ({ s, i, rank: s.last_resort ? 2 : ((s.ideal_min != null || s.ideal_max != null) && (s.ideal_min == null || people >= s.ideal_min) && (s.ideal_max == null || people <= s.ideal_max)) ? 0 : 1 }))
+          .sort((a, b) => a.rank - b.rank || a.i - b.i).map((x) => x.s.name),
+      } : {}),
     });
   }));
 
@@ -2019,3 +2039,13 @@ export const SHOWS_CLUBE_SQL = `
     companions INT NOT NULL DEFAULT 1 CHECK (companions BETWEEN 0 AND 20)
   );
   ALTER TABLE shows_sales ADD COLUMN IF NOT EXISTS club_discount NUMERIC(10,2) NOT NULL DEFAULT 0;`;
+
+// Ficha de cada setor: visão, som, características, grupo ideal e "só se não houver outro" (o atendente usa para sugerir o setor)
+export const SHOWS_FICHA_SETOR_SQL = `
+  ALTER TABLE shows_sectors ADD COLUMN IF NOT EXISTS view_score NUMERIC(3,1) CHECK (view_score BETWEEN 0 AND 10);   -- nota de visão do palco
+  ALTER TABLE shows_sectors ADD COLUMN IF NOT EXISTS sound TEXT;          -- volume do som, texto livre (ex.: "7 e 8")
+  ALTER TABLE shows_sectors ADD COLUMN IF NOT EXISTS traits TEXT;         -- características (ex.: "longe das janelas, bom pra conversar")
+  ALTER TABLE shows_sectors ADD COLUMN IF NOT EXISTS ideal_min INT;       -- grupo ideal para este setor (de quantas pessoas)
+  ALTER TABLE shows_sectors ADD COLUMN IF NOT EXISTS ideal_max INT;       -- (até quantas)
+  ALTER TABLE shows_sectors ADD COLUMN IF NOT EXISTS last_resort BOOLEAN NOT NULL DEFAULT false;   -- só oferecer se não houver outro
+`;
