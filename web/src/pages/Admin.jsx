@@ -380,7 +380,7 @@ export default function Admin() {
           <div key={s.id} className="card" style={{ marginBottom: 12 }}>
             <div style={{ display: 'flex', gap: 22, flexWrap: 'wrap', alignItems: 'flex-end' }}>
               <Campo rotulo=" ">
-                <button className="btn sm" title={abertas[s.id] ? 'Recolher' : 'Expandir'} onClick={() => setAbertas({ ...abertas, [s.id]: !abertas[s.id] })}>{abertas[s.id] ? '▾' : '▸'}</button>
+                <button className="btn sm seta-ouro" title={abertas[s.id] ? 'Recolher' : 'Expandir'} onClick={() => setAbertas({ ...abertas, [s.id]: !abertas[s.id] })}>{abertas[s.id] ? '▾' : '▸'}</button>
               </Campo>
               <Campo rotulo="Código"><strong>{s.id}</strong></Campo>
               <Campo rotulo="Empresa"><strong style={{ cursor: 'pointer', color: '#d4a017', fontSize: 16 }} onClick={() => setAbertas({ ...abertas, [s.id]: !abertas[s.id] })}>{s.name}</strong></Campo>

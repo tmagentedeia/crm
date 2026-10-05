@@ -67,6 +67,7 @@ a.nav-item { text-decoration: none; }
 .grid { display: grid; gap: 16px; }
 .grid.cols-4 { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
 .grid.cols-2 { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+.grid.cols-3 { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
 .stat .v { font-size: 26px; font-weight: 700; margin-top: 4px; }
 
 .btn { color: var(--text); text-decoration: none; display: inline-block; border: 1px solid var(--line); background: var(--card); padding: 8px 14px; border-radius: 9px; cursor: pointer; }
@@ -142,3 +143,6 @@ tr.click { cursor: pointer; } tr.click:hover td { background: var(--bg); }
 .tema-sel:hover { color: var(--text); }
 .tema-sel select { width: auto; border: 0; background: transparent; color: var(--text); padding: 8px 4px; font-size: 14px; outline: none; cursor: pointer; }
 :root[data-mode='dark'] .tema-sel select { background: transparent; }
+
+.seta-ouro { color: #d4a017; font-weight: 700; }
+.seta-ouro:hover { color: #b8860b; }

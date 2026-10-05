@@ -125,9 +125,8 @@ export default function Config() {
       {msg && <div className="card" style={{ marginBottom: 12, color: 'var(--ok)' }}>{msg}</div>}
       {err && <div className="error">{err}</div>}
       <form onSubmit={(e) => { e.preventDefault(); save({ name: s.name, phone: s.phone, admin_name: s.admin_name || '', admin_phone: s.admin_phone || '', admin_email: s.admin_email || '', inactive_days: Number(s.inactive_days), reminder_minutes: s.reminder_minutes ? Number(s.reminder_minutes) : null }); }}>
-        <div className="grid cols-2" style={{ alignItems: 'start' }}>
-          <div>
-            <div className="card" style={{ marginBottom: 16 }}>
+        <div className="grid cols-3" style={{ alignItems: 'start' }}>
+          <div className="card">
               <h2>Logotipo</h2>
               {s.logo ? <img className="logo-big" src={s.logo} alt="Logotipo" /> : <p className="muted">Nenhum logotipo enviado.</p>}
               <div className="row" style={{ marginTop: 12 }}>
@@ -138,9 +137,9 @@ export default function Config() {
                 {s.logo && <button type="button" className="btn bad" onClick={() => save({ logo: '' }, 'Logotipo removido')}>Remover</button>}
               </div>
               <p className="muted" style={{ marginTop: 8 }}>PNG, JPG, WEBP ou SVG. Aparece no menu lateral.</p>
-            </div>
+          </div>
 
-            <div className="card">
+          <div className="card">
           <h2>Dados da empresa</h2>
           <div className="field"><label>Nome</label><input value={s.name || ''} onChange={(e) => setS({ ...s, name: e.target.value })} required /></div>
           <div className="field"><label>Telefone</label><input value={s.phone || ''} onChange={(e) => setS({ ...s, phone: e.target.value })} /></div>
@@ -157,14 +156,13 @@ export default function Config() {
             </select>
             <p className="muted" style={{ marginTop: 4 }}>Um aviso só. Quem agenda com menos de {s.reminder_minutes ? Math.round((Number(s.reminder_minutes) + 60) / 6) / 10 : '—'}h de antecedência não recebe (acabou de marcar).</p>
           </div>
-            </div>
           </div>
           <div className="card">
           <h2>Dados do administrador</h2>
           <p className="muted">Quem responde pela empresa. O WhatsApp daqui recebe avisos do painel (como a lista do evento) e é o número com o qual a assistente pessoal conversa.</p>
           <div className="field"><label>Nome do administrador</label><input value={s.admin_name || ''} onChange={(e) => setS({ ...s, admin_name: e.target.value })} /></div>
           <div className="field"><label>WhatsApp do administrador</label><input value={s.admin_phone || ''} onChange={(e) => setS({ ...s, admin_phone: e.target.value })} placeholder="(32) 99999-9999" /></div>
-          <div className="field"><label>E-mail do administrador</label><input type="email" value={s.admin_email || ''} onChange={(e) => setS({ ...s, admin_email: e.target.value })} /></div>
+          <div className="field"><label>E-mail do administrador</label><input type="email" value={s.admin_email || ''} placeholder={s.login_email || ''} onChange={(e) => setS({ ...s, admin_email: e.target.value })} />{s.login_email && <p className="muted" style={{ marginTop: 4 }}>Em branco, vale o e-mail de login da empresa ({s.login_email}).</p>}</div>
           </div>
         </div>
         <button className="btn primary" style={{ marginTop: 16 }}>Salvar</button>

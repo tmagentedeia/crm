@@ -63,7 +63,9 @@ async function upgradeInfo() {
   const v = (await qg("SELECT value FROM platform_settings WHERE key='upgrade'")).rows[0]?.value || {};
   return { phone: String(v.phone || ''), text: String(v.text || '') };
 }
-const comUpgrade = async (c) => (c ? { ...c, upgrade: await upgradeInfo() } : c);
+// login_email: e-mail de login do responsável da empresa (vale como e-mail do administrador enquanto ele não informar outro)
+const loginDaEmpresa = async (id) => (await qg("SELECT email FROM users WHERE company_id=$1 ORDER BY (role = 'owner') DESC, id LIMIT 1", [id])).rows[0]?.email || null;
+const comUpgrade = async (c) => (c ? { ...c, upgrade: await upgradeInfo(), login_email: await loginDaEmpresa(c.id) } : c);
 
 // ---------- Configurações da empresa ----------
 app.get('/api/company', requireUser, async (req, res) => {
