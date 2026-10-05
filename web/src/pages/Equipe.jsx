@@ -31,15 +31,51 @@ export default function Equipe({ menu = [], rotulos = {} }) {
   );
 }
 
+const NIVEIS_LISTA = ['lista_evento', 'lista_evento_comentarista', 'lista_evento_editor'];
+const nivelDaLista = (v) => (v.includes('lista_evento_editor') ? 'lista_evento_editor' : v.includes('lista_evento_comentarista') ? 'lista_evento_comentarista' : v.includes('lista_evento') ? 'lista_evento' : '');
+
+// Lista de telas com caixinhas. A "Lista do evento" aparece como um item só; ao marcar, abre a escolha do nível de acesso.
+const NOME_NIVEL = { lista_evento: 'Leitor', lista_evento_comentarista: 'Comentarista', lista_evento_editor: 'Editor' };
+const Lapis = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+);
+
 function Telas({ valor, onChange, disponiveis, rotulo }) {
+  const [aberto, setAberto] = useState(false);
   const alterna = (t) => onChange(valor.includes(t) ? valor.filter((x) => x !== t) : [...valor, t]);
+  const temLista = disponiveis.includes('lista_evento');
+  const nivel = nivelDaLista(valor), fone = valor.includes('lista_evento_telefone');
+  const comNivel = (n, f) => onChange([...valor.filter((t) => !NIVEIS_LISTA.includes(t) && t !== 'lista_evento_telefone'), ...(n ? [n] : []), ...(n && f ? ['lista_evento_telefone'] : [])]);
+  const comuns = disponiveis.filter((t) => !NIVEIS_LISTA.includes(t) && t !== 'lista_evento_telefone');
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px' }}>
-      {disponiveis.map((t) => (
-        <label key={t} style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 400 }}>
-          <input type="checkbox" style={{ width: 'auto' }} checked={valor.includes(t)} onChange={() => alterna(t)} /> {rotulo(t)}
-        </label>
-      ))}
+    <div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px' }}>
+        {comuns.map((t) => (
+          <label key={t} style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 400 }}>
+            <input type="checkbox" style={{ width: 'auto' }} checked={valor.includes(t)} onChange={() => alterna(t)} /> {rotulo(t)}
+          </label>
+        ))}
+        {temLista && (
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 400 }}>
+            <input type="checkbox" style={{ width: 'auto' }} checked={!!nivel} onChange={(e) => { comNivel(e.target.checked ? 'lista_evento' : '', false); setAberto(e.target.checked); }} /> Lista do evento{nivel ? <span className="muted"> · {NOME_NIVEL[nivel]}{fone ? ' · com telefones' : ''}</span> : null}
+          </label>
+        )}
+        {temLista && nivel && (
+          <button type="button" className="btn sm" title="Escolher o nível de acesso" aria-label="Escolher o nível de acesso à lista do evento" style={{ padding: '2px 6px', display: 'inline-flex', alignItems: 'center' }} onClick={() => setAberto(!aberto)}><Lapis /></button>
+        )}
+      </div>
+      {temLista && nivel && aberto && (
+        <div className="row" style={{ gap: 14, alignItems: 'center', flexWrap: 'wrap', margin: '8px 0 0 22px' }}>
+          <select value={nivel} style={{ width: 'auto' }} onChange={(e) => comNivel(e.target.value, fone)}>
+            <option value="lista_evento">Leitor (só consulta)</option>
+            <option value="lista_evento_comentarista">Comentarista (marca entrada e comenta)</option>
+            <option value="lista_evento_editor">Editor (edita tudo)</option>
+          </select>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 400 }}>
+            <input type="checkbox" style={{ width: 'auto' }} checked={fone} onChange={(e) => comNivel(nivel, e.target.checked)} /> Pode ver os telefones
+          </label>
+        </div>
+      )}
     </div>
   );
 }
@@ -139,7 +175,7 @@ function Funcoes({ d, recarregar, setErro, disponiveis, rotulo }) {
           <label style={{ marginTop: 10 }}>Tela que abre ao entrar
             <select value={f.inicio || ''} onChange={(e) => setF({ ...f, inicio: e.target.value })}>
               <option value="">A primeira da lista</option>
-              {f.telas.filter((t) => disponiveis.includes(t)).map((t) => <option key={t} value={t}>{rotulo(t)}</option>)}
+              {f.telas.filter((t) => disponiveis.includes(t) && t !== 'lista_evento_telefone').map((t) => <option key={t} value={t}>{rotulo(t)}</option>)}
             </select>
           </label>
           <button className="btn primary" style={{ marginTop: 10 }} onClick={salvar}>Salvar função</button>
@@ -150,7 +186,7 @@ function Funcoes({ d, recarregar, setErro, disponiveis, rotulo }) {
           <div key={x.id} className="row" style={{ justifyContent: 'space-between', gap: 8, padding: '10px 0', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
             <div>
               <strong>{x.name}</strong>
-              <div className="muted" style={{ fontSize: 13 }}>{x.telas.some((t) => disponiveis.includes(t)) ? x.telas.filter((t) => disponiveis.includes(t)).map(rotulo).join(', ') : 'Nenhuma tela'}</div>
+              <div className="muted" style={{ fontSize: 13 }}>{x.telas.some((t) => disponiveis.includes(t)) && (x.telas.some((t) => !NIVEIS_LISTA.includes(t) && t !== 'lista_evento_telefone' && disponiveis.includes(t)) || nivelDaLista(x.telas)) ? [...x.telas.filter((t) => disponiveis.includes(t) && !NIVEIS_LISTA.includes(t) && t !== 'lista_evento_telefone').map(rotulo), ...(nivelDaLista(x.telas) ? ['Lista do evento · ' + NOME_NIVEL[nivelDaLista(x.telas)] + (x.telas.includes('lista_evento_telefone') ? ' (com telefones)' : '')] : [])].join(', ') : 'Nenhuma tela'}</div>
             </div>
             <div className="row" style={{ gap: 6 }}>
               <button className="btn sm" onClick={() => setF({ ...x })}>Editar</button>
