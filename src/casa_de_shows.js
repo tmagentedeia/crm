@@ -10,6 +10,7 @@ import { q, qg, tx, currentCompany, runAs } from './db.js';
 import { normPhone } from './phone.js';
 import { parseBirthday } from './ficha.js';
 import { beneficiosDeParceiros } from './parcerias.js';
+import { conexaoWhats, postarWhats, pausa } from './lista_evento.js';
 
 export const CASA_DE_SHOWS_SQL = `
   ALTER TABLE customers ADD COLUMN IF NOT EXISTS client_kinds TEXT[] NOT NULL DEFAULT '{}';   -- perfis do cliente: buyer (comprador), hirer (contratante)
@@ -311,6 +312,57 @@ export function registerCasaDeShowsRoutes(r, wrap) {
       sectors: setores.filter((s) => !setorId || String(s.id) === setorId).map((s) => ({ sector_id: String(s.id), name: s.name, photos: rows.filter((m) => m.kind === 'photo' && String(m.sector_id) === String(s.id)).map((m) => midiaOut(req, m)) })),
     });
   }));
+  // O atendente pede "mande o mapa" ou "mande as fotos do setor X": o painel envia pelo WhatsApp da empresa, sem depender de nada fora dele.
+  // Corpo: { number: telefone/conversa do cliente, what: 'map' | 'sector' (ou só 'sector': nome/número do setor), event: nome, data (dd ou dd/mm) ou id (opcional) }
+  const semAcento = (t) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+  r.post('/casa-de-shows/media/send', comTratamento(async (req, res) => {
+    const b = req.body || {};
+    const numero = String(b.number || '').trim();
+    if (!numero || numero.length > 80) return res.status(400).json({ error: 'Informe o número do cliente' });
+    const con = await conexaoWhats(currentCompany());
+    if (!con) return res.status(409).json({ error: 'O WhatsApp desta empresa ainda não foi ligado ao painel. Fale com o suporte.' });
+    // evento (opcional): vale o local dele
+    let origem = {};
+    const evTxt = semAcento(b.event);
+    if (evTxt) {
+      const tz = await fuso();
+      const evs = (await q(`SELECT id, title, to_char(starts_at AT TIME ZONE $1, 'DD/MM') AS dd FROM events WHERE COALESCE(ends_at, starts_at + interval '3 hours') > now() ORDER BY starts_at, id LIMIT 20`, [tz])).rows;
+      const m = evTxt.match(/^(?:dia\s*)?(\d{1,2})(?:\s*[\/\-]\s*(\d{1,2}))?$/);
+      const porData = m ? evs.filter((e) => Number(e.dd.slice(0, 2)) === Number(m[1]) && (!m[2] || Number(e.dd.slice(3)) === Number(m[2]))) : [];
+      const e = porData.length === 1 ? porData[0] : (evs.find((x) => String(x.id) === evTxt) || evs.find((x) => semAcento(x.title) === evTxt) || evs.find((x) => semAcento(x.title).includes(evTxt) || evTxt.includes(semAcento(x.title))));
+      if (!e) return res.status(400).json({ error: `Não achei esse evento. Eventos: ${evs.map((x) => `${x.title} (${x.dd})`).join(', ') || 'nenhum'}` });
+      origem = { event_id: e.id };
+    }
+    const lv = await venueDe(origem);
+    if (lv.erro) return res.status(400).json({ error: lv.erro });
+    const pedido = semAcento(b.sector || (b.what === 'map' ? '' : b.what));
+    const querMapa = b.what === 'map' || !pedido || /^(o\s+)?mapa/.test(pedido);
+    const midias = (await q(`SELECT m.id, m.sector_id, m.kind, m.caption, m.token, s.name AS sector_name FROM shows_media m LEFT JOIN shows_sectors s ON s.id = m.sector_id
+      WHERE (m.kind = 'map' AND m.venue_id = $1) OR (m.kind = 'photo' AND s.venue_id = $1) ORDER BY m.kind DESC, m.position, m.id`, [lv.venue_id])).rows;
+    let envios, o_que;
+    if (querMapa) {
+      const mapa = midias.find((m) => m.kind === 'map');
+      if (!mapa) return res.status(404).json({ error: 'Não há mapa cadastrado' });
+      envios = [{ file: midiaOut(req, mapa).url, text: mapa.caption || 'Mapa dos setores' }]; o_que = 'o mapa';
+    } else {
+      const setores = (await q('SELECT id, name FROM shows_sectors WHERE active AND venue_id=$1 ORDER BY position, id', [lv.venue_id])).rows;
+      const num = (pedido.match(/\d+/) || [])[0];
+      const dig = (t) => (semAcento(t).match(/\d+/) || [])[0];
+      const s = setores.find((x) => semAcento(x.name) === pedido) || setores.find((x) => num && dig(x.name) === num) || setores.find((x) => semAcento(x.name).includes(pedido) || pedido.includes(semAcento(x.name)));
+      if (!s) return res.status(400).json({ error: `Não achei esse setor. Setores: ${setores.map((x) => x.name).join(', ')}` });
+      const fotos = midias.filter((m) => m.kind === 'photo' && String(m.sector_id) === String(s.id));
+      if (!fotos.length) return res.status(404).json({ error: `O ${s.name} não tem fotos cadastradas` });
+      envios = fotos.map((f) => ({ file: midiaOut(req, f).url, text: f.caption || s.name })); o_que = `as fotos do ${s.name}`;
+    }
+    let enviados = 0;
+    for (const e of envios) {
+      if (enviados) await pausa(1500);
+      try { await postarWhats(con, '/send/media', { number: numero, type: 'image', file: e.file, text: e.text, readchat: true }); enviados++; } catch (x) { console.error('mídia do setor:', x.message); }
+    }
+    if (!enviados) return res.status(502).json({ error: 'Não consegui enviar pelo WhatsApp' });
+    res.json({ ok: true, sent: enviados, of: envios.length, what: o_que, message: `Enviei ${o_que} ao cliente. Não envie de novo e não descreva a imagem como se a visse; só diga que mandou.` });
+  }));
+
   // Envio: { kind: 'map' | 'photo', sector_id (fotos), caption, data: "data:image/jpeg;base64,..." }
   r.post('/casa-de-shows/media', comTratamento(async (req, res) => {
     if (quem(req) === 'ia') return res.status(403).json({ error: 'Só pelo painel' });

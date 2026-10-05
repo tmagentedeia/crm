@@ -80,15 +80,15 @@ tr:nth-child(even) td{background:#f8f8f8}.n{width:24px;color:#777}.c{text-align:
 }
 
 // Conexão do WhatsApp da empresa (configurada pelo administrador do sistema): endereço do serviço e chave
-async function conexaoWhats(companyId) {
+export async function conexaoWhats(companyId) {
   const c = (await qg('SELECT wa_api_url, wa_api_token FROM companies WHERE id=$1', [companyId])).rows[0];
   return c?.wa_api_url && c?.wa_api_token ? { base: String(c.wa_api_url).replace(/\/+$/, ''), token: c.wa_api_token } : null;
 }
-async function postarWhats(con, caminho, corpo) {
+export async function postarWhats(con, caminho, corpo) {
   const r = await fetch(con.base + caminho, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json', token: con.token }, body: JSON.stringify(corpo), signal: AbortSignal.timeout(30000) });
   if (!r.ok) throw new Error(`O WhatsApp respondeu ${r.status}`);
 }
-const pausa = (ms) => new Promise((ok) => setTimeout(ok, process.env.LISTA_PAUSA_RAPIDA ? 5 : ms));
+export const pausa = (ms) => new Promise((ok) => setTimeout(ok, process.env.LISTA_PAUSA_RAPIDA ? 5 : ms));
 let servico = null;   // preenchido por registerListaEventoRoutes
 
 // Todo minuto: para cada empresa com o envio ligado, manda a lista dos eventos cuja casa já abriu (uma vez por evento)
