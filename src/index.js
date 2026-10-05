@@ -21,6 +21,7 @@ import { registerDocumentoPublico } from './documentos.js';
 import { registerIndicacoesAdmin, sincronizarTodas, usarCodigo, acharPorCodigo } from './indicacoes.js';
 import { startCortesias } from './pedidos.js';
 import { registerMidiaPublica } from './casa_de_shows.js';
+import { nomeTabelaValido } from './conversas.js';
 import { bloqueioPorFuncao, registerEquipeRoutes, acessoDe } from './funcoes.js';
 
 const app = express();
@@ -154,6 +155,16 @@ app.put('/api/admin/companies/:id/blocks-config', requireUser, requireAdmin, asy
   rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Empresa não encontrada' });
 });
 
+// Administração: tabela com o histórico de conversas do agente (alimenta os atendimentos do dashboard)
+app.put('/api/admin/companies/:id/chat-table', requireUser, requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id <= 0) return res.status(404).json({ error: 'Empresa não encontrada' });
+  const tabela = String(req.body.chat_table ?? '').trim();
+  if (tabela && !nomeTabelaValido(tabela)) return res.status(400).json({ error: 'Nome da tabela inválido (use letras, números e _)' });
+  const { rows } = await qg('UPDATE companies SET chat_table=NULLIF($2,\'\') WHERE id=$1 RETURNING id, chat_table', [id, tabela]);
+  rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Empresa não encontrada' });
+});
+
 // Administração: endereço do fluxo de envio de campanhas da empresa (o painel aciona este endereço a cada envio)
 app.put('/api/admin/companies/:id/campaign-webhook', requireUser, requireAdmin, async (req, res) => {
   const id = Number(req.params.id);
@@ -235,7 +246,7 @@ app.get('/api/admin/diagnostico', requireUser, requireAdmin, async (req, res) =>
 
 app.get('/api/admin/companies', requireUser, requireAdmin, async (req, res) => {
   const { rows } = await qg(
-    `SELECT c.id, c.name, c.max_professionals, c.billing_due_day, c.billing_exempt, (SELECT count(*) FROM partner_referrals pr WHERE pr.company_id=c.id)::int AS referrals_total, c.created_at, c.modules, c.locked_modules, c.module_labels, c.whatsapp_instance, c.redis_prefix, c.campaign_webhook_url, c.wa_api_url, (c.wa_api_token IS NOT NULL) AS wa_api_set, right(c.wa_api_token, 4) AS wa_api_fim, c.booking_mode, c.api_key_hint, c.api_key_created_at,
+    `SELECT c.id, c.name, c.max_professionals, c.billing_due_day, c.billing_exempt, (SELECT count(*) FROM partner_referrals pr WHERE pr.company_id=c.id)::int AS referrals_total, c.created_at, c.modules, c.locked_modules, c.module_labels, c.whatsapp_instance, c.chat_table, c.redis_prefix, c.campaign_webhook_url, c.wa_api_url, (c.wa_api_token IS NOT NULL) AS wa_api_set, right(c.wa_api_token, 4) AS wa_api_fim, c.booking_mode, c.api_key_hint, c.api_key_created_at,
             (SELECT u.email FROM users u WHERE u.company_id = c.id ORDER BY (u.role = 'owner') DESC, u.id LIMIT 1) AS owner_email
      FROM companies c ORDER BY c.id`);
   // profissionais ativos: contados dentro do schema de cada empresa

@@ -40,6 +40,14 @@ export default function Admin() {
   useEffect(() => { api('/admin/version').then(setVersao).catch(() => {}); api('/admin/default-menu').then(setMenuPadrao).catch(() => {}); api('/admin/upgrade').then(setUp).catch(() => {}); }, []);
   const definirMenuPadrao = (body, ok) => { setErr(''); setMsg(''); api('/admin/default-menu', { method: 'PUT', body }).then((r) => { setMenuPadrao(r); setMsg(ok); }).catch((e) => setErr(e.message)); };
   const verAcessos = () => (acessos ? setAcessos(null) : api('/admin/access-log').then(setAcessos).catch((e) => setErr(e.message)));
+  const [ct, setCt] = useState({});
+  const salvarCt = async (s) => {
+    setErr(''); setMsg('');
+    try {
+      await api(`/admin/companies/${s.id}/chat-table`, { method: 'PUT', body: { chat_table: ct[s.id] } });
+      const { [s.id]: _, ...resto } = ct; setCt(resto); setMsg('Conversas de ' + s.name + ' atualizadas.'); load();
+    } catch (e) { setErr(e.message); }
+  };
   const salvarCx = async (s) => {
     setErr(''); setMsg('');
     try {
@@ -424,6 +432,11 @@ export default function Admin() {
                   <input placeholder="prefixo (opcional)" style={{ width: 150 }} value={cx[s.id]?.p ?? s.redis_prefix ?? ''}
                     onChange={(e) => setCx({ ...cx, [s.id]: { i: cx[s.id]?.i ?? s.whatsapp_instance ?? '', p: e.target.value } })} />
                   {s.id in cx && <button className="btn sm primary" onClick={() => salvarCx(s)}>Salvar</button>}
+                </Campo>
+                <Campo rotulo="Conversas do agente (tabela do histórico)">
+                  <input placeholder="ex.: chat_vendas" style={{ width: 170 }} value={ct[s.id] ?? s.chat_table ?? ''}
+                    onChange={(e) => setCt({ ...ct, [s.id]: e.target.value })} />
+                  {s.id in ct && <button className="btn sm primary" onClick={() => salvarCt(s)}>Salvar</button>}
                 </Campo>
                 <Campo rotulo="Envio de campanhas (endereço do fluxo)">
                   <input placeholder="https://…/webhook/campanhas-envio" style={{ width: 300 }} value={wh[s.id] ?? s.campaign_webhook_url ?? ''}

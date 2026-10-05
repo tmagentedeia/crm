@@ -18,6 +18,7 @@ import { TIPOS_ITEM } from './produtos.js';
 import { registerSalesRoutes } from './vendas.js';
 import { registerCommissionRoutes } from './comissoes.js';
 import { registerListaEventoRoutes } from './lista_evento.js';
+import { contarConversas } from './conversas.js';
 import { registerParceriasRoutes, textoDeParcerias } from './parcerias.js';
 import { registerCasaDeShowsRoutes, historicoCasaDeShows, KINDS as PERFIS } from './casa_de_shows.js';
 
@@ -1118,7 +1119,8 @@ export function buildRouter() {
       q(`SELECT status, COUNT(*)::int AS total FROM customers GROUP BY status`),
     ]);
     // Resumos dos outros módulos: pedidos de música, valores recebidos e vendas de ingresso (o painel mostra os que a empresa usa)
-    const [ped, musicas, rec, ing] = await Promise.all([
+    const cfgConversas = (await qg('SELECT chat_table, whatsapp_instance FROM companies WHERE id=$1', [currentCompany()])).rows[0] || {};
+    const [ped, musicas, rec, ing, conv] = await Promise.all([
       q(`SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE served_at IS NOT NULL)::int AS atendidos
          FROM song_orders WHERE created_at >= now() - make_interval(days => $1)`, [days]),
       q(`SELECT min(song) AS song, COUNT(*)::int AS total FROM song_orders
@@ -1129,12 +1131,13 @@ export function buildRouter() {
                 COALESCE(SUM(people * COALESCE(unit_price,0) - club_discount),0)::float AS total
          FROM shows_sales WHERE status IN ('confirmed','attended')
            AND created_at >= now() - make_interval(days => $1)`, [days]),
+      contarConversas(cfgConversas, days),
     ]);
     res.json({
       days, ...tot.rows[0],
       por_dia_semana: byDay.rows, servicos: byService.rows,
       profissionais: byProfessional.rows, clientes: leads.rows,
-      pedidos: ped.rows[0], musicas: musicas.rows, recebido: rec.rows[0], ingressos: ing.rows[0],
+      pedidos: ped.rows[0], musicas: musicas.rows, recebido: rec.rows[0], ingressos: ing.rows[0], conversas: conv,
     });
   }));
 

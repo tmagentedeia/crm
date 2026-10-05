@@ -40,10 +40,10 @@ function Chart({ title, data, x, layout, vazio, nome }) {
                 </>
               )}
               <Tooltip cursor={{ opacity: 0.15 }} contentStyle={{ borderRadius: 8, background: 'var(--card)', border: '1px solid var(--line)', color: 'var(--text)' }} labelStyle={{ color: 'var(--text)' }} itemStyle={{ color: 'var(--text)' }} />
-              <Bar dataKey="total" name={nome || 'Atendimentos'} fill={color} radius={4} />
+              <Bar dataKey="total" name={nome || 'Agendamentos'} fill={color} radius={4} />
             </BarChart>
           </ResponsiveContainer>
-        ) : <p className="muted">{vazio || 'Sem atendimentos concluídos no período.'}</p>}
+        ) : <p className="muted">{vazio || 'Sem agendamentos concluídos no período.'}</p>}
       </div>
     </div>
   );
@@ -71,8 +71,9 @@ export default function Dashboard({ company }) {
         </select>
       </div>
       <div className="grid cols-4" style={{ marginBottom: 16 }}>
-        {agenda && <div className="card stat"><span className="muted">Atendimentos</span><div className="v">{d.atendimentos}</div></div>}
-        {agenda && <div className="card stat"><span className="muted">Faturamento</span><div className="v">{money(d.faturamento)}</div></div>}
+        {d.conversas && <div className="card stat"><span className="muted">Atendimentos</span><div className="v">{d.conversas.total ?? '—'}</div><span className="muted">{d.conversas.total === null ? 'ainda sem dados de conversa' : 'pessoas que conversaram com o agente'}</span></div>}
+        {agenda && <div className="card stat"><span className="muted">Agendamentos realizados</span><div className="v">{d.atendimentos}</div></div>}
+        {agenda && <div className="card stat"><span className="muted">Faturamento da agenda</span><div className="v">{money(d.faturamento)}</div></div>}
         {agenda && <div className="card stat"><span className="muted">Ticket médio</span><div className="v">{money(ticket)}</div></div>}
         {pedidos && <div className="card stat"><span className="muted">Pedidos de música</span><div className="v">{d.pedidos.total}</div><span className="muted">{d.pedidos.atendidos} atendido(s)</span></div>}
         {financeiro && <div className="card stat"><span className="muted">Recebido</span><div className="v">{money(d.recebido.total)}</div><span className="muted">{d.recebido.aceitos} pagamento(s)</span></div>}
@@ -81,7 +82,7 @@ export default function Dashboard({ company }) {
         <div className="card stat"><span className="muted">Clientes / Leads</span><div className="v">{cli.client || 0} / {cli.lead || 0}</div></div>
       </div>
       <div className="grid cols-2">
-        {agenda && <Chart title="Dias mais movimentados" data={week} x="dia" />}
+        {agenda && <Chart title="Dias com mais agendamentos" data={week} x="dia" />}
         {agenda && <Chart title="Serviços mais procurados" data={d.servicos} x="service" layout="vertical" />}
         {agenda && <Chart title="Profissionais mais requisitados" data={d.profissionais} x="professional" layout="vertical" />}
         {pedidos && <Chart title="Músicas mais pedidas" data={d.musicas} x="song" layout="vertical" nome="Pedidos" vazio="Sem pedidos no período." />}
