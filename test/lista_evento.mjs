@@ -22,13 +22,16 @@ const funcao = async (nome, telas) => (await api('POST', '/equipe/funcoes', { na
 const pessoa = async (nome, email, f) => { await api('POST', '/equipe/usuarios', { name: nome, email, password: 'senha1234', funcao_id: f.id }); return (await call('POST', '/api/auth/login', { body: { email, password: 'senha1234' } })).body.token; };
 const fLeitor = await funcao('Lista Leitor', ['lista_evento']);
 const fComentarista = await funcao('Lista Comentarista', ['lista_evento_comentarista']);
-const fEditor = await funcao('Lista Editor', ['lista_evento_editor']);
+const fEditor = await funcao('Lista Editor', ['lista_evento_editor', 'lista_evento_telefone']);
+const fEditorSemFone = await funcao('Lista Editor sem telefone', ['lista_evento_editor']);
 const fNada = await funcao('Lista Nada', ['clientes']);
 const tLeitor = await pessoa('Lia Leitora', 'lista-leitor@x.com', fLeitor);
 const tComentarista = await pessoa('Paulo Comentarista', 'lista-comentarista@x.com', fComentarista);
 const tEditor = await pessoa('Ada Editor', 'lista-editor@x.com', fEditor);
+const tEditorSemFone = await pessoa('Edu Editor', 'lista-editor-sf@x.com', fEditorSemFone);
 const tNada = await pessoa('Nina Nada', 'lista-nada@x.com', fNada);
 const as = (t) => (m, p, body) => call(m, '/api' + p, { token: t, body });
+const editorSemFone = as(tEditorSemFone);
 const leitor = as(tLeitor), comentarista = as(tComentarista), editor = as(tEditor), nada = as(tNada);
 
 const ev = (await api('POST', '/events', { title: 'Show Lista', starts_at: new Date(Date.now() + 10 * 864e5).toISOString() })).body;
@@ -97,6 +100,16 @@ check('registro com entrada desfeita', log.some((x) => x.action === 'entrada_des
 const ex = await api('GET', `/event-list/export?event_id=${ev.id}`);
 check('planilha em CSV com acentos', ex.status === 200 && /text\/csv/.test(ex.type) && ex.raw.replace(/^﻿/, '').startsWith('Nome;Setor;Mesa;Telefone;Valor;Pagamento;Entrou;Observações'), ex.raw.slice(0, 120));
 check('planilha com uma linha por pessoa', ex.raw.trim().split('\r\n').length === 5 && /Bia;Setor Lista/.test(ex.raw) && /Carlos;.*;Pago;Sim;/.test(ex.raw), ex.raw);
+
+// ---- telefone é permissão à parte ----
+const semFone = (await editorSemFone('GET', `/event-list?event_id=${ev.id}`)).body;
+check('sem a permissão a lista vem sem telefone', semFone.phone_hidden === true && semFone.rows.every((x) => x.phone === null), JSON.stringify(semFone.rows[0]));
+check('com a permissão a lista traz o telefone', l.phone_hidden === false && /3288860001/.test(l.rows[0].phone));
+check('leitor sem a permissão também não vê', (await leitor('GET', `/event-list?event_id=${ev.id}`)).body.rows.every((x) => x.phone === null));
+check('sem a permissão não edita telefone', (await editorSemFone('PUT', `/event-list/${ana.id}/3`, { phone: '32988860002' })).status === 403);
+check('sem a permissão edita o nome normalmente', (await editorSemFone('PUT', `/event-list/${ana.id}/3`, { note: 'ok' })).status === 200);
+await editorSemFone('PUT', `/event-list/${ana.id}/3`, { note: '' });
+check('a planilha exportada sem a permissão não tem a coluna de telefone', await (async () => { const r = await fetch(BASE + `/api/event-list/export?event_id=${ev.id}`, { headers: { authorization: 'Bearer ' + tEditorSemFone } }); const t = await r.text(); return r.status === 200 && !/Telefone/.test(t) && !/3288860001/.test(t); })());
 
 // ---- telas na equipe ----
 const eq = (await api('GET', '/equipe')).body;

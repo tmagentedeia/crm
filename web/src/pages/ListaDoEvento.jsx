@@ -119,7 +119,7 @@ export default function ListaDoEvento({ eventoId = null, onVoltar = null }) {
   const abrirRegistro = () => api(`/event-list/log?event_id=${ev}`).then(setRegistro).catch((e) => setErro(e.message));
   const salvarEdicao = (e) => {
     e.preventDefault();
-    agir(async () => { await api(`/event-list/${edit.sale_id}/${edit.seq}`, { method: 'PUT', body: { name: edit.name, phone: edit.phone, note: edit.note } }); setEdit(null); });
+    agir(async () => { await api(`/event-list/${edit.sale_id}/${edit.seq}`, { method: 'PUT', body: d?.phone_hidden ? { name: edit.name, note: edit.note } : { name: edit.name, phone: edit.phone, note: edit.note } }); setEdit(null); });
   };
   const salvarNota = (e) => {
     e.preventDefault();
@@ -215,7 +215,7 @@ export default function ListaDoEvento({ eventoId = null, onVoltar = null }) {
           </div>
           <div className="card table-wrap">
             <table>
-              <thead><tr><th>Entrou</th><th>Nome</th><th>Setor</th><th>Mesa</th><th>Telefone</th><th>Valor</th><th>Pagamento</th><th>Observações da casa</th><th>Comentário da equipe</th>{nivel !== 'leitor' && <th></th>}</tr></thead>
+              <thead><tr><th>Entrou</th><th>Nome</th><th>Setor</th><th>Mesa</th>{!d.phone_hidden && <th>Telefone</th>}<th>Valor</th><th>Pagamento</th><th>Observações da casa</th><th>Comentário da equipe</th>{nivel !== 'leitor' && <th></th>}</tr></thead>
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.key} style={r.entered_at ? { opacity: 0.75 } : undefined}>
@@ -227,7 +227,7 @@ export default function ListaDoEvento({ eventoId = null, onVoltar = null }) {
                     <td>{r.name}{r.entered_by && <div className="muted" style={{ fontSize: 12 }}>por {r.entered_by}</div>}</td>
                     <td>{r.sector}</td>
                     <td>{r.table}</td>
-                    <td>{r.phone ? fmtPhone(r.phone) : '—'}</td>
+                    {!d.phone_hidden && <td>{r.phone ? fmtPhone(r.phone) : '—'}</td>}
                     <td>{dinheiro(r.unit_price)}</td>
                     <td>{PAGTO[r.payment]}</td>
                     <td style={{ maxWidth: 200 }}>{r.note}</td>
@@ -254,8 +254,8 @@ export default function ListaDoEvento({ eventoId = null, onVoltar = null }) {
             <h2>Editar pessoa</h2>
             <label>Nome</label>
             <input value={edit.name} maxLength="120" onChange={(e) => setEdit({ ...edit, name: e.target.value })} />
-            <label>Telefone</label>
-            <input value={edit.phone || ''} onChange={(e) => setEdit({ ...edit, phone: e.target.value })} />
+            {!d.phone_hidden && <><label>Telefone</label>
+            <input value={edit.phone || ''} onChange={(e) => setEdit({ ...edit, phone: e.target.value })} /></>}
             <label>Observações</label>
             <textarea rows="3" value={edit.note} onChange={(e) => setEdit({ ...edit, note: e.target.value })} />
             <div className="row" style={{ marginTop: 12, justifyContent: 'flex-end' }}>

@@ -25,7 +25,7 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT true;
 // Telas que podem ser dadas à equipe. "config" e "equipe" ficam só com o dono.
 export const TELAS = [
   'dashboard', 'agenda', 'fila', 'clientes', 'inativos', 'profissionais', 'servicos', 'atendente', 'comandos', 'bloqueios', 'campanhas',
-  'clube', 'pedidos', 'eventos', 'financeiro', 'comissoes', 'casa_de_shows', 'lista_evento', 'lista_evento_comentarista', 'lista_evento_editor', 'documentos', 'delivery',
+  'clube', 'pedidos', 'eventos', 'financeiro', 'comissoes', 'casa_de_shows', 'lista_evento', 'lista_evento_comentarista', 'lista_evento_editor', 'lista_evento_telefone', 'documentos', 'delivery',
   'rst_salao', 'rst_cozinha', 'rst_caixa', 'rst_gestao',
 ];
 export const registrarTelas = (...novas) => { for (const t of novas) if (!TELAS.includes(t)) TELAS.push(t); };
@@ -52,6 +52,7 @@ export const ROTAS_DA_TELA = {
   lista_evento: [],                                          // só consulta (as leituras estão abaixo)
   lista_evento_comentarista: ['event-list-comment'],               // marca entrada e anota na portaria
   lista_evento_editor: ['event-list', 'event-list-comment'],   // edita a lista toda
+  lista_evento_telefone: [],                                   // só libera ver os telefones da lista (não abre rota nenhuma)
   documentos: ['documents'],
   delivery: ['delivery'],
   rst_salao: ['restaurant'],
@@ -110,6 +111,13 @@ export async function acessoDe(userId) {
   }
   cache.set(userId, { t: Date.now(), v });
   return v;
+}
+
+// Quem pode ver telefones na lista do evento: dono, administrador da plataforma e quem da equipe tem a permissão "lista_evento_telefone"
+export async function podeVerTelefone(user) {
+  if (!user || user.imp || user.role !== 'staff') return true;
+  const acc = await acessoDe(user.id);
+  return !!acc?.telas.includes('lista_evento_telefone');
 }
 
 // Vai antes de todas as rotas de /api. Só mexe com quem é da equipe; dono e administrador seguem como sempre.

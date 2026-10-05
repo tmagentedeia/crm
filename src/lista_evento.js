@@ -3,8 +3,9 @@
 // Acessos (telas da equipe): lista_evento = só consulta · lista_evento_comentarista = marca entrada e comenta · lista_evento_editor = edita tudo.
 import { q, qg, runAs, currentCompany } from './db.js';
 import { normPhone } from './phone.js';
-import { gerarRef } from './documentos.js';
+import { gerarRef, htmlParaPdf, gotenbergLigado } from './documentos.js';
 import { lerCodigo } from './ingresso_qr.js';
+import { podeVerTelefone } from './funcoes.js';
 
 export const SHOWS_LISTA_SQL = `
   CREATE TABLE IF NOT EXISTS shows_attendees (
@@ -56,11 +57,26 @@ const txt = (v, max) => { const s = String(v ?? '').trim(); return s.length <= m
 const PAGAMENTO = { courtesy: 'Cortesia', paid: 'Pago', partial: 'Parcial', pending: 'Pendente', no_price: '—' };
 
 const cel = (v) => { const s = String(v ?? ''); return /[;"\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-function csvDe(rows) {
-  const cab = ['Nome', 'Setor', 'Mesa', 'Telefone', 'Valor', 'Pagamento', 'Entrou', 'Observações', 'Observações da portaria'];
-  const linhasCsv = rows.map((x) => [x.name, x.sector, x.table, x.phone || '', x.unit_price === null ? '' : String(x.unit_price).replace('.', ','), x.payment_label,
+function csvDe(rows, comTelefone = true) {
+  const cab = ['Nome', 'Setor', 'Mesa', ...(comTelefone ? ['Telefone'] : []), 'Valor', 'Pagamento', 'Entrou', 'Observações', 'Observações da portaria'];
+  const linhasCsv = rows.map((x) => [x.name, x.sector, x.table, ...(comTelefone ? [x.phone || ''] : []), x.unit_price === null ? '' : String(x.unit_price).replace('.', ','), x.payment_label,
     x.entered_at ? 'Sim' : '', x.note, x.door_note].map(cel).join(';'));
   return '\ufeff' + [cab.join(';'), ...linhasCsv].join('\r\n') + '\r\n';
+}
+
+const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+// Folha da lista (para imprimir ou ler no celular): cabeçalho do evento e uma linha por pessoa
+function htmlDaLista(ev, quando, rows) {
+  const entraram = rows.filter((x) => x.entered_at).length, pend = rows.filter((x) => ['pending', 'partial'].includes(x.payment)).length;
+  const linhasHtml = rows.map((x, i) => `<tr><td class="n">${i + 1}</td><td><strong>${esc(x.name)}</strong>${x.note ? `<div class="o">${esc(x.note)}</div>` : ''}${x.door_note ? `<div class="o">Portaria: ${esc(x.door_note)}</div>` : ''}</td><td>${esc(x.sector)}</td><td>${esc(x.table)}</td><td class="${x.payment === 'pending' || x.payment === 'partial' ? 'pend' : ''}">${esc(x.payment_label)}</td><td class="c">${x.entered_at ? '✔' : '☐'}</td></tr>`).join('');
+  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Lista do evento</title><style>
+body{font-family:Arial,Helvetica,sans-serif;color:#1f2937;margin:0;padding:24px;font-size:12px}h1{margin:0 0 4px;font-size:22px}.sub{color:#555;margin-bottom:10px}
+.res{display:flex;gap:18px;margin:10px 0 14px;font-size:13px}.res b{font-size:16px}
+table{width:100%;border-collapse:collapse}th{background:#1f2937;color:#fff;text-align:left;padding:7px 8px;font-size:11px}td{padding:6px 8px;border-bottom:1px solid #ddd;vertical-align:top}
+tr:nth-child(even) td{background:#f8f8f8}.n{width:24px;color:#777}.c{text-align:center;font-size:15px}.o{color:#666;font-size:10px;margin-top:2px}.pend{color:#b45309;font-weight:bold}</style></head><body>
+<h1>${esc(ev.title)}</h1><div class="sub">${esc(quando)}</div>
+<div class="res"><div><b>${rows.length}</b> pessoa(s)</div><div><b>${entraram}</b> já entraram</div><div><b>${pend}</b> com pagamento pendente</div></div>
+<table><thead><tr><th>#</th><th>Nome</th><th>Setor</th><th>Mesa</th><th>Pagamento</th><th>Entrou</th></tr></thead><tbody>${linhasHtml}</tbody></table></body></html>`;
 }
 
 // Conexão do WhatsApp da empresa (configurada pelo administrador do sistema): endereço do serviço e chave
@@ -136,9 +152,10 @@ export function registerListaEventoRoutes(r, wrap) {
 
   r.get('/event-list', tratar(async (req, res) => {
     const ev = await eventoDe(req.query.event_id);
-    const rows = await linhas(ev.id);
+    const ver = await podeVerTelefone(req.user);
+    const rows = (await linhas(ev.id)).map((x) => (ver ? x : { ...x, phone: null }));
     res.json({
-      event: ev, rows,
+      event: ev, rows, phone_hidden: !ver,
       summary: { people: rows.length, entered: rows.filter((x) => x.entered_at).length, pending_payment: rows.filter((x) => ['pending', 'partial'].includes(x.payment)).length },
     });
   }));
@@ -148,12 +165,15 @@ export function registerListaEventoRoutes(r, wrap) {
     const rows = await linhas(ev.id);
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="lista-${ev.id}.csv"`);
-    res.send(csvDe(rows));
+    res.send(csvDe(rows, await podeVerTelefone(req.user)));
   }));
 
   r.get('/event-list/log', tratar(async (req, res) => {
     const ev = await eventoDe(req.query.event_id);
-    res.json((await q('SELECT id, sale_id, seq, person, at, actor, action, detail FROM shows_attendee_log WHERE event_id=$1 ORDER BY at DESC, id DESC LIMIT 300', [ev.id])).rows);
+    const ver = await podeVerTelefone(req.user);
+    const rs = (await q('SELECT id, sale_id, seq, person, at, actor, action, detail FROM shows_attendee_log WHERE event_id=$1 ORDER BY at DESC, id DESC LIMIT 300', [ev.id])).rows;
+    // quem não pode ver telefones também não vê o número que aparece no histórico das edições
+    res.json(ver ? rs : rs.map((x) => (x.detail ? { ...x, detail: x.detail.replace(/telefone: [^·]*/g, 'telefone: alterado ') .trim() } : x)));
   }));
 
   // confere que a pessoa existe (a venda está no evento e tem essa posição)
@@ -184,6 +204,7 @@ export function registerListaEventoRoutes(r, wrap) {
       await q('UPDATE shows_attendees SET name=NULLIF($3,\'\') WHERE sale_id=$1 AND seq=$2', [p.s.id, p.seq, v]); mudou.push(`nome: ${v || '(padrão)'}`);
     }
     if (b.phone !== undefined) {
+      if (!(await podeVerTelefone(req.user))) throw erro(403, 'Você não tem acesso aos telefones da lista');
       let v = null;
       if (b.phone) { v = normPhone(b.phone); if (!/^\d{8,15}$/.test(v)) throw erro(400, 'Telefone inválido'); }
       await q('UPDATE shows_attendees SET phone=$3 WHERE sale_id=$1 AND seq=$2', [p.s.id, p.seq, v]); mudou.push(`telefone: ${v || '(do comprador)'}`);
@@ -303,16 +324,20 @@ export function registerListaEventoRoutes(r, wrap) {
     const rows = await linhas(ev.id);
     const entraram = rows.filter((x) => x.entered_at).length, pendentes = rows.filter((x) => ['pending', 'partial'].includes(x.payment)).length;
     const resumo = `Lista do evento\n*${ev.title}*\n${await quandoBr(ev.starts_at)}\n\n${rows.length} pessoa(s) · ${entraram} já entraram · ${pendentes} com pagamento pendente`;
-    const csv = Buffer.from(csvDe(rows), 'utf8').toString('base64');
+    const csv = Buffer.from(csvDe(rows, false), 'utf8').toString('base64');
+    // a folha em PDF é o formato preferido; sem o serviço de PDF, vai a planilha
+    let pdf = null;
+    if (gotenbergLigado()) { try { pdf = (await htmlParaPdf(htmlDaLista(ev, await quandoBr(ev.starts_at), rows))).toString('base64'); } catch (e) { console.error('lista do evento (PDF):', e.message); } }
+    const nomeBase = `lista-${ev.title}`.replace(/[^\w.\- ]+/g, '').slice(0, 76) || 'lista';
     const linhasTxt = rows.map((x) => `${x.name} — ${x.sector}, ${x.table}${x.payment === 'pending' || x.payment === 'partial' ? ' (pagamento ' + x.payment_label.toLowerCase() + ')' : ''}`);
     let comPlanilha = true;
     for (const [i, n] of dest.entries()) {
       if (i) await pausa(5000);
       const numero = paraEnvio(n);
-      await postarWhats(con, '/send/text', { number: numero, text: resumo + '\n\nA planilha vai logo abaixo.', readchat: true });
+      await postarWhats(con, '/send/text', { number: numero, text: resumo + (pdf ? '\n\nA lista vai logo abaixo.' : '\n\nA planilha vai logo abaixo.'), readchat: true });
       await pausa(3000);
       try {
-        await postarWhats(con, '/send/media', { number: numero, type: 'document', file: csv, docName: `lista-${ev.title}.csv`.replace(/[^\w.\- ]+/g, '').slice(0, 80) || 'lista.csv', readchat: true });
+        await postarWhats(con, '/send/media', { number: numero, type: 'document', file: pdf || csv, docName: `${nomeBase}.${pdf ? 'pdf' : 'csv'}`, readchat: true });
       } catch (e) {
         // sem a planilha, manda os nomes em texto (em partes, devagar)
         comPlanilha = false;

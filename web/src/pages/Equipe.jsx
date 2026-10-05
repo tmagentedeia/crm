@@ -8,7 +8,7 @@ export default function Equipe({ menu = [] }) {
   const [erro, setErro] = useState('');
   const carregar = () => api('/equipe').then(setD).catch((e) => setErro(e.message));
   useEffect(() => { carregar(); }, []);
-  const NIVEIS = { lista_evento: 'Lista do evento · só consulta', lista_evento_comentarista: 'Lista do evento · comentarista (marca entrada e comenta)', lista_evento_editor: 'Lista do evento · editor (edita tudo)' };
+  const NIVEIS = { lista_evento: 'Lista do evento · só consulta', lista_evento_comentarista: 'Lista do evento · comentarista (marca entrada e comenta)', lista_evento_editor: 'Lista do evento · editor (edita tudo)', lista_evento_telefone: 'Lista do evento · pode ver os telefones' };
   const rotulo = (id) => NIVEIS[id] || menu.find((m) => m.id === id)?.label || id;
   // só entram telas dos módulos que a empresa tem ligados (os três níveis da lista seguem a tela "Lista do evento")
   const disponiveis = d ? d.telas.filter((t) => menu.some((m) => m.id === t) || (NIVEIS[t] && menu.some((m) => m.id === 'lista_evento'))) : [];
