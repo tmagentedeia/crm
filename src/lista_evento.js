@@ -149,13 +149,15 @@ export function registerListaEventoRoutes(r, wrap) {
   }));
 
   // ---- portaria: marcar entrada e anotar ----
-  // Corpo: { entered: true|false }
+  // Corpo: { entered: true|false, at?: hora em que a pessoa entrou (marcada sem internet e enviada depois; até 24 h atrás) }
   r.put('/event-list-comment/:sale/:seq/entry', tratar(async (req, res) => {
     const p = await pessoa(q, req.params.sale, req.params.seq);
     if (typeof req.body?.entered !== 'boolean') throw erro(400, 'Informe se a pessoa entrou');
     const por = await ator(req);
     await garantir(p);
-    await q('UPDATE shows_attendees SET entered_at = CASE WHEN $3::boolean THEN now() ELSE NULL END, entered_by = CASE WHEN $3::boolean THEN $4 ELSE NULL END WHERE sale_id=$1 AND seq=$2', [p.s.id, p.seq, req.body.entered, por]);
+    const quando = new Date(req.body.at || NaN);
+    const hora = !isNaN(quando) && quando <= new Date() && Date.now() - quando < 864e5 ? quando.toISOString() : null;
+    await q('UPDATE shows_attendees SET entered_at = CASE WHEN $3::boolean THEN COALESCE($5::timestamptz, now()) ELSE NULL END, entered_by = CASE WHEN $3::boolean THEN $4 ELSE NULL END WHERE sale_id=$1 AND seq=$2', [p.s.id, p.seq, req.body.entered, por, hora]);
     await registrar(p.s.event_id, p.s.id, p.seq, p.nome, por, req.body.entered ? 'entrada' : 'entrada_desfeita', null);
     res.json({ ok: true });
   }));

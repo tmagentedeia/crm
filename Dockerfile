@@ -13,6 +13,7 @@ COPY src ./src
 COPY db ./db
 COPY --from=web /public ./public
 ENV NODE_ENV=production
+ENV TZ=America/Sao_Paulo
 # código da versão (a hospedagem preenche); aparece na Administração
 ARG SOURCE_COMMIT
 ENV SOURCE_COMMIT=${SOURCE_COMMIT}

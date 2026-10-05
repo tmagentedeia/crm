@@ -1,6 +1,6 @@
 import CampoSenha from '../senha.jsx';
 import React, { useEffect, useRef, useState } from 'react';
-import { api, fmtDate, getToken, setToken, ADMIN_KEY } from '../api.js';
+import { api, fmtDate, entrarComoEmpresa } from '../api.js';
 import { MODULES, moduleOn } from '../modules.js';
 import { PLANOS, planoDe } from '../plans.js';
 import { IconeCadeado, IconeOlho } from '../icones.jsx';
@@ -130,9 +130,7 @@ export default function Admin() {
   async function abrirPainel(s) {
     try {
       const r = await api(`/admin/companies/${s.id}/impersonate`, { method: 'POST' });
-      localStorage.setItem(ADMIN_KEY, getToken());
-      setToken(r.token);
-      localStorage.setItem('crm_company', JSON.stringify(r.company));
+      entrarComoEmpresa(r.token, r.company);   // vale só nesta aba; as outras abas seguem na empresa delas
       location.hash = 'dashboard';
       location.reload();
     } catch (e) { setErr(e.message); }

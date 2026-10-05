@@ -3,7 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { pool, schemaOf } from './db.js';
 import { PEDIDOS_SQL, CORTESIA_SQL, ATENDIDO_SQL, SUGESTOES_SQL, ATENDIDO_FIX_SQL } from './pedidos.js';
-import { EVENTOS_SQL } from './eventos.js';
+import { EVENTOS_SQL, EVENTOS_ABERTURA_SQL } from './eventos.js';
 import { ASSISTENTE_SQL } from './assistente.js';
 import { PRODUTOS_SQL } from './produtos.js';
 import { VENDAS_SQL } from './vendas.js';
@@ -185,6 +185,8 @@ export const TENANT_STEPS = [
   { version: 39, sql: SHOWS_LISTA_SQL },
   // 40: desconto do Clube nos ingressos
   { version: 40, sql: SHOWS_CLUBE_SQL },
+  // 41: horário de abertura da casa no evento
+  { version: 41, sql: EVENTOS_ABERTURA_SQL },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 
@@ -226,6 +228,7 @@ export async function createCompanySchema(cx, companyId) {
   await cx.query(SHOWS_MESA_RESERVADA_SQL);
   await cx.query(SHOWS_LISTA_SQL);
   await cx.query(SHOWS_CLUBE_SQL);
+  await cx.query(EVENTOS_ABERTURA_SQL);
   await cx.query('SET LOCAL search_path TO public');
   await cx.query('INSERT INTO tenant_versions (company_id, version) VALUES ($1, 1)', [companyId]);
 }

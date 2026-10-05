@@ -5,6 +5,9 @@ const PAGTO = { paid: 'Pago', partial: 'Parcial', pending: 'Pendente', courtesy:
 const ACAO = { entrada: 'marcou entrada', entrada_desfeita: 'desfez a entrada', comentario: 'comentou', edicao: 'editou' };
 const quando = (d) => new Date(d).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
 const hora = (d) => new Date(d).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+const guarda = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* sem espaço: segue sem cópia */ } };
+const le = (k, padrao) => { try { return JSON.parse(localStorage.getItem(k)) ?? padrao; } catch { return padrao; } };
+const semConexao = (e) => !e?.data && !/Sessão|autoriz|permiss/i.test(e?.message || '');
 const dinheiro = (v) => (v === null || v === undefined ? '—' : Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }));
 
 // Lista do evento: uma linha por pessoa. Três níveis de acesso:
@@ -20,6 +23,8 @@ export default function ListaDoEvento() {
   const [edit, setEdit] = useState(null);
   const [nota, setNota] = useState(null);
   const [registro, setRegistro] = useState(null);
+  const [offline, setOffline] = useState(null);   // hora da cópia salva, quando a lista não carregou
+  const [fila, setFila] = useState(() => le('lista_evento_fila', []));   // marcações feitas sem internet, ainda por enviar
 
   useEffect(() => {
     api('/me').then((m) => {
@@ -33,7 +38,43 @@ export default function ListaDoEvento() {
     }).catch((e) => setErro(e.message));
   }, []);
 
-  const carregar = () => ev && api(`/event-list?event_id=${ev}`).then((x) => { setD(x); setErro(''); }).catch((e) => setErro(e.message));
+  const aplicar = (x, itens) => {   // põe por cima da lista as marcações ainda não enviadas
+    if (!itens.length) return x;
+    const rows = x.rows.map((r) => {
+      let out = r;
+      for (const it of itens) {
+        if (String(it.sale_id) !== String(r.sale_id) || it.ev !== ev) continue;
+        if (it.tipo === 'entrada' && (it.seq === r.seq || it.seq === 0)) out = { ...out, entered_at: it.entered ? it.at : null, entered_by: it.entered ? 'você (sem internet)' : null };
+        if (it.tipo === 'nota' && it.seq === r.seq) out = { ...out, door_note: it.note };
+      }
+      return out;
+    });
+    return { ...x, rows, summary: { ...x.summary, entered: rows.filter((r) => r.entered_at).length } };
+  };
+  const mandar = (it) => it.tipo === 'entrada'
+    ? api(it.seq === 0 ? `/event-list-comment/${it.sale_id}/entry` : `/event-list-comment/${it.sale_id}/${it.seq}/entry`, { method: 'PUT', body: { entered: it.entered, at: it.at } })
+    : api(`/event-list-comment/${it.sale_id}/${it.seq}/note`, { method: 'PUT', body: { note: it.note } });
+  const enviarFila = async () => {   // manda o que ficou guardado, na ordem; para na primeira falha de conexão
+    let atual = le('lista_evento_fila', []);
+    while (atual.length) {
+      try { await mandar(atual[0]); } catch (e) { if (semConexao(e)) break; }   // recusada pelo servidor (ex.: venda cancelada): descarta
+      atual = atual.slice(1);
+      guarda('lista_evento_fila', atual); setFila(atual);
+    }
+  };
+  const carregar = async () => {
+    if (!ev) return;
+    await enviarFila();
+    try {
+      const x = await api(`/event-list?event_id=${ev}`);
+      guarda('lista_evento_copia_' + ev, { x, at: new Date().toISOString() });
+      setD(aplicar(x, le('lista_evento_fila', []))); setErro(''); setOffline(null);
+    } catch (e) {
+      const c = le('lista_evento_copia_' + ev, null);
+      if (semConexao(e) && c) { setD(aplicar(c.x, le('lista_evento_fila', []))); setOffline(c.at); setErro(''); } else setErro(e.message);
+    }
+  };
+  useEffect(() => { const h = () => carregar(); window.addEventListener('online', h); return () => window.removeEventListener('online', h); }, [ev]);
   useEffect(() => { setD(null); carregar(); }, [ev]);
   // a portaria vê a lista andar sozinha
   useEffect(() => { const t = setInterval(carregar, 20000); return () => clearInterval(t); }, [ev]);
@@ -50,7 +91,17 @@ export default function ListaDoEvento() {
   }, [d, busca, filtro]);
 
   const agir = async (fn) => { try { await fn(); await carregar(); } catch (e) { setErro(e.message); } };
-  const entrada = (r) => agir(() => api(`/event-list-comment/${r.sale_id}/${r.seq}/entry`, { method: 'PUT', body: { entered: !r.entered_at } }));
+  // Marcação com internet vai direto; sem internet fica guardada no aparelho e sobe sozinha quando voltar
+  const registrarMarca = async (it) => {
+    try { await mandar(it); await carregar(); }
+    catch (e) {
+      if (!semConexao(e)) { setErro(e.message); return; }
+      const nova = [...le('lista_evento_fila', []), it];
+      guarda('lista_evento_fila', nova); setFila(nova);
+      setD((x) => aplicar(x, [it]));
+    }
+  };
+  const entrada = (r) => registrarMarca({ tipo: 'entrada', ev, sale_id: r.sale_id, seq: r.seq, entered: !r.entered_at, at: new Date().toISOString() });
   const baixar = async () => {
     try {
       const res = await fetch(`/api/event-list/export?event_id=${ev}`, { headers: { Authorization: 'Bearer ' + getToken() } });
@@ -67,7 +118,8 @@ export default function ListaDoEvento() {
   };
   const salvarNota = (e) => {
     e.preventDefault();
-    agir(async () => { await api(`/event-list-comment/${nota.sale_id}/${nota.seq}/note`, { method: 'PUT', body: { note: nota.door_note } }); setNota(null); });
+    registrarMarca({ tipo: 'nota', ev, sale_id: nota.sale_id, seq: nota.seq, note: nota.door_note });
+    setNota(null);
   };
 
   const podeMarcar = nivel === 'editor' || nivel === 'comentarista';
@@ -83,6 +135,8 @@ export default function ListaDoEvento() {
         </p>
       </div>
       {erro && <p className="error">{erro}</p>}
+      {offline && <p className="error">Sem conexão. Mostrando a lista salva neste aparelho às {hora(offline)}. Você pode continuar marcando as entradas: elas sobem sozinhas quando a internet voltar.</p>}
+      {fila.length > 0 && <p className="muted">{fila.length} marcação(ões) aguardando para enviar.</p>}
       <div className="row" style={{ marginBottom: 12, gap: 8, flexWrap: 'wrap' }}>
         <select value={ev} onChange={(e) => setEv(e.target.value)} style={{ minWidth: 220, flex: '1 1 220px' }}>
           {!eventos.length && <option value="">Nenhum evento</option>}

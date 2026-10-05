@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { api, getToken, setToken, ADMIN_KEY } from './api.js';
+import { api, getToken, setToken, ADMIN_KEY, emVisita, sairDaEmpresa, lerEmpresa, guardarEmpresa } from './api.js';
 import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Servicos from './pages/Servicos.jsx';
@@ -81,7 +81,7 @@ export default function App() {
   const [nomeProg, setNomeProg] = useState('');
   const [upgrade, setUpgrade] = useState(null); // nome da função apagada que a pessoa tocou
   const [collapsed, setCollapsed] = useState(window.innerWidth < 760);
-  const [company, setCompany] = useState(() => JSON.parse(localStorage.getItem('crm_company') || '{}'));
+  const [company, setCompany] = useState(() => lerEmpresa());
   const [theme, setTheme] = useState(() => localStorage.getItem('crm_theme') ||
     (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
 
@@ -103,12 +103,12 @@ export default function App() {
   // Atualiza os dados da empresa (inclusive os módulos) ao abrir, para uma mudança feita na Administração valer sem sair e entrar
   useEffect(() => {
     if (!logged) return;
-    api('/company').then((c) => { setCompany(c); localStorage.setItem('crm_company', JSON.stringify(c)); }).catch(() => {});
+    api('/company').then((c) => { setCompany(c); guardarEmpresa(c); }).catch(() => {});
   }, [logged]);
 
   // Config.jsx dispara este evento ao salvar nome/logo
   useEffect(() => {
-    const h = (e) => { setCompany(e.detail); localStorage.setItem('crm_company', JSON.stringify(e.detail)); };
+    const h = (e) => { setCompany(e.detail); guardarEmpresa(e.detail); };
     window.addEventListener('company-updated', h);
     return () => window.removeEventListener('company-updated', h);
   }, []);
@@ -135,9 +135,10 @@ export default function App() {
     if (window.innerWidth < 760) setCollapsed(true);
   };
   // Administrador vendo o painel de uma empresa ("Abrir painel" na Administração)
-  const modoAdmin = !!localStorage.getItem(ADMIN_KEY);
+  const modoAdmin = emVisita() || !!localStorage.getItem(ADMIN_KEY);
   const voltarAdmin = () => {
-    setToken(localStorage.getItem(ADMIN_KEY));
+    if (emVisita()) sairDaEmpresa();   // o acesso do administrador continua guardado no navegador, intacto
+    else setToken(localStorage.getItem(ADMIN_KEY));
     localStorage.removeItem(ADMIN_KEY);
     localStorage.removeItem('crm_company');
     location.hash = 'admin';

@@ -21,7 +21,7 @@ export default function Eventos() {
     <>
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: 12 }}>
         <div><h1>Eventos</h1><p className="muted">Compromissos avulsos, como uma live, uma reunião ou um show. Não dependem de profissional nem de serviço.</p></div>
-        <button className="btn primary" onClick={() => setEdit({ title: '', starts_at: '', ends_at: '', place: '', notes: '' })}>+ Novo evento</button>
+        <button className="btn primary" onClick={() => setEdit({ title: '', doors_at: '', starts_at: '', ends_at: '', place: '', notes: '' })}>+ Novo evento</button>
       </div>
       <div className="row" style={{ marginBottom: 12 }}>
         {[['proximos', 'Próximos'], ['passados', 'Passados'], ['todos', 'Todos']].map(([v, l]) => (
@@ -37,12 +37,12 @@ export default function Eventos() {
             {rows.map((e) => (
               <tr key={e.id}>
                 <CelulaLinha s={sel} id={e.id} />
-                <td>{quando(e.starts_at)}{e.ends_at && <span className="muted"> até {quando(e.ends_at)}</span>}</td>
+                <td>{e.doors_at && <div className="muted" style={{ fontSize: 12 }}>Abre {quando(e.doors_at)}</div>}{quando(e.starts_at)}{e.ends_at && <span className="muted"> até {quando(e.ends_at)}</span>}</td>
                 <td><strong>{e.title}</strong></td>
                 <td>{e.place || <span className="muted">—</span>}</td>
                 <td>{e.notes || <span className="muted">—</span>}</td>
                 <td className="row">
-                  <button className="btn" onClick={() => setEdit({ id: e.id, title: e.title, starts_at: paraInput(e.starts_at), ends_at: paraInput(e.ends_at), place: e.place || '', notes: e.notes || '' })}>Editar</button>
+                  <button className="btn" onClick={() => setEdit({ id: e.id, title: e.title, doors_at: paraInput(e.doors_at), starts_at: paraInput(e.starts_at), ends_at: paraInput(e.ends_at), place: e.place || '', notes: e.notes || '' })}>Editar</button>
                   <button className="btn bad" onClick={() => apagar(e)}>Apagar</button>
                 </td>
               </tr>
@@ -63,7 +63,7 @@ function FormEvento({ e, onClose, onSaved }) {
   async function save(ev) {
     ev.preventDefault(); setErr('');
     try {
-      const body = { title: f.title, starts_at: f.starts_at ? new Date(f.starts_at).toISOString() : '', ends_at: f.ends_at ? new Date(f.ends_at).toISOString() : null, place: f.place, notes: f.notes };
+      const body = { title: f.title, doors_at: f.doors_at ? new Date(f.doors_at).toISOString() : null, starts_at: f.starts_at ? new Date(f.starts_at).toISOString() : '', ends_at: f.ends_at ? new Date(f.ends_at).toISOString() : null, place: f.place, notes: f.notes };
       await api(f.id ? '/events/' + f.id : '/events', { method: f.id ? 'PUT' : 'POST', body });
       onSaved();
     } catch (x) { setErr(x.message); }
@@ -74,7 +74,8 @@ function FormEvento({ e, onClose, onSaved }) {
         <h2>{f.id ? 'Editar evento' : 'Novo evento'}</h2>
         {err && <div className="error">{err}</div>}
         <div className="field"><label>Nome do evento *</label><input value={f.title} maxLength={120} onChange={set('title')} required autoFocus /></div>
-        <div className="field"><label>Começa em *</label><input type="datetime-local" value={f.starts_at} onChange={set('starts_at')} required /></div>
+        <div className="field"><label>Abre a casa em (opcional)</label><input type="datetime-local" value={f.doors_at} onChange={set('doors_at')} /></div>
+        <div className="field"><label>Começa em * (início do show)</label><input type="datetime-local" value={f.starts_at} onChange={set('starts_at')} required /></div>
         <div className="field"><label>Termina em (opcional)</label><input type="datetime-local" value={f.ends_at} onChange={set('ends_at')} /></div>
         <div className="field"><label>Local ou link (opcional)</label><input value={f.place} maxLength={200} onChange={set('place')} /></div>
         <div className="field"><label>Observações (opcional)</label><textarea rows="3" value={f.notes} maxLength={2000} onChange={set('notes')} /></div>

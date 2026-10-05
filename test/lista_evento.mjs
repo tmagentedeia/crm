@@ -104,6 +104,20 @@ check('as três telas da lista existem na equipe', ['lista_evento', 'lista_event
 const me = (await call('GET', '/api/me', { token: tComentarista })).body;
 check('a pessoa vê as telas que tem', me.equipe && me.equipe.telas.includes('lista_evento_comentarista'), JSON.stringify(me));
 
+// ---- marcação feita sem internet e abertura da casa ----
+const umaHora = new Date(Date.now() - 36e5).toISOString();
+check('entrada enviada depois guarda a hora em que foi marcada', (await comentarista('PUT', `/event-list-comment/${ana.id}/2/entry`, { entered: true, at: umaHora })).status === 200
+  && Math.abs(new Date((await api('GET', `/event-list?event_id=${ev.id}`)).body.rows.find((x) => x.key === `${ana.id}:2`).entered_at) - new Date(umaHora)) < 2000);
+await comentarista('PUT', `/event-list-comment/${ana.id}/2/entry`, { entered: false });
+await comentarista('PUT', `/event-list-comment/${ana.id}/2/entry`, { entered: true, at: new Date(Date.now() + 36e5).toISOString() });
+check('hora no futuro é ignorada', new Date((await api('GET', `/event-list?event_id=${ev.id}`)).body.rows.find((x) => x.key === `${ana.id}:2`).entered_at) <= new Date());
+const abre = new Date(Date.now() + 24 * 36e5).toISOString(), comeca = new Date(Date.now() + 26 * 36e5).toISOString();
+const e2 = (await api('POST', '/events', { title: 'Show Lista Abertura', starts_at: comeca, doors_at: abre })).body;
+check('evento guarda a abertura da casa', e2.id && new Date(e2.doors_at).getTime() === new Date(abre).getTime(), JSON.stringify(e2));
+check('abertura depois do show é recusada', (await api('PUT', '/events/' + e2.id, { doors_at: new Date(Date.now() + 30 * 36e5).toISOString() })).status === 400);
+check('abertura pode ser apagada', (await api('PUT', '/events/' + e2.id, { doors_at: null })).body.doors_at === null);
+await api('DELETE', '/events/' + e2.id);
+
 // limpeza
 psql("set search_path to company_1, public; delete from shows_attendee_log; delete from shows_attendees; delete from shows_sale_payments; delete from shows_sales where sector_id in (select id from shows_sectors where name = 'Setor Lista'); delete from customers where phone like '%3288860001' or phone like '%3288860002'");
 await api('DELETE', `/casa-de-shows/sectors/${setor.id}`); await api('DELETE', `/casa-de-shows/table-types/${mesa.id}`); await api('DELETE', '/events/' + ev.id);

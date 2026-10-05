@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { api, fmtPhone } from '../api.js';
+import { api, fmtPhone, lerEmpresa } from '../api.js';
 import { useSelecao, CelulaTodos, CelulaLinha, ApagarSelecionados, resumoApagado } from '../selecao.jsx';
 import { Nome } from "../menu.jsx";
 
@@ -80,7 +80,7 @@ function Form({ id, voltar, abrir, frases }) {
   const [pronto, setPronto] = useState(false);
   const mexeu = useRef(false); // só guarda o rascunho depois que a pessoa mexe em alguma coisa
   // O que ainda não foi salvo fica guardado neste navegador, por empresa e por campanha
-  const chave = 'crm_campanha_rascunho:' + (lerJson('crm_company')?.id ?? '') + ':' + (id || 'novo');
+  const chave = 'crm_campanha_rascunho:' + (lerEmpresa()?.id ?? '') + ':' + (id || 'novo');
 
   const doServidor = () => api('/campaigns/' + id).then((c) => setF({
     name: c.name, messages: c.messages,

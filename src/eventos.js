@@ -16,6 +16,9 @@ export const EVENTOS_SQL = `
   );
   CREATE INDEX IF NOT EXISTS idx_events_starts ON events (starts_at);`;
 
+// Abertura da casa (antes do começo do show); vazio = sem horário de abertura
+export const EVENTOS_ABERTURA_SQL = `ALTER TABLE events ADD COLUMN IF NOT EXISTS doors_at TIMESTAMPTZ;`;
+
 const txt = (v, max) => { const s = String(v ?? '').trim(); return s.length <= max && !/[\u0000-\u0008\u000b-\u001f<>]/.test(s) ? s : null; };
 const dataOk = (v) => { const d = new Date(v); return v && !isNaN(d) ? d : null; };
 // "em andamento ou futuro": sem fim, vale até 3 horas depois do começo
@@ -42,6 +45,7 @@ export function registerEventRoutes(r, wrap) {
     const o = {};
     if (!parcial || b.title !== undefined) { o.title = txt(b.title, 120); if (!o.title) return { erro: 'Informe o nome do evento (até 120 letras)' }; }
     if (!parcial || b.starts_at !== undefined) { o.starts_at = dataOk(b.starts_at); if (!o.starts_at) return { erro: 'Informe a data e a hora de início' }; }
+    if (b.doors_at !== undefined) { o.doors_at = b.doors_at ? dataOk(b.doors_at) : null; if (b.doors_at && !o.doors_at) return { erro: 'Abertura da casa inválida' }; }
     if (b.ends_at !== undefined) { o.ends_at = b.ends_at ? dataOk(b.ends_at) : null; if (b.ends_at && !o.ends_at) return { erro: 'Fim inválido' }; }
     if (b.place !== undefined) { o.place = txt(b.place, 200); if (o.place === null) return { erro: 'Local inválido (até 200 letras)' }; }
     if (b.notes !== undefined) { o.notes = txt(b.notes, 2000); if (o.notes === null) return { erro: 'Observações inválidas (até 2000 letras)' }; }
@@ -52,9 +56,10 @@ export function registerEventRoutes(r, wrap) {
     const { o, erro } = ler(req.body || {}, false);
     if (erro) return res.status(400).json({ error: erro });
     if (o.ends_at && o.ends_at <= o.starts_at) return res.status(400).json({ error: 'O fim precisa ser depois do início' });
+    if (o.doors_at && o.doors_at > o.starts_at) return res.status(400).json({ error: 'A casa precisa abrir antes do começo do show' });
     try {
-      const e = (await q(`INSERT INTO events (title, starts_at, ends_at, place, notes, external_id) VALUES ($1,$2,$3,NULLIF($4,''),NULLIF($5,''),$6) RETURNING *`,
-        [o.title, o.starts_at, o.ends_at || null, o.place || '', o.notes || '', o.external_id || null])).rows[0];
+      const e = (await q(`INSERT INTO events (title, starts_at, ends_at, place, notes, external_id, doors_at) VALUES ($1,$2,$3,NULLIF($4,''),NULLIF($5,''),$6,$7) RETURNING *`,
+        [o.title, o.starts_at, o.ends_at || null, o.place || '', o.notes || '', o.external_id || null, o.doors_at || null])).rows[0];
       res.status(201).json(e);
     } catch (e) {
       if (e.code === '23505') return res.status(409).json({ error: 'Já existe um evento com essa identificação' });
@@ -68,9 +73,10 @@ export function registerEventRoutes(r, wrap) {
     if (!atual) return res.status(404).json({ error: 'Não encontrado' });
     const n = { ...atual, ...o };
     if (n.ends_at && new Date(n.ends_at) <= new Date(n.starts_at)) return res.status(400).json({ error: 'O fim precisa ser depois do início' });
+    if (n.doors_at && new Date(n.doors_at) > new Date(n.starts_at)) return res.status(400).json({ error: 'A casa precisa abrir antes do começo do show' });
     try {
-      res.json((await q(`UPDATE events SET title=$2, starts_at=$3, ends_at=$4, place=NULLIF($5,''), notes=NULLIF($6,''), external_id=$7, updated_at=now() WHERE id=$1 RETURNING *`,
-        [req.params.id, n.title, n.starts_at, n.ends_at || null, n.place || '', n.notes || '', n.external_id || null])).rows[0]);
+      res.json((await q(`UPDATE events SET title=$2, starts_at=$3, ends_at=$4, place=NULLIF($5,''), notes=NULLIF($6,''), external_id=$7, doors_at=$8, updated_at=now() WHERE id=$1 RETURNING *`,
+        [req.params.id, n.title, n.starts_at, n.ends_at || null, n.place || '', n.notes || '', n.external_id || null, n.doors_at || null])).rows[0]);
     } catch (e) {
       if (e.code === '23505') return res.status(409).json({ error: 'Já existe um evento com essa identificação' });
       throw e;

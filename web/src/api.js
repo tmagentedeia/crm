@@ -1,7 +1,21 @@
 const KEY = 'crm_token';
 export const ADMIN_KEY = 'crm_admin_token'; // guarda o acesso do administrador enquanto ele vê o painel de uma empresa
-export const getToken = () => localStorage.getItem(KEY);
-export const setToken = (t) => (t ? localStorage.setItem(KEY, t) : localStorage.removeItem(KEY));
+// "Abrir painel" da Administração vale só para a ABA em que foi aberto (sessionStorage): outras abas continuam na sua própria empresa.
+// Antes o acesso ficava no localStorage, compartilhado por todas as abas, e duas abas de empresas diferentes se misturavam.
+const KEY_ABA = 'crm_token_aba', EMPRESA_ABA = 'crm_company_aba';
+const sess = (f) => { try { return f(); } catch { return null; } };
+export const emVisita = () => !!sess(() => sessionStorage.getItem(KEY_ABA));
+export const getToken = () => sess(() => sessionStorage.getItem(KEY_ABA)) || localStorage.getItem(KEY);
+export const setToken = (t) => {
+  if (!t) sair();
+  else if (emVisita()) sess(() => sessionStorage.setItem(KEY_ABA, t));
+  else localStorage.setItem(KEY, t);
+};
+function sair() { localStorage.removeItem(KEY); sess(() => { sessionStorage.removeItem(KEY_ABA); sessionStorage.removeItem(EMPRESA_ABA); }); }
+export const entrarComoEmpresa = (token, company) => sess(() => { sessionStorage.setItem(KEY_ABA, token); sessionStorage.setItem(EMPRESA_ABA, JSON.stringify(company)); });
+export const sairDaEmpresa = () => sess(() => { sessionStorage.removeItem(KEY_ABA); sessionStorage.removeItem(EMPRESA_ABA); });
+export const lerEmpresa = () => { try { return JSON.parse((emVisita() ? sessionStorage.getItem(EMPRESA_ABA) : localStorage.getItem('crm_company')) || '{}'); } catch { return {}; } };
+export const guardarEmpresa = (c) => { try { emVisita() ? sessionStorage.setItem(EMPRESA_ABA, JSON.stringify(c)) : localStorage.setItem('crm_company', JSON.stringify(c)); } catch { /* sem armazenamento */ } };
 
 export async function api(path, { method = 'GET', body } = {}) {
   const res = await fetch('/api' + path, {
@@ -19,6 +33,7 @@ export async function api(path, { method = 'GET', body } = {}) {
   if (res.status === 401 && path !== '/auth/login' && /Sessão inválida|Não autenticado/.test(data.error || '')) {
     setToken(null);
     localStorage.removeItem(ADMIN_KEY);
+    localStorage.removeItem('crm_company');
     location.reload();
   }
   if (!res.ok) { const err = new Error(data.error || 'Erro na requisição'); err.data = data; throw err; }
