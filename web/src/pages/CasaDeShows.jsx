@@ -12,7 +12,7 @@ const hoje = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTi
 
 const FORMAS = { pix: 'Pix', dinheiro: 'Dinheiro', cartao: 'Cartão', parceiro: 'Parceiro', cortesia: 'Cortesia', outro: 'Outro' };
 const dinheiroBR = (v) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-// Resumo curto do pagamento de uma reserva para a lista
+// Resumo curto do pagamento de uma venda para a lista
 const situacaoPagto = (v) => {
   if (v.courtesy) return 'Cortesia';
   if (v.total === null || v.total === undefined) return v.paid > 0 ? dinheiroBR(v.paid) : 'Lançar';
@@ -22,19 +22,19 @@ const situacaoPagto = (v) => {
 };
 
 export default function CasaDeShows() {
-  const [aba, setAba] = useState('reservas');
+  const [aba, setAba] = useState('vendas');
   return (
     <>
       <div style={{ marginBottom: 12 }}>
         <h1>Casa de Shows</h1>
-        <p className="muted">Reservas de mesa por setor. Cada local tem seus setores e formatos de uso; cada setor tem um espaço, e cada tipo de mesa ocupa uma parte dele.</p>
+        <p className="muted">Vendas de mesa por setor. Cada local tem seus setores e formatos de uso; cada setor tem um espaço, e cada tipo de mesa ocupa uma parte dele.</p>
       </div>
       <div className="row" style={{ marginBottom: 12 }}>
-        {[['reservas', 'Reservas'], ['locais', 'Locais'], ['setores', 'Setores'], ['mesas', 'Mesas']].map(([v, l]) => (
+        {[['vendas', 'Vendas'], ['locais', 'Locais'], ['setores', 'Setores'], ['mesas', 'Mesas']].map(([v, l]) => (
           <button key={v} className={'btn' + (aba === v ? ' primary' : '')} onClick={() => setAba(v)}>{l}</button>
         ))}
       </div>
-      {aba === 'reservas' && <Reservas />}
+      {aba === 'vendas' && <Vendas />}
       {aba === 'locais' && <Locais />}
       {aba === 'setores' && <Setores />}
       {aba === 'mesas' && <Mesas />}
@@ -42,8 +42,8 @@ export default function CasaDeShows() {
   );
 }
 
-// ---------------------------------------------------------------- reservas
-function Reservas() {
+// ---------------------------------------------------------------- vendas
+function Vendas() {
   const [eventos, setEventos] = useState([]);
   const [passados, setPassados] = useState([]);
   const [oc, setOc] = useState(''); // id do evento, ou 'data'
@@ -85,7 +85,7 @@ function Reservas() {
     if (!oc) return;
     setErr('');
     api('/casa-de-shows/availability?' + filtro).then(setDisp).catch((e) => setErr(e.message));
-    api('/casa-de-shows/reservations?' + filtro).then(setLista).catch((e) => setErr(e.message));
+    api('/casa-de-shows/sales?' + filtro).then(setLista).catch((e) => setErr(e.message));
     api('/casa-de-shows/extras?' + filtro).then(setExtras).catch(() => {});
     api('/casa-de-shows/payments/summary?' + filtro).then(setResumo).catch(() => {});
   };
@@ -107,17 +107,17 @@ function Reservas() {
     if (edit.birthday.trim()) body.birthday = edit.birthday.trim();
     if (edit.id ? edit.unit_price !== edit.unit_price_antes : edit.unit_price !== '') body.unit_price = edit.unit_price;
     try {
-      if (edit.id) await api('/casa-de-shows/reservations/' + edit.id, { method: 'PUT', body });
-      else await api('/casa-de-shows/reservations', { method: 'POST', body });
+      if (edit.id) await api('/casa-de-shows/sales/' + edit.id, { method: 'PUT', body });
+      else await api('/casa-de-shows/sales', { method: 'POST', body });
       setEdit(null); load();
     } catch (e2) { setErr(e2.message); }
   }
   const mudar = async (v, status) => {
-    try { await api('/casa-de-shows/reservations/' + v.id, { method: 'PUT', body: { status } }); load(); } catch (e) { setErr(e.message); }
+    try { await api('/casa-de-shows/sales/' + v.id, { method: 'PUT', body: { status } }); load(); } catch (e) { setErr(e.message); }
   };
   const apagar = async (v) => {
-    if (!confirm(`Apagar a reserva de ${v.name}? Não dá para desfazer.`)) return;
-    try { await api('/casa-de-shows/reservations/' + v.id, { method: 'DELETE' }); load(); } catch (e) { setErr(e.message); }
+    if (!confirm(`Apagar a venda de ${v.name}? Não dá para desfazer.`)) return;
+    try { await api('/casa-de-shows/sales/' + v.id, { method: 'DELETE' }); load(); } catch (e) { setErr(e.message); }
   };
   async function salvarExtra(e) {
     e.preventDefault(); setErr('');
@@ -233,9 +233,9 @@ function Reservas() {
           {oc !== 'data' && <button className="btn" onClick={abrirDup}>Duplicar evento</button>}
           <button className="btn" disabled={!setores.some((s) => s.active) || !tiposAtivos.length} onClick={() => { setErr(''); setNovaExtra({ sector_id: setores.find((x) => x.active)?.id || '', table_type_id: tiposAtivos[0]?.id || '', quantity: 1, note: '' }); }}>+ Mesa extra</button>
         </div>
-        <button className="btn primary" onClick={novo} disabled={!setores.some((s) => s.active) || !tiposAtivos.length}>+ Nova reserva</button>
+        <button className="btn primary" onClick={novo} disabled={!setores.some((s) => s.active) || !tiposAtivos.length}>+ Nova venda</button>
       </div>
-      {(!setores.some((s) => s.active) || !tiposAtivos.length) && <p className="muted">Antes de reservar, cadastre ao menos um setor (aba Setores) e um tipo de mesa (aba Mesas).</p>}
+      {(!setores.some((s) => s.active) || !tiposAtivos.length) && <p className="muted">Antes de vender, cadastre ao menos um setor (aba Setores) e um tipo de mesa (aba Mesas).</p>}
       {err && !edit && !ajuste && !setup && <div className="error">{err}</div>}
       {disp?.venue && variosLocais && oc !== 'data' && <p className="muted" style={{ margin: '0 0 10px' }}>Local: <strong>{disp.venue.name}</strong>{disp.layout && <> · Formato: <strong>{disp.layout.name}</strong></>}</p>}
 
@@ -249,14 +249,14 @@ function Reservas() {
                 <div style={{ width: p + '%', height: '100%', background: p >= 100 ? 'var(--bad)' : 'var(--primary)', borderRadius: 4 }} />
               </div>
               <div className="muted">{n1(s.used)} de {n1(s.space)} · restam {n1(s.free)}</div>
-              <div className="muted">{s.reservations} reserva(s) · {s.people} pessoa(s)</div>
+              <div className="muted">{s.sales} venda(s) · {s.people} pessoa(s)</div>
             </div>
           );
         })}
         {disp && !disp.sectors.length && <p className="muted">Nenhum setor ativo.</p>}
       </div>
 
-      {resumo && resumo.reservations > 0 && (
+      {resumo && resumo.sales > 0 && (
         <div className="card" style={{ padding: 12, marginBottom: 14 }}>
           <div className="row" style={{ justifyContent: 'space-between' }}>
             <strong>Pagamentos</strong>
@@ -299,7 +299,7 @@ function Reservas() {
                 <td>{v.people}</td>
                 <td>{v.tables} × {v.table_name}</td>
                 <td>{v.total !== null ? n1(v.total) : <span className="muted">—</span>}{v.code_word && <div className="muted" style={{ fontSize: 12 }}>{v.code_word}</div>}</td>
-                <td><button className="btn sm" onClick={() => setPagto(v)} title="Pagamentos desta reserva">{situacaoPagto(v)}</button></td>
+                <td><button className="btn sm" onClick={() => setPagto(v)} title="Pagamentos desta venda">{situacaoPagto(v)}</button></td>
                 <td><span className={'badge ' + BADGE[v.status]}>{SITUACAO[v.status]}</span></td>
                 <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                   {v.status === 'confirmed' && <button className="btn sm" onClick={() => mudar(v, 'attended')}>Compareceu</button>}{' '}
@@ -309,7 +309,7 @@ function Reservas() {
                 </td>
               </tr>
             ))}
-            {!lista.length && <tr><td colSpan="9" className="muted">Nenhuma reserva {oc === 'data' ? `em ${dia(data)}` : 'neste evento'}.</td></tr>}
+            {!lista.length && <tr><td colSpan="9" className="muted">Nenhuma venda {oc === 'data' ? `em ${dia(data)}` : 'neste evento'}.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -317,9 +317,9 @@ function Reservas() {
       {edit && (
         <div className="modal-bg" onClick={() => setEdit(null)}>
           <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={salvar}>
-            <h2>{edit.id ? 'Editar reserva' : 'Nova reserva'}</h2>
+            <h2>{edit.id ? 'Editar venda' : 'Nova venda'}</h2>
             {err && <div className="error">{err}</div>}
-            <div className="field"><label>Nome de quem reserva *</label><input value={edit.name} maxLength={120} onChange={(e) => setEdit({ ...edit, name: e.target.value })} required /></div>
+            <div className="field"><label>Nome de quem compra *</label><input value={edit.name} maxLength={120} onChange={(e) => setEdit({ ...edit, name: e.target.value })} required /></div>
             <div className="field"><label>Telefone (WhatsApp)</label><input value={edit.phone} onChange={(e) => setEdit({ ...edit, phone: e.target.value })} placeholder="(32) 99999-9999" /></div>
             <div className="row">
               <div className="field"><label>Setor *</label>
@@ -346,7 +346,7 @@ function Reservas() {
               <div className="field"><label>Palavra-chave de desconto</label><input value={edit.code} onChange={(e) => setEdit({ ...edit, code: e.target.value })} placeholder="Opcional" /></div>
               <div className="field"><label>Valor por pessoa (R$)</label><input value={edit.unit_price} onChange={(e) => setEdit({ ...edit, unit_price: e.target.value })} placeholder="Automático pelo evento" /></div>
             </div>
-            <div className="field"><label>Aniversário de quem reserva (dd/mm ou dd/mm/aaaa)</label><input value={edit.birthday} onChange={(e) => setEdit({ ...edit, birthday: e.target.value })} placeholder="Opcional — só preenche a ficha se estiver vazia" /></div>
+            <div className="field"><label>Aniversário de quem compra (dd/mm ou dd/mm/aaaa)</label><input value={edit.birthday} onChange={(e) => setEdit({ ...edit, birthday: e.target.value })} placeholder="Opcional — só preenche a ficha se estiver vazia" /></div>
             <div className="field"><label>Lista de nomes (um por linha)</label><textarea rows="3" value={edit.guests} maxLength={2000} onChange={(e) => setEdit({ ...edit, guests: e.target.value })} /></div>
             <div className="field"><label>Anotação (opcional)</label><input value={edit.note} maxLength={300} onChange={(e) => setEdit({ ...edit, note: e.target.value })} /></div>
             <div className="row"><button className="btn primary">Salvar</button><button type="button" className="btn" onClick={() => setEdit(null)}>Cancelar</button></div>
@@ -450,7 +450,7 @@ function Reservas() {
         <div className="modal-bg" onClick={() => setDup(null)}>
           <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={salvarDup}>
             <h2>Duplicar evento</h2>
-            <p className="muted">O novo evento leva o preço, as palavras-chave e o espaço dos setores. A lista de reservas e as mesas extras começam vazias, e os prazos acompanham a nova data.</p>
+            <p className="muted">O novo evento leva o preço, as palavras-chave e o espaço dos setores. A lista de vendas e as mesas extras começam vazias, e os prazos acompanham a nova data.</p>
             {err && <div className="error">{err}</div>}
             <div className="field"><label>Nome do novo evento</label><input value={dup.title} maxLength="120" onChange={(e) => setDup({ ...dup, title: e.target.value })} required /></div>
             <div className="field"><label>Data e hora de início *</label><input type="datetime-local" value={dup.starts_at} onChange={(e) => setDup({ ...dup, starts_at: e.target.value })} required /></div>
@@ -482,7 +482,7 @@ function Reservas() {
         </div>
       )}
 
-      {pagto && <Pagamentos reserva={pagto} onClose={() => setPagto(null)} onChange={load} />}
+      {pagto && <Pagamentos venda={pagto} onClose={() => setPagto(null)} onChange={load} />}
       {setup && (
         <div className="modal-bg" onClick={() => setSetup(null)}>
           <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={salvarSetup}>
@@ -595,18 +595,18 @@ function FotosDoSetor({ setorId }) {
   );
 }
 
-// ---------------------------------------------------------------- pagamentos de uma reserva
-function Pagamentos({ reserva, onClose, onChange }) {
+// ---------------------------------------------------------------- pagamentos de uma venda
+function Pagamentos({ venda, onClose, onChange }) {
   const [dados, setDados] = useState(null);
   const [chaves, setChaves] = useState([]);
   const [comprovantes, setComprovantes] = useState([]);
   const [f, setF] = useState({ method: 'pix', amount: '', pix_key_id: '', payment_id: '', note: '' });
   const [err, setErr] = useState('');
-  const load = () => api(`/casa-de-shows/reservations/${reserva.id}/payments`).then(setDados).catch((e) => setErr(e.message));
+  const load = () => api(`/casa-de-shows/sales/${venda.id}/payments`).then(setDados).catch((e) => setErr(e.message));
   useEffect(() => {
     load();
     api('/finance/keys').then((l) => setChaves(l.filter((k) => k.active))).catch(() => {});
-    if (reserva.event_id) api(`/casa-de-shows/events/${reserva.event_id}/pix`).then((p) => { if (p.configured && p.current) { setF((x) => ({ ...x, pix_key_id: String(p.current.key_id) })); } }).catch(() => {});
+    if (venda.event_id) api(`/casa-de-shows/events/${venda.event_id}/pix`).then((p) => { if (p.configured && p.current) { setF((x) => ({ ...x, pix_key_id: String(p.current.key_id) })); } }).catch(() => {});
     api('/payments?status=accepted').then((l) => setComprovantes(l.slice(0, 100))).catch(() => {});
   }, []);
   async function lancar(e) {
@@ -616,9 +616,9 @@ function Pagamentos({ reserva, onClose, onChange }) {
     if (f.method === 'pix' && f.pix_key_id) body.pix_key_id = f.pix_key_id;
     if (f.method === 'pix' && f.payment_id) body.payment_id = f.payment_id;
     try {
-      await api(`/casa-de-shows/reservations/${reserva.id}/payments`, { method: 'POST', body });
+      await api(`/casa-de-shows/sales/${venda.id}/payments`, { method: 'POST', body });
       setF({ method: 'pix', amount: '', pix_key_id: '', payment_id: '', note: '' });
-      if (reserva.event_id) api(`/casa-de-shows/events/${reserva.event_id}/pix`).then((p) => { if (p.configured && p.current) setF((x) => ({ ...x, pix_key_id: String(p.current.key_id) })); }).catch(() => {});
+      if (venda.event_id) api(`/casa-de-shows/events/${venda.event_id}/pix`).then((p) => { if (p.configured && p.current) setF((x) => ({ ...x, pix_key_id: String(p.current.key_id) })); }).catch(() => {});
       await load(); onChange();
     } catch (e2) { setErr(e2.message); }
   }
@@ -633,10 +633,10 @@ function Pagamentos({ reserva, onClose, onChange }) {
   return (
     <div className="modal-bg" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>Pagamentos · {reserva.name}</h2>
+        <h2>Pagamentos · {venda.name}</h2>
         {dados && (
           <p className="muted">
-            {dados.total !== null ? <>Valor da reserva: <strong>{dinheiroBR(dados.total)}</strong> · </> : 'Reserva sem valor definido · '}
+            {dados.total !== null ? <>Valor da venda: <strong>{dinheiroBR(dados.total)}</strong> · </> : 'Venda sem valor definido · '}
             Pago: <strong>{dinheiroBR(dados.paid)}</strong>
             {dados.total !== null && dados.paid < dados.total && !dados.courtesy && <> · Falta: <strong>{dinheiroBR(dados.total - dados.paid)}</strong></>}
             {dados.courtesy && ' · Cortesia'}
@@ -943,7 +943,7 @@ function Setores() {
                 {!tipos.some((t) => t.active) && <span className="muted">Cadastre os tipos de mesa na aba Mesas.</span>}
               </div>
             )}
-            <label className="row" style={{ gap: 8, marginTop: 8 }}><input type="checkbox" checked={edit.active} onChange={(e) => setEdit({ ...edit, active: e.target.checked })} /> Setor ativo (aceita reservas)</label>
+            <label className="row" style={{ gap: 8, marginTop: 8 }}><input type="checkbox" checked={edit.active} onChange={(e) => setEdit({ ...edit, active: e.target.checked })} /> Setor ativo (aceita vendas)</label>
             <div className="row" style={{ marginTop: 12 }}><button className="btn primary">Salvar</button><button type="button" className="btn" onClick={() => setEdit(null)}>Cancelar</button></div>
           </form>
         </div>
@@ -969,13 +969,13 @@ function Mesas() {
     } catch (e2) { setErr(e2.message); }
   }
   const apagar = async (t) => {
-    if (!confirm(`Apagar a mesa "${t.name}"? As reservas já feitas continuam como estão.`)) return;
+    if (!confirm(`Apagar a mesa "${t.name}"? As vendas já feitas continuam como estão.`)) return;
     try { await api('/casa-de-shows/table-types/' + t.id, { method: 'DELETE' }); load(); } catch (e) { setErr(e.message); }
   };
   return (
     <>
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: 12 }}>
-        <p className="muted" style={{ margin: 0 }}>Cada tipo de mesa tem seus lugares e o espaço que ocupa. Mudar aqui não altera reservas já feitas.</p>
+        <p className="muted" style={{ margin: 0 }}>Cada tipo de mesa tem seus lugares e o espaço que ocupa. Mudar aqui não altera vendas já feitas.</p>
         <button className="btn primary" onClick={() => { setErr(''); setEdit({ name: '', seats: '', space: '', active: true }); }}>+ Nova mesa</button>
       </div>
       {err && !edit && <div className="error">{err}</div>}

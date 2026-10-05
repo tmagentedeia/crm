@@ -11,7 +11,7 @@ const call = async (method, path, { token, body, headers: h } = {}) => {
   return { status: r.status, body: j };
 };
 const psql = (sql) => execSync(`psql "${process.env.DATABASE_URL}" -tAc "${sql}"`).toString().trim();
-psql("set search_path to company_1, public; delete from company_1.shows_reservations where sector_id in (select id from company_1.shows_sectors where name = 'Pista Lotes'); delete from company_1.shows_sectors where name = 'Pista Lotes'; delete from company_1.events where title like 'Show Lotes%'");
+psql("set search_path to company_1, public; delete from company_1.shows_sales where sector_id in (select id from company_1.shows_sectors where name = 'Pista Lotes'); delete from company_1.shows_sectors where name = 'Pista Lotes'; delete from company_1.events where title like 'Show Lotes%'");
 const A = (await call('POST', '/api/auth/login', { body: { email: 'demo@demo.com', password: 'demo1234' } })).body;
 const api = (m, p, body) => call(m, '/api' + p, { token: A.token, body });
 const N8N = { 'x-api-key': process.env.N8N_API_KEY || 'k', 'x-company-id': '1' };
@@ -75,11 +75,11 @@ p = await preco();
 check('depois do começo do evento vale a portaria', p.unit_price === 120 && p.tier === 'portaria', JSON.stringify(p));
 psql(`set search_path to company_1, public; update events set starts_at = now() + interval '10 days' where id = ${ev.id}`);
 
-// a reserva pega o lote vigente
+// a venda pega o lote vigente
 const setor = (await api('POST', '/casa-de-shows/sectors', { name: 'Pista Lotes', space: 100 })).body;
 await L({ lots: [{ name: 'Lote 1', price: 40, valid_until: h(-24) }, { name: 'Lote 2', price: 70, valid_until: h(24) }] });
-const rv = (await api('POST', '/casa-de-shows/reservations', { event_id: ev.id, sector_id: setor.id, name: 'Cliente Lote', people: 2 })).body;
-check('reserva usa o preço do lote vigente', rv.unit_price === 70 && rv.total === 140, JSON.stringify(rv));
+const rv = (await api('POST', '/casa-de-shows/sales', { event_id: ev.id, sector_id: setor.id, name: 'Cliente Lote', people: 2 })).body;
+check('venda usa o preço do lote vigente', rv.unit_price === 70 && rv.total === 140, JSON.stringify(rv));
 
 // duplicar copia os lotes com as datas deslocadas
 const dup = await api('POST', `/casa-de-shows/events/${ev.id}/duplicate`, { title: 'Show Lotes 2', starts_at: h(24 * 20) });
@@ -95,7 +95,7 @@ p = await preco();
 check('sem lotes vale o preço único de antes', p.unit_price === 90 && !p.lot && p.tier === 'normal', JSON.stringify(p));
 
 for (const e of [ev, dup.body.event]) await api('DELETE', '/events/' + e.id);
-psql(`set search_path to company_1, public; delete from shows_reservations where sector_id=${setor.id}`);
+psql(`set search_path to company_1, public; delete from shows_sales where sector_id=${setor.id}`);
 await api('DELETE', `/casa-de-shows/sectors/${setor.id}`);
 
 // ---------- lote por quantidade ----------
@@ -103,7 +103,7 @@ const ev3 = (await api('POST', '/events', { title: 'Show Lotes Qtd', starts_at: 
 const L3 = (b) => api('PUT', `/casa-de-shows/events/${ev3.id}/lots`, b);
 const pr3 = async () => (await call('GET', `/n8n/casa-de-shows/events/${ev3.id}/price?x=1`, { headers: N8N })).body;
 const setor3 = (await api('POST', '/casa-de-shows/sectors', { name: 'Pista Lotes', space: 100 })).body;
-const res3 = async (nome, n) => (await api('POST', '/casa-de-shows/reservations', { event_id: ev3.id, sector_id: setor3.id, name: nome, people: n })).body;
+const res3 = async (nome, n) => (await api('POST', '/casa-de-shows/sales', { event_id: ev3.id, sector_id: setor3.id, name: nome, people: n })).body;
 check('quantidade inválida', (await L3({ lots: [{ name: 'A', price: 50, max_qty: 0 }] })).status === 400);
 check('quantidade com texto', (await L3({ lots: [{ name: 'A', price: 50, max_qty: 'muitos' }] })).status === 400);
 check('lote do meio sem prazo e sem quantidade', (await L3({ lots: [{ name: 'A', price: 50 }, { name: 'B', price: 60 }] })).status === 400);
@@ -125,7 +125,7 @@ q3 = await pr3();
 check('lote 2 esgotado: vale o lote 3', q3.lot === 'Lote 3' && q3.unit_price === 90 && q3.lot_remaining === null, JSON.stringify(q3));
 
 // cancelar devolve o ingresso ao lote
-await api('PUT', `/casa-de-shows/reservations/${a3.id}`, { status: 'cancelled' });
+await api('PUT', `/casa-de-shows/sales/${a3.id}`, { status: 'cancelled' });
 q3 = await pr3();
 check('cancelar devolve o ingresso ao lote', q3.lot === 'Lote 2' && q3.lot_remaining === 4, JSON.stringify(q3));
 
@@ -149,7 +149,7 @@ check('esgotado o único lote: vale a portaria', q3.tier === 'portaria' && q3.un
 await api('PUT', `/casa-de-shows/events/${ev3.id}/conditions`, { door_price: null });
 q3 = await pr3();
 check('esgotado sem portaria: continua o último lote', q3.lot === 'Único' && q3.lot_remaining === 0 && q3.unit_price === 50, JSON.stringify(q3));
-psql(`set search_path to company_1, public; delete from shows_reservations where sector_id=${setor3.id}`);
+psql(`set search_path to company_1, public; delete from shows_sales where sector_id=${setor3.id}`);
 await api('DELETE', `/casa-de-shows/sectors/${setor3.id}`);
 await api('DELETE', '/events/' + ev3.id); await api('DELETE', '/events/' + evx.id);
 console.log(`${ok} ok, ${fail} falhas`);

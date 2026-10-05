@@ -257,14 +257,14 @@ function Detail({ c, perfis, nomePedidos, clube, club, onClose, onSaved, onDelet
         )}
         {c.tickets?.rows?.length > 0 && (
           <>
-            <h2>Ingressos e reservas</h2>
+            <h2>Ingressos e vendas</h2>
             <p className="muted">
               {c.tickets.purchases} compra(s) · total pago {money(c.tickets.total)}
               {c.tickets.average_ticket !== null && ` · ticket médio ${money(c.tickets.average_ticket)} por compra e ${money(c.tickets.average_per_person)} por pessoa`}
             </p>
             <table><tbody>{c.tickets.rows.map((t) => (
               <tr key={t.id}>
-                <td>{new Date(t.date + 'T12:00:00').toLocaleDateString('pt-BR')}</td><td>{t.event_title || 'Reserva avulsa'}</td><td>{t.sector_name}</td>
+                <td>{new Date(t.date + 'T12:00:00').toLocaleDateString('pt-BR')}</td><td>{t.event_title || 'Venda avulsa'}</td><td>{t.sector_name}</td>
                 <td>{t.people} pessoa(s)</td><td>{t.total !== null ? money(t.total) : '—'}{t.code_word ? ` · ${t.code_word}` : ''}</td>
                 <td className="muted">{t.status === 'cancelled' ? 'Cancelada' : t.status === 'no_show' ? 'Não veio' : t.status === 'attended' ? 'Compareceu' : 'Confirmada'}</td>
               </tr>

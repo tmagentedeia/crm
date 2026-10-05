@@ -61,12 +61,12 @@ check('evento passa a usar o formato', st.layout.name === 'Show em pé ' + marca
 const dispB = (await api('GET', `/casa-de-shows/availability?event_id=${evB.id}`)).body;
 check('só o setor do formato aparece, com o espaço do formato', dispB.sectors.length === 1 && dispB.sectors[0].name === 'Pista ' + marca && dispB.sectors[0].space === 12 && dispB.sectors[0].base_space === 12, JSON.stringify(dispB.sectors));
 check('regra de mesas do formato vale (máx. 2)', dispB.sectors[0].fits.find((f) => String(f.table_type_id) === String(tipo.id)).tables === 2);
-check('setor fora do formato não recebe reserva', (await api('POST', '/casa-de-shows/reservations', { event_id: evB.id, sector_id: sCam.id, name: 'Fora', people: 2 })).status === 409);
-const r1 = await api('POST', '/casa-de-shows/reservations', { event_id: evB.id, sector_id: sPista.id, name: 'Dentro', people: 8, table_type_id: tipo.id });
-check('reserva no setor do formato', r1.status === 201, JSON.stringify(r1.body));
-check('máximo de mesas do formato respeitado', (await api('POST', '/casa-de-shows/reservations', { event_id: evB.id, sector_id: sPista.id, name: 'Demais', people: 4, table_type_id: tipo.id })).status === 409);
+check('setor fora do formato não recebe venda', (await api('POST', '/casa-de-shows/sales', { event_id: evB.id, sector_id: sCam.id, name: 'Fora', people: 2 })).status === 409);
+const r1 = await api('POST', '/casa-de-shows/sales', { event_id: evB.id, sector_id: sPista.id, name: 'Dentro', people: 8, table_type_id: tipo.id });
+check('venda no setor do formato', r1.status === 201, JSON.stringify(r1.body));
+check('máximo de mesas do formato respeitado', (await api('POST', '/casa-de-shows/sales', { event_id: evB.id, sector_id: sPista.id, name: 'Demais', people: 4, table_type_id: tipo.id })).status === 409);
 check('diminuir o espaço abaixo do usado = 409', (await api('PUT', `/casa-de-shows/layouts/${F.id}`, { sectors: [{ sector_id: sPista.id, space: 3 }] })).status === 409);
-check('tirar do formato um setor com reservas = 409', (await api('PUT', `/casa-de-shows/events/${evB.id}/setup`, { venue_id: B.id })).status === 409);
+check('tirar do formato um setor com vendas = 409', (await api('PUT', `/casa-de-shows/events/${evB.id}/setup`, { venue_id: B.id })).status === 409);
 check('formato em uso não pode ser apagado', (await api('DELETE', `/casa-de-shows/layouts/${F.id}`)).status === 409);
 check('formato padrão não pode ser apagado', (await api('DELETE', `/casa-de-shows/layouts/${Fpadrao.id}`)).status === 409);
 
@@ -75,9 +75,9 @@ const evC = (await api('POST', '/events', { title: 'Evento C ' + marca, starts_a
 await api('PUT', `/casa-de-shows/events/${evC.id}/setup`, { venue_id: B.id });
 const dispC = (await api('GET', `/casa-de-shows/availability?event_id=${evC.id}`)).body;
 check('evento no outro local só mostra setores dele', dispC.venue.name === 'Espaço B ' + marca && dispC.sectors.length === 1 && dispC.sectors[0].space === 8, JSON.stringify(dispC));
-check('setor do local errado recusado', (await api('POST', '/casa-de-shows/reservations', { event_id: evC.id, sector_id: sPista.id, name: 'X', people: 2 })).status === 409);
-check('reserva no local certo', (await api('POST', '/casa-de-shows/reservations', { event_id: evC.id, sector_id: sB1.id, name: 'No B', people: 4 })).status === 201);
-check('o mesmo dia pode ter dois locais com vagas separadas', (await api('GET', `/casa-de-shows/availability?event_id=${evB.id}`)).body.sectors[0].reservations === 1 && dispC.sectors[0].reservations === 0);
+check('setor do local errado recusado', (await api('POST', '/casa-de-shows/sales', { event_id: evC.id, sector_id: sPista.id, name: 'X', people: 2 })).status === 409);
+check('venda no local certo', (await api('POST', '/casa-de-shows/sales', { event_id: evC.id, sector_id: sB1.id, name: 'No B', people: 4 })).status === 201);
+check('o mesmo dia pode ter dois locais com vagas separadas', (await api('GET', `/casa-de-shows/availability?event_id=${evB.id}`)).body.sectors[0].sales === 1 && dispC.sectors[0].sales === 0);
 const lista = (await api('GET', '/casa-de-shows/events')).body;
 check('lista de eventos traz local e formato', lista.find((e) => e.id === evC.id)?.venue.name === 'Espaço B ' + marca && lista.find((e) => e.id === evB.id)?.layout.name === 'Show em pé ' + marca);
 check('o atendente vê o local e o formato', (await call('GET', `/n8n/casa-de-shows/availability?event_id=${evC.id}`, { headers: N8N })).body.venue.name === 'Espaço B ' + marca);
@@ -95,15 +95,15 @@ const fotoB = await api('POST', '/casa-de-shows/media', { kind: 'photo', sector_
 check('foto de setor do outro local', fotoB.status === 201 && (await api('GET', `/casa-de-shows/media?sector_id=${sB1.id}`)).body.sectors[0]?.photos.length === 1);
 
 // ---- voltar ao padrão e apagar
-check('voltar ao padrão com reservas no outro local = 409', (await api('PUT', `/casa-de-shows/events/${evC.id}/setup`, { venue_id: null })).status === 409);
+check('voltar ao padrão com vendas no outro local = 409', (await api('PUT', `/casa-de-shows/events/${evC.id}/setup`, { venue_id: null })).status === 409);
 await api('PUT', `/casa-de-shows/events/${evA.id}/setup`, { venue_id: B.id });
 const volta = (await api('PUT', `/casa-de-shows/events/${evA.id}/setup`, { venue_id: null })).body;
 check('voltar ao primeiro local e formato padrão', volta.chosen === false && String(volta.venue.id) === String(principal.id) && volta.layout.name === 'Padrão', JSON.stringify(volta));
 check('local com setores não é apagado', (await api('DELETE', `/casa-de-shows/venues/${B.id}`)).status === 409);
 
 // ---- limpeza
-const reservas = (await api('GET', '/casa-de-shows/reservations')).body.filter((v) => /^(Dentro|No B)$/.test(v.name));
-for (const v of reservas) await api('DELETE', `/casa-de-shows/reservations/${v.id}`);
+const vendas = (await api('GET', '/casa-de-shows/sales')).body.filter((v) => /^(Dentro|No B)$/.test(v.name));
+for (const v of vendas) await api('DELETE', `/casa-de-shows/sales/${v.id}`);
 for (const e of [evA, evB, evC, dup.event]) await api('DELETE', `/events/${e.id}`);
 await api('DELETE', `/casa-de-shows/layouts/${F.id}`);
 check('apagar setor e local', (await api('DELETE', `/casa-de-shows/sectors/${sB1.id}`)).status === 200 && (await api('DELETE', `/casa-de-shows/venues/${B.id}`)).status === 200);

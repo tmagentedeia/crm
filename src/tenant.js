@@ -8,7 +8,7 @@ import { ASSISTENTE_SQL } from './assistente.js';
 import { PRODUTOS_SQL } from './produtos.js';
 import { VENDAS_SQL } from './vendas.js';
 import { COMISSOES_SQL } from './comissoes.js';
-import { CASA_DE_SHOWS_SQL, SHOWS_MEDIA_SQL, SHOWS_PAGAMENTOS_SQL, SHOWS_RENOMEAR_SQL, SHOWS_LOCAIS_SQL, SHOWS_LOCAL_PADRAO_SQL, SHOWS_PIX_EVENTO_SQL, SHOWS_LOTES_SQL } from './casa_de_shows.js';
+import { CASA_DE_SHOWS_SQL, SHOWS_MEDIA_SQL, SHOWS_PAGAMENTOS_SQL, SHOWS_RENOMEAR_SQL, SHOWS_LOCAIS_SQL, SHOWS_LOCAL_PADRAO_SQL, SHOWS_PIX_EVENTO_SQL, SHOWS_LOTES_SQL, SHOWS_VENDAS_SQL } from './casa_de_shows.js';
 import { ANIVERSARIO_SQL } from './aniversario.js';
 import { DOCUMENTOS_SQL } from './documentos.js';
 import { DELIVERY_SQL } from './delivery.js';
@@ -175,7 +175,9 @@ export const TENANT_STEPS = [
   // 35: chaves Pix por evento, com rodízio por valor
   { version: 35, sql: SHOWS_PIX_EVENTO_SQL },
   // 36: lotes de ingresso por evento
-  { version: 36, sql: SHOWS_LOTES_SQL },
+  { version: 36, sql: SHOWS_VENDAS_SQL + SHOWS_LOTES_SQL },
+  // 37: reserva passa a se chamar venda
+  { version: 37, sql: SHOWS_VENDAS_SQL },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 
@@ -212,6 +214,7 @@ export async function createCompanySchema(cx, companyId) {
   await cx.query(SHOWS_LOCAIS_SQL);
   await cx.query(SHOWS_LOCAL_PADRAO_SQL);
   await cx.query(SHOWS_PIX_EVENTO_SQL);
+  await cx.query(SHOWS_VENDAS_SQL);
   await cx.query(SHOWS_LOTES_SQL);
   await cx.query('SET LOCAL search_path TO public');
   await cx.query('INSERT INTO tenant_versions (company_id, version) VALUES ($1, 1)', [companyId]);

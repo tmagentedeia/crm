@@ -14,7 +14,7 @@ const psql = (sql) => execSync(`psql "${process.env.DATABASE_URL}" -tAc "${sql}"
 const A = (await call('POST', '/api/auth/login', { body: { email: 'demo@demo.com', password: 'demo1234' } })).body;
 const api = (m, p, body) => call(m, '/api' + p, { token: A.token, body });
 const N8N = { 'x-api-key': process.env.N8N_API_KEY || 'k', 'x-company-id': '1' };
-psql("set search_path to company_1, public; delete from company_1.pix_keys where key like '%.rodizio@x.com'; delete from company_1.events where title like 'Show Rod%' or title = 'Show Outro' or title = 'dbg'; delete from company_1.shows_reservations where sector_id in (select id from company_1.shows_sectors where name in ('Pista Rodízio','dbg')); delete from company_1.shows_sectors where name in ('Pista Rodízio','dbg')");
+psql("set search_path to company_1, public; delete from company_1.pix_keys where key like '%.rodizio@x.com'; delete from company_1.events where title like 'Show Rod%' or title = 'Show Outro' or title = 'dbg'; delete from company_1.shows_sales where sector_id in (select id from company_1.shows_sectors where name in ('Pista Rodízio','dbg')); delete from company_1.shows_sectors where name in ('Pista Rodízio','dbg')");
 
 const k1 = (await api('POST', '/finance/keys', { key_type: 'email', key: 'um.rodizio@x.com', beneficiary: 'Um' })).body;
 const k2 = (await api('POST', '/finance/keys', { key_type: 'email', key: 'dois.rodizio@x.com', beneficiary: 'Dois' })).body;
@@ -22,7 +22,7 @@ const k3 = (await api('POST', '/finance/keys', { key_type: 'email', key: 'tres.r
 const ev = (await api('POST', '/events', { title: 'Show Rodízio', starts_at: '2031-06-20T22:00:00-03:00' })).body;
 const ev2 = (await api('POST', '/events', { title: 'Show Outro', starts_at: '2031-06-27T22:00:00-03:00' })).body;
 const setor = (await api('POST', '/casa-de-shows/sectors', { name: 'Pista Rodízio', space: 200 })).body;
-const reserva = async (e, nome, preco) => (await api('POST', '/casa-de-shows/reservations', { event_id: e, sector_id: setor.id, name: nome, people: 2, unit_price: preco })).body;
+const venda = async (e, nome, preco) => (await api('POST', '/casa-de-shows/sales', { event_id: e, sector_id: setor.id, name: nome, people: 2, unit_price: preco })).body;
 const pix = (e) => api('GET', `/casa-de-shows/events/${e}/pix`);
 
 let g = (await pix(ev.id)).body;
@@ -40,10 +40,10 @@ check('n8n não grava', (await call('PUT', `/n8n/casa-de-shows/events/${ev.id}/p
 const put = await api('PUT', `/casa-de-shows/events/${ev.id}/pix`, { keys: [{ key_id: k1.id, limit_amount: '300' }, { key_id: k2.id, limit_amount: 200 }, { key_id: k3.id }] });
 check('grava rodízio', put.status === 200 && put.body.configured && put.body.keys.length === 3 && put.body.current.key_id == k1.id, JSON.stringify(put.body));
 
-const r1 = await reserva(ev.id, 'Cliente 1', 250);
-const r2 = await reserva(ev.id, 'Cliente 2', 250);
-const r3 = await reserva(ev.id, 'Cliente 3', 250);
-const pagar = (r, key, amount) => api('POST', `/casa-de-shows/reservations/${r.id}/payments`, { method: 'pix', amount, pix_key_id: key });
+const r1 = await venda(ev.id, 'Cliente 1', 250);
+const r2 = await venda(ev.id, 'Cliente 2', 250);
+const r3 = await venda(ev.id, 'Cliente 3', 250);
+const pagar = (r, key, amount) => api('POST', `/casa-de-shows/sales/${r.id}/payments`, { method: 'pix', amount, pix_key_id: key });
 await pagar(r1, k1.id, 250);
 g = (await pix(ev.id)).body;
 check('abaixo do limite: continua na primeira', g.current.key_id == k1.id && g.keys[0].received === 250 && !g.all_full, JSON.stringify(g));
@@ -60,10 +60,10 @@ g = (await pix(ev.id)).body;
 check('última sem limite nunca enche', g.current.key_id == k3.id && !g.all_full);
 
 // cancelada não conta
-await api('PUT', `/casa-de-shows/reservations/${r2.id}`, { status: 'cancelled' });
+await api('PUT', `/casa-de-shows/sales/${r2.id}`, { status: 'cancelled' });
 g = (await pix(ev.id)).body;
-check('reserva cancelada não conta no limite', g.keys[0].received === 250 && g.current.key_id == k1.id, JSON.stringify(g));
-await api('PUT', `/casa-de-shows/reservations/${r2.id}`, { status: 'confirmed' });
+check('venda cancelada não conta no limite', g.keys[0].received === 250 && g.current.key_id == k1.id, JSON.stringify(g));
+await api('PUT', `/casa-de-shows/sales/${r2.id}`, { status: 'confirmed' });
 
 // chave desativada pula a vez
 await api('PUT', `/finance/keys/${k1.id}`, { active: false });

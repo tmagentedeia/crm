@@ -31,7 +31,7 @@ psql "$DB" -qc "drop table company_1.product_sales; update public.tenant_version
 node src/migrate.js
 psql "$DB" -qc "drop table company_1.commission_service_rates, company_1.commission_rates, company_1.commission_settings; update public.tenant_versions set version=21 where company_id=1"
 node src/migrate.js
-psql "$DB" -qc "drop table company_1.shows_event_setup, company_1.shows_layout_tables, company_1.shows_layout_sectors, company_1.shows_layouts, company_1.shows_res_payments, company_1.shows_media, company_1.shows_reservations, company_1.shows_event_sectors, company_1.shows_sector_tables, company_1.shows_extras, company_1.shows_event_interest, company_1.shows_event_codes, company_1.shows_event_conditions, company_1.shows_table_types, company_1.shows_sectors, company_1.shows_venues; update public.tenant_versions set version=22 where company_id=1"
+psql "$DB" -qc "drop table company_1.shows_event_setup, company_1.shows_layout_tables, company_1.shows_layout_sectors, company_1.shows_layouts, company_1.shows_sale_payments, company_1.shows_media, company_1.shows_sales, company_1.shows_event_sectors, company_1.shows_sector_tables, company_1.shows_extras, company_1.shows_event_interest, company_1.shows_event_codes, company_1.shows_event_conditions, company_1.shows_table_types, company_1.shows_sectors, company_1.shows_venues; update public.tenant_versions set version=22 where company_id=1"
 node src/migrate.js
 psql "$DB" -qc "drop table company_1.birthday_sends, company_1.birthday_settings; alter table company_1.campaigns drop column kind; update public.tenant_versions set version=23 where company_id=1"
 node src/migrate.js
@@ -48,7 +48,7 @@ psql "$DB" -tc "select count(*) from company_1.doc_templates" | grep -q 0 || { e
 psql "$DB" -qc "drop table company_1.dlv_order_events, company_1.dlv_order_items, company_1.dlv_orders, company_1.dlv_coupons, company_1.dlv_couriers, company_1.dlv_zones, company_1.dlv_options, company_1.dlv_option_groups, company_1.dlv_items, company_1.dlv_categories, company_1.dlv_settings; update public.tenant_versions set version=27 where company_id=1"
 node src/migrate.js
 psql "$DB" -tc "select count(*) from company_1.dlv_orders" | grep -q 0 || { echo "FALHOU: migração do delivery"; exit 1; }
-psql "$DB" -tc "select count(*) from company_1.shows_reservations" | grep -q 0 || { echo "FALHOU: migração da Casa de Shows"; exit 1; }
+psql "$DB" -tc "select count(*) from company_1.shows_sales" | grep -q 0 || { echo "FALHOU: migração da Casa de Shows"; exit 1; }
 psql "$DB" -tc "select count(*) from company_1.commission_settings" | grep -q 1 || { echo "FALHOU: migração das comissões"; exit 1; }
 psql "$DB" -tc "select count(*) from company_1.product_sales" | grep -q 0 || { echo "FALHOU: migração das vendas"; exit 1; }
 psql "$DB" -tc "select count(*) from company_1.services where kind='service'" | grep -qv '^ *0$' || { echo "FALHOU: migração do catálogo"; exit 1; }
@@ -59,9 +59,9 @@ psql "$DB" -tc "select count(*) from company_1.rst_settings" | grep -q 1 || { ec
 psql "$DB" -qc "drop table company_1.shows_media; update public.tenant_versions set version=29 where company_id=1"
 node src/migrate.js
 psql "$DB" -tc "select count(*) from company_1.shows_media" | grep -q 0 || { echo "FALHOU: migração das fotos da Casa de Shows"; exit 1; }
-psql "$DB" -qc "drop table company_1.shows_res_payments; update public.tenant_versions set version=30 where company_id=1"
+psql "$DB" -qc "drop table company_1.shows_sale_payments; update public.tenant_versions set version=30 where company_id=1"
 node src/migrate.js
-psql "$DB" -tc "select count(*) from company_1.shows_res_payments" | grep -q 0 || { echo "FALHOU: migração dos pagamentos da Casa de Shows"; exit 1; }
+psql "$DB" -tc "select count(*) from company_1.shows_sale_payments" | grep -q 0 || { echo "FALHOU: migração dos pagamentos da Casa de Shows"; exit 1; }
 psql "$DB" -qc "update public.companies set modules = modules - 'casa_de_shows' || jsonb_build_object('scenarium', true) where id=1"
 node src/migrate.js
 psql "$DB" -tc "select modules ? 'casa_de_shows' and not (modules ? 'scenarium') from public.companies where id=1" | grep -q t || { echo "FALHOU: troca da chave scenarium por casa_de_shows"; exit 1; }
@@ -75,6 +75,10 @@ psql "$DB" -tAc "select name from company_1.shows_venues" | grep -q '^Padrão$' 
 psql "$DB" -qc "alter table company_1.shows_media rename to scn_media; update public.tenant_versions set version=31 where company_id=1"
 node src/migrate.js
 psql "$DB" -tc "select count(*) from company_1.shows_media" | grep -q 0 || { echo "FALHOU: troca do prefixo das tabelas da Casa de Shows"; exit 1; }
+psql "$DB" -qc "alter table company_1.shows_sales rename to shows_reservations; alter table company_1.shows_sale_payments rename to shows_res_payments; alter table company_1.shows_res_payments rename column sale_id to reservation_id; update public.tenant_versions set version=35 where company_id=1"
+node src/migrate.js
+psql "$DB" -tc "select count(*) from company_1.shows_sales" | grep -q 0 || { echo "FALHOU: troca de reserva para venda (tabela)"; exit 1; }
+psql "$DB" -tc "select count(sale_id) from company_1.shows_sale_payments" | grep -q 0 || { echo "FALHOU: troca de reserva para venda (pagamentos)"; exit 1; }
 node test/seed_extra.mjs
 # Redis de teste (bloqueios)
 redis-server --port 56379 --save '' --appendonly no --daemonize yes >/dev/null

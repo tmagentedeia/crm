@@ -1,10 +1,10 @@
-// Casa de Shows: reservas de mesa para casas de evento, controladas pelo ESPAÇO de cada setor.
+// Casa de Shows: venda de mesas e ingressos para casas de evento, controladas pelo ESPAÇO de cada setor.
 // Ideia: o setor tem um espaço (em pontos) e cada tipo de mesa ocupa uma parte dele. Assim 2 mesas de 10 e 4 mesas de 4
 // podem ocupar o mesmo espaço e render lotações diferentes (20 e 16 pessoas), e o sistema calcula o que ainda cabe.
-//  - a reserva é de um evento (ou, sem evento, de uma data) e de um setor
+//  - a venda é de um evento (ou, sem evento, de uma data) e de um setor
 //  - o espaço do setor pode ser ajustado só para um evento (ex.: show com a pista reduzida)
-//  - a reserva guarda o tipo de mesa e o espaço usado na hora; mudar o cadastro depois não altera reservas antigas
-//  - só ocupam espaço reservas "confirmada" e "compareceu"; cancelada e "não veio" liberam
+//  - a venda guarda o tipo de mesa e o espaço usado na hora; mudar o cadastro depois não altera vendas antigas
+//  - só ocupam espaço vendas "confirmada" e "compareceu"; cancelada e "não veio" liberam
 import crypto from 'crypto';
 import { q, qg, tx, currentCompany, runAs } from './db.js';
 import { normPhone } from './phone.js';
@@ -79,7 +79,7 @@ export const CASA_DE_SHOWS_SQL = `
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
   );
   CREATE INDEX IF NOT EXISTS idx_shows_extras_event ON shows_extras (event_id);
-  CREATE TABLE IF NOT EXISTS shows_reservations (
+  CREATE TABLE IF NOT EXISTS shows_sales (
     id             BIGSERIAL PRIMARY KEY,
     event_id       BIGINT REFERENCES events(id) ON DELETE SET NULL,
     occasion_date  DATE NOT NULL,                             -- dia do evento (ou a data escolhida, sem evento)
@@ -89,29 +89,29 @@ export const CASA_DE_SHOWS_SQL = `
     phone          TEXT,
     people         INT NOT NULL CHECK (people BETWEEN 1 AND 1000),
     table_type_id  BIGINT REFERENCES shows_table_types(id) ON DELETE SET NULL,
-    table_name     TEXT NOT NULL,                             -- tipo de mesa na hora da reserva
+    table_name     TEXT NOT NULL,                             -- tipo de mesa na hora da venda
     seats_each     INT NOT NULL CHECK (seats_each > 0),
     space_each     NUMERIC(8,2) NOT NULL CHECK (space_each > 0),
     tables         INT NOT NULL DEFAULT 1 CHECK (tables BETWEEN 1 AND 100),
     status         TEXT NOT NULL DEFAULT 'confirmed' CHECK (status IN ('confirmed', 'attended', 'cancelled', 'no_show')),
     note           TEXT,
     guests         TEXT,                                      -- nomes da lista (um por linha)
-    unit_price     NUMERIC(10,2),                             -- valor por pessoa na hora da reserva (vazio = sem preço definido)
+    unit_price     NUMERIC(10,2),                             -- valor por pessoa na hora da venda (vazio = sem preço definido)
     code_id        BIGINT REFERENCES shows_event_codes(id) ON DELETE SET NULL,
     code_word      TEXT,                                      -- palavra usada (guardada para consulta)
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
   );
-  CREATE INDEX IF NOT EXISTS idx_shows_res_event ON shows_reservations (event_id);
-  CREATE INDEX IF NOT EXISTS idx_shows_res_date ON shows_reservations (occasion_date);`;
+  CREATE INDEX IF NOT EXISTS idx_shows_sales_event ON shows_sales (event_id);
+  CREATE INDEX IF NOT EXISTS idx_shows_sales_date ON shows_sales (occasion_date);`;
 
-// Ingressos e reservas do cliente para a ficha: lista, total pago e ticket médio (por compra e por pessoa).
-// Só contam reservas confirmadas ou com comparecimento e com valor pago; canceladas e cortesias aparecem na lista, mas ficam fora das contas.
+// Ingressos e vendas do cliente para a ficha: lista, total pago e ticket médio (por compra e por pessoa).
+// Só contam vendas confirmadas ou com comparecimento e com valor pago; canceladas e cortesias aparecem na lista, mas ficam fora das contas.
 export async function historicoCasaDeShows(customerId) {
   const rows = (await q(
     `SELECT v.id, v.occasion_date::text AS date, e.title AS event_title, s.name AS sector_name, v.people, v.table_name, v.status, v.code_word,
             v.unit_price::float AS unit_price, (v.people * v.unit_price)::float AS total
-     FROM shows_reservations v JOIN shows_sectors s ON s.id = v.sector_id LEFT JOIN events e ON e.id = v.event_id
+     FROM shows_sales v JOIN shows_sectors s ON s.id = v.sector_id LEFT JOIN events e ON e.id = v.event_id
      WHERE v.customer_id = $1 ORDER BY v.occasion_date DESC, v.id DESC LIMIT 200`, [customerId])).rows;
   const contam = rows.filter((x) => ['confirmed', 'attended'].includes(x.status) && x.total > 0);   // cortesia (valor 0) aparece na lista, mas não entra no ticket médio
   const total = r2(contam.reduce((a, x) => a + x.total, 0));
@@ -165,11 +165,11 @@ export const SHOWS_MEDIA_SQL = `
   );
   CREATE INDEX IF NOT EXISTS shows_media_sector ON shows_media (sector_id);
 `;
-// Pagamentos de cada reserva: forma (Pix, dinheiro, cartão, parceiro, cortesia...), chave Pix que recebeu e, se houver, o comprovante já validado em Recebimentos
+// Pagamentos de cada venda: forma (Pix, dinheiro, cartão, parceiro, cortesia...), chave Pix que recebeu e, se houver, o comprovante já validado em Recebimentos
 export const SHOWS_PAGAMENTOS_SQL = `
-  CREATE TABLE IF NOT EXISTS shows_res_payments (
+  CREATE TABLE IF NOT EXISTS shows_sale_payments (
     id             BIGSERIAL PRIMARY KEY,
-    reservation_id BIGINT NOT NULL REFERENCES shows_reservations(id) ON DELETE CASCADE,
+    sale_id BIGINT NOT NULL REFERENCES shows_sales(id) ON DELETE CASCADE,
     method         TEXT NOT NULL CHECK (method IN ('pix','dinheiro','cartao','parceiro','cortesia','outro')),
     amount         NUMERIC(10,2) NOT NULL DEFAULT 0 CHECK (amount >= 0),
     pix_key_id     BIGINT REFERENCES pix_keys(id) ON DELETE SET NULL,
@@ -177,8 +177,8 @@ export const SHOWS_PAGAMENTOS_SQL = `
     note           TEXT,
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
   );
-  CREATE INDEX IF NOT EXISTS shows_res_pay_res ON shows_res_payments (reservation_id);
-  CREATE UNIQUE INDEX IF NOT EXISTS shows_res_pay_comprovante ON shows_res_payments (payment_id) WHERE payment_id IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS shows_sale_pay_sale ON shows_sale_payments (sale_id);
+  CREATE UNIQUE INDEX IF NOT EXISTS shows_sale_pay_comprovante ON shows_sale_payments (payment_id) WHERE payment_id IS NOT NULL;
 `;
 // Locais e formatos: cada empresa pode ter vários locais (ambientes), cada local tem seus setores e vários formatos de uso.
 // Um formato diz quais setores valem, o espaço de cada um e, se quiser, quais mesas cada setor aceita. Cada evento escolhe local e formato.
@@ -435,7 +435,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
       const { rowCount } = await q('DELETE FROM shows_sectors WHERE id=$1', [req.params.id]);
       rowCount ? res.json({ ok: true }) : res.status(404).json({ error: 'Setor não encontrado' });
     } catch (e) {
-      if (e.code === '23503') return res.status(409).json({ error: 'Esse setor tem reservas. Desative o setor em vez de apagar.' });
+      if (e.code === '23503') return res.status(409).json({ error: 'Esse setor tem vendas. Desative o setor em vez de apagar.' });
       throw e;
     }
   }));
@@ -563,13 +563,13 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     const a = [OCUPAM];
     const f = filtroOcasiao(oc, a);
     const uso = (await run(
-      `SELECT sector_id, COUNT(*)::int AS reservations, COALESCE(SUM(people),0)::int AS people, COALESCE(SUM(tables * space_each),0)::float AS used,
+      `SELECT sector_id, COUNT(*)::int AS sales, COALESCE(SUM(people),0)::int AS people, COALESCE(SUM(tables * space_each),0)::float AS used,
               COALESCE(SUM(tables * seats_each),0)::int AS seats
-       FROM shows_reservations WHERE status = ANY($1) AND ${f} GROUP BY sector_id`, a)).rows;
+       FROM shows_sales WHERE status = ANY($1) AND ${f} GROUP BY sector_id`, a)).rows;
     const a2 = [OCUPAM];
     const f2 = filtroOcasiao(oc, a2);
     const usoTipo = (await run(
-      `SELECT sector_id, table_type_id, SUM(tables)::int AS tables FROM shows_reservations
+      `SELECT sector_id, table_type_id, SUM(tables)::int AS tables FROM shows_sales
        WHERE status = ANY($1) AND table_type_id IS NOT NULL AND ${f2} GROUP BY sector_id, table_type_id`, a2)).rows;
     const a4 = [];
     const f4 = filtroOcasiao(oc, a4);
@@ -581,7 +581,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
       const espacoExtra = r2(meusExtras.reduce((a, x) => a + x.space, 0));
       const baseDoFormato = cfg.espaco(s.id, s.space);
       const total = r2((o ? o.space : baseDoFormato) + espacoExtra);
-      const u = uso.find((x) => String(x.sector_id) === String(s.id)) || { reservations: 0, people: 0, used: 0, seats: 0 };
+      const u = uso.find((x) => String(x.sector_id) === String(s.id)) || { sales: 0, people: 0, used: 0, seats: 0 };
       const usado = r2(u.used);
       const livre = r2(Math.max(0, total - usado));
       // mesas que o setor aceita (sem regras = todas) e, para cada uma, quantas ainda cabem pelo limite do setor
@@ -597,7 +597,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
       const cabe = (t) => { const porEspaco = Math.floor((livre + 1e-9) / t.space); return t.left === undefined ? porEspaco : Math.min(porEspaco, t.left); };
       const out = {
         sector_id: s.id, name: s.name, notes: s.notes, base_space: baseDoFormato, space: total, custom_space: !!o, extra_space: espacoExtra, extra_tables: meusExtras.reduce((a, x) => a + x.qtd, 0),
-        used: usado, free: livre, reservations: u.reservations, people: u.people, seats_reserved: u.seats,
+        used: usado, free: livre, sales: u.sales, people: u.people, seats_reserved: u.seats,
         max_table_seats: permitidos.reduce((m, t) => Math.max(m, t.seats), 0),
         // quantas mesas de cada tipo ainda cabem se só esse tipo fosse usado (respeitando as regras do setor)
         fits: permitidos.map((t) => ({ table_type_id: t.id, name: t.name, seats: t.seats, tables: cabe(t), seats_total: cabe(t) * t.seats })),
@@ -634,7 +634,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
   }));
 
   // Eventos que ainda valem, cada um com o resumo das vagas. É a lista que o atendente usa para saber "qual evento é qual",
-  // sem depender de "show atual" e "show seguinte": cada evento tem nome, data e a própria lista de reservas.
+  // sem depender de "show atual" e "show seguinte": cada evento tem nome, data e a própria lista de vendas.
   r.get('/casa-de-shows/events', wrap(async (req, res) => {
     const tz = await fuso();
     const evs = (await q(`SELECT id, title, starts_at, ends_at, place, notes, to_char(starts_at AT TIME ZONE $1, 'YYYY-MM-DD') AS dia FROM events
@@ -646,7 +646,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
       out.push({
         venue: cfg.venue, layout: cfg.layout,
         id: e.id, title: e.title, starts_at: e.starts_at, ends_at: e.ends_at, place: e.place, notes: e.notes, date: e.dia,
-        reservations: sectors.reduce((a, x) => a + x.reservations, 0), people: sectors.reduce((a, x) => a + x.people, 0),
+        sales: sectors.reduce((a, x) => a + x.sales, 0), people: sectors.reduce((a, x) => a + x.people, 0),
         interested: (await q('SELECT COUNT(*)::int AS n FROM shows_event_interest WHERE event_id=$1', [e.id])).rows[0].n,
         sectors: sectors.map((x) => ({ sector_id: x.sector_id, name: x.name, free: x.free, space: x.space })),
         sectors_with_room: sectors.filter((x) => x.free > 0).map((x) => x.name),
@@ -769,19 +769,19 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     }
     return { itens };
   }
-  // O que muda no espaço não pode deixar um evento com mais reservas do que cabe
+  // O que muda no espaço não pode deixar um evento com mais vendas do que cabe
   async function conferirEventos(t, ids) {
     for (const id of ids) {
       const ss = await situacao({ event_id: id, date: '' }, {}, t);
       const estoura = ss.find((x) => x.used > x.space + 1e-9);
-      if (estoura) { const e = new Error(`No setor ${estoura.name} já há reservas que ocupam ${estoura.used} e o novo espaço é ${estoura.space}.`); e.status = 409; throw e; }
+      if (estoura) { const e = new Error(`No setor ${estoura.name} já há vendas que ocupam ${estoura.used} e o novo espaço é ${estoura.space}.`); e.status = 409; throw e; }
     }
   }
   async function eventosDoFormato(t, layoutId, venueId) {
     const doEvento = (await t('SELECT event_id FROM shows_event_setup WHERE layout_id=$1', [layoutId])).rows.map((x) => x.event_id);
     const principal = await primeiroLocal(t);
     const padrao = (await t('SELECT 1 FROM shows_layouts WHERE id=$1 AND is_default', [layoutId])).rowCount && String(principal.id) === String(venueId);
-    const semEscolha = padrao ? (await t('SELECT DISTINCT v.event_id FROM shows_reservations v WHERE v.event_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM shows_event_setup es WHERE es.event_id = v.event_id)')).rows.map((x) => x.event_id) : [];
+    const semEscolha = padrao ? (await t('SELECT DISTINCT v.event_id FROM shows_sales v WHERE v.event_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM shows_event_setup es WHERE es.event_id = v.event_id)')).rows.map((x) => x.event_id) : [];
     return [...new Set([...doEvento, ...semEscolha].map(String))];
   }
   async function salvarFormato(t, id, venueId, itens) {
@@ -876,13 +876,13 @@ export function registerCasaDeShowsRoutes(r, wrap) {
       if (venueId) await t(`INSERT INTO shows_event_setup (event_id, venue_id, layout_id) VALUES ($1,$2,$3) ON CONFLICT (event_id) DO UPDATE SET venue_id=EXCLUDED.venue_id, layout_id=EXCLUDED.layout_id`, [ev.id, venueId, layoutId]);
       else await t('DELETE FROM shows_event_setup WHERE event_id=$1', [ev.id]);
       const cfg = await configuracao(t, { event_id: ev.id });
-      const usados = (await t(`SELECT DISTINCT s.id, s.name FROM shows_reservations v JOIN shows_sectors s ON s.id = v.sector_id WHERE v.event_id=$1 AND v.status = ANY($2)`, [ev.id, OCUPAM])).rows;
+      const usados = (await t(`SELECT DISTINCT s.id, s.name FROM shows_sales v JOIN shows_sectors s ON s.id = v.sector_id WHERE v.event_id=$1 AND v.status = ANY($2)`, [ev.id, OCUPAM])).rows;
       const naoCabem = [];
       for (const x of usados) {
         const dono = (await t('SELECT venue_id FROM shows_sectors WHERE id=$1', [x.id])).rows[0].venue_id;
         if (String(dono) !== String(cfg.venue_id) || !cfg.entra(x.id)) naoCabem.push(x.name);
       }
-      if (naoCabem.length) { const e = new Error(`Há reservas em setores que não existem nesse local e formato: ${naoCabem.join(', ')}.`); e.status = 409; throw e; }
+      if (naoCabem.length) { const e = new Error(`Há vendas em setores que não existem nesse local e formato: ${naoCabem.join(', ')}.`); e.status = 409; throw e; }
       await conferirEventos(t, [ev.id]);
     });
     res.json(setupOut(await configuracao(q, { event_id: ev.id })));
@@ -891,7 +891,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
   // ---------- preço e palavras-chave do evento ----------
   // Preço por pessoa valendo agora, já considerando a palavra-chave (se vier) e, opcionalmente, outro desconto em % já reconhecido
   // (ex.: o do programa de benefícios). Descontos não se somam: vale o que sair mais barato.
-  async function precoPara(run, eventId, palavra, outroPct, excluirReserva) {
+  async function precoPara(run, eventId, palavra, outroPct, excluirVenda) {
     const c = (await run('SELECT price::float AS price, door_price::float AS door_price, price_until FROM shows_event_conditions WHERE event_id=$1', [eventId])).rows[0];
     const lotes = (await run('SELECT id, name, price::float AS price, valid_until, max_qty FROM shows_event_lots WHERE event_id=$1 ORDER BY position', [eventId])).rows;
     if (!lotes.length && (!c || c.price === null)) return { unit_price: null, base_price: null, code_valid: !palavra, reason: palavra ? 'Este evento não tem preço cadastrado' : undefined };
@@ -901,7 +901,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
       // lote sem prazo vale até o começo do evento, quando entra o preço da portaria (se houver)
       if (c?.door_price != null) { const ini = (await run('SELECT starts_at FROM events WHERE id=$1', [eventId])).rows[0]?.starts_at; for (const l of lotes) if (!l.valid_until && !l.max_qty) l.valid_until = ini; }
       const vendidos = {};
-      for (const x of (await run(`SELECT lot_id, COALESCE(SUM(people),0)::int AS n FROM shows_reservations WHERE event_id=$1 AND lot_id IS NOT NULL AND status = ANY($2)${excluirReserva ? ' AND id <> ' + Number(excluirReserva) : ''} GROUP BY lot_id`, [eventId, OCUPAM])).rows) vendidos[x.lot_id] = x.n;
+      for (const x of (await run(`SELECT lot_id, COALESCE(SUM(people),0)::int AS n FROM shows_sales WHERE event_id=$1 AND lot_id IS NOT NULL AND status = ANY($2)${excluirVenda ? ' AND id <> ' + Number(excluirVenda) : ''} GROUP BY lot_id`, [eventId, OCUPAM])).rows) vendidos[x.lot_id] = x.n;
       for (const l of lotes) l.restam = l.max_qty ? Math.max(0, l.max_qty - (vendidos[l.id] || 0)) : null;
       const aberto = (l) => (!l.valid_until || agora <= new Date(l.valid_until)) && (l.restam === null || l.restam > 0);
       const i = lotes.findIndex(aberto);
@@ -929,7 +929,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
       if (!k) return { ...out, code_valid: false, reason: 'Palavra-chave não encontrada neste evento' };
       if (k.valid_until && new Date() > new Date(k.valid_until)) return { ...out, code_valid: false, reason: 'Essa palavra-chave já expirou' };
       if (k.max_uses) {
-        const usos = Number((await run(`SELECT COUNT(*) AS n FROM shows_reservations WHERE code_id=$1 AND status = ANY($2)${excluirReserva ? ' AND id <> ' + Number(excluirReserva) : ''}`, [k.id, OCUPAM])).rows[0].n);
+        const usos = Number((await run(`SELECT COUNT(*) AS n FROM shows_sales WHERE code_id=$1 AND status = ANY($2)${excluirVenda ? ' AND id <> ' + Number(excluirVenda) : ''}`, [k.id, OCUPAM])).rows[0].n);
         if (usos >= k.max_uses) return { ...out, code_valid: false, reason: 'Essa palavra-chave já atingiu o limite de usos' };
       }
       const v = k.kind === 'percent' ? r2(base * (1 - Number(k.value) / 100)) : r2(Number(k.value));
@@ -980,7 +980,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
   }));
 
   const CODIGO = `SELECT k.id, k.event_id, k.word, k.kind, k.value::float AS value, k.max_uses, k.valid_until, k.note,
-                         (SELECT COUNT(*)::int FROM shows_reservations v WHERE v.code_id = k.id AND v.status IN ('confirmed','attended')) AS uses
+                         (SELECT COUNT(*)::int FROM shows_sales v WHERE v.code_id = k.id AND v.status IN ('confirmed','attended')) AS uses
                   FROM shows_event_codes k`;
   r.get('/casa-de-shows/events/:id/codes', wrap(async (req, res) => {
     const ev = await eventoDe(req.params.id);
@@ -1064,7 +1064,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
 
   // ---------- lotes de ingresso ----------
   const LOTES = `SELECT l.id, l.position, l.name, l.price::float AS price, l.valid_until, l.max_qty,
-                        (SELECT COALESCE(SUM(v.people),0)::int FROM shows_reservations v WHERE v.lot_id = l.id AND v.status = ANY($2)) AS sold
+                        (SELECT COALESCE(SUM(v.people),0)::int FROM shows_sales v WHERE v.lot_id = l.id AND v.status = ANY($2)) AS sold
                  FROM shows_event_lots l WHERE l.event_id=$1 ORDER BY l.position`;
   const lotesOut = async (ev) => {
     const pr = await precoPara(q, ev.id, '', 0, null);
@@ -1115,12 +1115,12 @@ export function registerCasaDeShowsRoutes(r, wrap) {
   }));
 
   // ---------- chaves Pix do evento (com rodízio por valor) ----------
-  // Lista as chaves do evento em ordem, com quanto cada uma já recebeu NESTE evento (Pix lançado nas reservas, sem as canceladas).
+  // Lista as chaves do evento em ordem, com quanto cada uma já recebeu NESTE evento (Pix lançado nas vendas, sem as canceladas).
   // A chave da vez é a primeira ativa que ainda não chegou ao limite; se todas chegaram, fica a última e vem all_full = true.
   // Evento sem chaves próprias usa a primeira chave ativa da empresa.
   async function chavesDoEvento(run, eventId) {
     const lista = (await run(`SELECT e.key_id, e.position, e.limit_amount::float AS limit_amount, k.key, k.key_type, k.beneficiary, k.active,
-                                     COALESCE((SELECT SUM(p.amount) FROM shows_res_payments p JOIN shows_reservations v ON v.id = p.reservation_id
+                                     COALESCE((SELECT SUM(p.amount) FROM shows_sale_payments p JOIN shows_sales v ON v.id = p.sale_id
                                                WHERE p.method = 'pix' AND p.pix_key_id = e.key_id AND v.event_id = e.event_id AND v.status <> 'cancelled'), 0)::float AS received
                               FROM shows_event_pix e JOIN pix_keys k ON k.id = e.key_id WHERE e.event_id = $1 ORDER BY e.position`, [eventId])).rows;
     const out = { configured: lista.length > 0, keys: lista, current: null, all_full: false };
@@ -1171,8 +1171,8 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     res.json({ event_id: ev.id, configured: c.configured, keys: c.keys, current: chaveOut(c.current), all_full: c.all_full });
   }));
 
-  // Duplica um evento (também um já realizado): mesmas condições, palavras-chave e espaço dos setores, com a lista de reservas vazia.
-  // As datas de preço e validade acompanham a diferença entre o evento antigo e o novo. Mesas extras e reservas não são copiadas.
+  // Duplica um evento (também um já realizado): mesmas condições, palavras-chave e espaço dos setores, com a lista de vendas vazia.
+  // As datas de preço e validade acompanham a diferença entre o evento antigo e o novo. Mesas extras e vendas não são copiadas.
   r.post('/casa-de-shows/events/:id/duplicate', wrap(async (req, res) => {
     const ev0 = await eventoDe(req.params.id);
     if (!ev0) return res.status(404).json({ error: 'Evento não encontrado' });
@@ -1243,7 +1243,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
                          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NULLIF($9,'')) RETURNING id`, [oc.event_id, oc.date, sid, tipo.id, tipo.name, tipo.seats, tipo.space, qtd, note])).rows[0].id;
     res.status(201).json((await q(`${EXTRA} WHERE x.id=$1`, [id])).rows[0]);
   }));
-  // Fechar a mesa extra só é possível se o setor continua comportando as reservas que já tem
+  // Fechar a mesa extra só é possível se o setor continua comportando as vendas que já tem
   r.delete('/casa-de-shows/extras/:id', comTratamento(async (req, res) => {
     const x = (await q('SELECT * FROM shows_extras WHERE id=$1', [req.params.id])).rows[0];
     if (!x) return res.status(404).json({ error: 'Mesa extra não encontrada' });
@@ -1258,11 +1258,11 @@ export function registerCasaDeShowsRoutes(r, wrap) {
         if (g.max !== null) {
           const a = [OCUPAM, x.sector_id, x.table_type_id];
           const f = filtroOcasiao(oc, a);
-          const ja = Number((await t(`SELECT COALESCE(SUM(tables),0) AS n FROM shows_reservations WHERE status = ANY($1) AND sector_id=$2 AND table_type_id=$3 AND ${f}`, a)).rows[0].n);
+          const ja = Number((await t(`SELECT COALESCE(SUM(tables),0) AS n FROM shows_sales WHERE status = ANY($1) AND sector_id=$2 AND table_type_id=$3 AND ${f}`, a)).rows[0].n);
           estoura = ja > g.max;
         }
       }
-      if (estoura) { const e = new Error('Essa mesa extra já está em uso por uma reserva. Cancele ou mude a reserva primeiro.'); e.status = 409; throw e; }
+      if (estoura) { const e = new Error('Essa mesa extra já está em uso por uma venda. Cancele ou mude a venda primeiro.'); e.status = 409; throw e; }
     });
     res.json({ ok: true });
   }));
@@ -1291,15 +1291,15 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     res.json({ ok: true });
   }));
 
-  // ---------- reservas ----------
-  const RESERVA = `SELECT v.id, v.event_id, e.title AS event_title, v.occasion_date::text AS date, v.sector_id, s.name AS sector_name,
+  // ---------- vendas ----------
+  const VENDA = `SELECT v.id, v.event_id, e.title AS event_title, v.occasion_date::text AS date, v.sector_id, s.name AS sector_name,
                           v.customer_id, v.name, v.phone, v.people, v.table_type_id, v.table_name, v.seats_each, v.space_each::float AS space_each,
                           v.tables, (v.tables * v.space_each)::float AS space, (v.tables * v.seats_each) AS seats, v.status, v.note, v.guests, v.unit_price::float AS unit_price, (v.people * v.unit_price)::float AS total, v.code_word, v.created_at,
-                          COALESCE((SELECT SUM(p.amount) FROM shows_res_payments p WHERE p.reservation_id = v.id AND p.method <> 'cortesia'), 0)::float AS paid,
-                          EXISTS (SELECT 1 FROM shows_res_payments p WHERE p.reservation_id = v.id AND p.method = 'cortesia') AS courtesy
-                   FROM shows_reservations v JOIN shows_sectors s ON s.id = v.sector_id LEFT JOIN events e ON e.id = v.event_id`;
+                          COALESCE((SELECT SUM(p.amount) FROM shows_sale_payments p WHERE p.sale_id = v.id AND p.method <> 'cortesia'), 0)::float AS paid,
+                          EXISTS (SELECT 1 FROM shows_sale_payments p WHERE p.sale_id = v.id AND p.method = 'cortesia') AS courtesy
+                   FROM shows_sales v JOIN shows_sectors s ON s.id = v.sector_id LEFT JOIN events e ON e.id = v.event_id`;
 
-  r.get('/casa-de-shows/reservations', wrap(async (req, res) => {
+  r.get('/casa-de-shows/sales', wrap(async (req, res) => {
     const w = [], a = [];
     if (req.query.event_id) { const e = idOk(req.query.event_id); if (!e) return res.status(400).json({ error: 'Evento inválido' }); a.push(e); w.push(`v.event_id = $${a.length}`); }
     if (req.query.date) { const d = dataOk(req.query.date); if (!d) return res.status(400).json({ error: 'Data inválida' }); a.push(d); w.push(`v.occasion_date = $${a.length}::date`); }
@@ -1310,7 +1310,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
       const tz = await fuso();
       a.push(tz); w.push(`v.occasion_date >= (now() AT TIME ZONE $${a.length})::date`);
     }
-    res.json((await q(`${RESERVA} ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY v.occasion_date, s.position, v.id LIMIT 1000`, a)).rows);
+    res.json((await q(`${VENDA} ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY v.occasion_date, s.position, v.id LIMIT 1000`, a)).rows);
   }));
 
   // O setor aceita esse tipo de mesa nessa ocasião? E até quantas (null = sem limite)? Mesas extras abertas à mão contam.
@@ -1324,17 +1324,17 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     return { aceito: !regras.length || !!g || ex > 0, max: g && g.max_tables ? g.max_tables + ex : (!g && regras.length ? ex : null) };
   }
 
-  // Confere se cabe e grava, tudo dentro de uma transação trancada por ocasião (duas reservas ao mesmo tempo não estouram o setor)
+  // Confere se cabe e grava, tudo dentro de uma transação trancada por ocasião (duas vendas ao mesmo tempo não estouram o setor)
   async function gravar({ id, oc, setor, tipo, tables, people, status, nome, phone, cid, note, guests, confereMesa, preco, aniversario }) {
     return tx(currentCompany(), async (t) => {
       await t('SELECT pg_advisory_xact_lock(hashtext($1))', [`shows:${currentCompany()}:${oc.event_id || oc.date}`]);
       if (OCUPAM.includes(status) && confereMesa && tipo.id) {
-        // limite de mesas desse tipo no setor, contando as extras (só a própria reserva em edição não conta)
+        // limite de mesas desse tipo no setor, contando as extras (só a própria venda em edição não conta)
         const g = await regraDoTipo(t, oc, setor.id, tipo.id);
         if (g.max !== null) {
           const a3 = [OCUPAM, setor.id, tipo.id];
           const f3 = filtroOcasiao(oc, a3);
-          const ja = Number((await t(`SELECT COALESCE(SUM(tables),0) AS n FROM shows_reservations WHERE status = ANY($1) AND sector_id=$2 AND table_type_id=$3 AND ${f3}${id ? ` AND id <> ${Number(id)}` : ''}`, a3)).rows[0].n);
+          const ja = Number((await t(`SELECT COALESCE(SUM(tables),0) AS n FROM shows_sales WHERE status = ANY($1) AND sector_id=$2 AND table_type_id=$3 AND ${f3}${id ? ` AND id <> ${Number(id)}` : ''}`, a3)).rows[0].n);
           if (ja + tables > g.max) {
             const e = new Error(`O setor ${setor.name} comporta no máximo ${g.max} mesa(s) de ${tipo.name} e já tem ${ja}.`); e.status = 409; throw e;
           }
@@ -1343,10 +1343,10 @@ export function registerCasaDeShowsRoutes(r, wrap) {
       if (OCUPAM.includes(status)) {
         const [s] = await situacao(oc, { sectorId: setor.id }, t);
         if (!s) { const e = new Error(`O setor ${setor.name} não faz parte do local e formato deste evento.`); e.status = 409; throw e; }
-        const jaUsa = id ? Number((await t('SELECT status, tables * space_each AS u, sector_id FROM shows_reservations WHERE id=$1', [id])).rows
+        const jaUsa = id ? Number((await t('SELECT status, tables * space_each AS u, sector_id FROM shows_sales WHERE id=$1', [id])).rows
           .filter((x) => OCUPAM.includes(x.status) && String(x.sector_id) === String(setor.id)).map((x) => x.u)[0] || 0) : 0;
         // para a edição, o espaço dela mesma conta como livre — mas só se a ocasião não mudou
-        const antes = id ? (await t('SELECT event_id, occasion_date::text AS d FROM shows_reservations WHERE id=$1', [id])).rows[0] : null;
+        const antes = id ? (await t('SELECT event_id, occasion_date::text AS d FROM shows_sales WHERE id=$1', [id])).rows[0] : null;
         const mesma = antes && String(antes.event_id || '') === String(oc.event_id || '') && (oc.event_id || antes.d === oc.date);
         const livre = s.free + (mesma ? jaUsa : 0);
         const preciso = r2(tables * tipo.space);
@@ -1355,31 +1355,31 @@ export function registerCasaDeShowsRoutes(r, wrap) {
         }
       }
       const params = [oc.event_id, oc.date, setor.id, cid, nome, phone, people, tipo.id, tipo.name, tipo.seats, tipo.space, tables, status, note, guests];
-      const comprou = async (rid) => {   // reserva com valor pago > 0 transforma o contato em cliente (mesma regra das outras vendas)
+      const comprou = async (rid) => {   // venda com valor pago > 0 transforma o contato em cliente (mesma regra das outras vendas)
         await t(`UPDATE customers SET status = 'client', client_kinds = CASE WHEN 'buyer' = ANY(client_kinds) THEN client_kinds ELSE array_append(client_kinds, 'buyer') END
-                 WHERE id = (SELECT customer_id FROM shows_reservations WHERE id=$1 AND status IN ('confirmed','attended') AND unit_price > 0)
+                 WHERE id = (SELECT customer_id FROM shows_sales WHERE id=$1 AND status IN ('confirmed','attended') AND unit_price > 0)
                    AND (status <> 'client' OR NOT 'buyer' = ANY(client_kinds))`, [rid]);
         if (aniversario) {   // aniversário informado na venda: grava na ficha só se ainda não houver
           await t(`UPDATE customers SET birth_day=$2, birth_month=$3, birth_year=COALESCE(birth_year, $4)
-                   WHERE id = (SELECT customer_id FROM shows_reservations WHERE id=$1) AND birth_day IS NULL AND birth_month IS NULL`, [rid, aniversario.birth_day, aniversario.birth_month, aniversario.birth_year ?? null]);
+                   WHERE id = (SELECT customer_id FROM shows_sales WHERE id=$1) AND birth_day IS NULL AND birth_month IS NULL`, [rid, aniversario.birth_day, aniversario.birth_month, aniversario.birth_year ?? null]);
         }
         return rid;
       };
       if (id) {
-        await t(`UPDATE shows_reservations SET event_id=$2, occasion_date=$3, sector_id=$4, customer_id=$5, name=$6, phone=$7, people=$8, table_type_id=$9,
+        await t(`UPDATE shows_sales SET event_id=$2, occasion_date=$3, sector_id=$4, customer_id=$5, name=$6, phone=$7, people=$8, table_type_id=$9,
                    table_name=$10, seats_each=$11, space_each=$12, tables=$13, status=$14, note=NULLIF($15,''), guests=NULLIF($16,''),
                    unit_price = CASE WHEN $17::boolean THEN $18::numeric ELSE unit_price END, code_id = CASE WHEN $17::boolean THEN $19::bigint ELSE code_id END,
                    code_word = CASE WHEN $17::boolean THEN $20 ELSE code_word END, lot_id = CASE WHEN $17::boolean THEN $21::bigint ELSE lot_id END, updated_at=now() WHERE id=$1`,
           [id, ...params.slice(0, 13), params[13] || '', params[14] || '', preco !== undefined, preco?.unit_price ?? null, preco?.code_id ?? null, preco?.code_word ?? null, preco?.lot_id ?? null]);
         return comprou(id);
       }
-      return comprou((await t(`INSERT INTO shows_reservations (event_id, occasion_date, sector_id, customer_id, name, phone, people, table_type_id, table_name, seats_each, space_each, tables, status, note, guests, unit_price, code_id, code_word, lot_id)
+      return comprou((await t(`INSERT INTO shows_sales (event_id, occasion_date, sector_id, customer_id, name, phone, people, table_type_id, table_name, seats_each, space_each, tables, status, note, guests, unit_price, code_id, code_word, lot_id)
                        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NULLIF($14,''),NULLIF($15,''),$16,$17,$18,$19) RETURNING id`,
         [...params, preco?.unit_price ?? null, preco?.code_id ?? null, preco?.code_word ?? null, preco?.lot_id ?? null])).rows[0].id);
     });
   }
 
-  // Monta e valida uma reserva a partir do corpo; `atual` = reserva existente (edição).
+  // Monta e valida uma venda a partir do corpo; `atual` = venda existente (edição).
   async function preparar(b, atual, quemCriou) {
     const tem = (k) => b[k] !== undefined;
     // ocasião
@@ -1402,8 +1402,8 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     }
     // nome, telefone
     let nome = atual?.name, phone = atual?.phone ?? null;
-    if (tem('name')) { nome = txt(b.name, 120); if (!nome) return { erro: 'Informe o nome de quem reserva' }; }
-    if (!nome) return { erro: 'Informe o nome de quem reserva' };
+    if (tem('name')) { nome = txt(b.name, 120); if (!nome) return { erro: 'Informe o nome de quem compra' }; }
+    if (!nome) return { erro: 'Informe o nome de quem compra' };
     if (tem('phone')) {
       if (b.phone === null || b.phone === '') phone = null;
       else { phone = normPhone(b.phone); if (!/^\d{8,15}$/.test(phone)) return { erro: 'Telefone inválido' }; }
@@ -1434,7 +1434,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
       tables = tem('tables') ? inteiro(b.tables, 1, 100) : Math.ceil(people / row.seats);
       if (!tables) return { erro: 'Quantidade de mesas inválida' };
     } else if (atual && !tem('table_type_id') && (tem('tables') || tem('people'))) {
-      // mantém o tipo da reserva, ajusta a quantidade
+      // mantém o tipo da venda, ajusta a quantidade
       tipo = { id: atual.table_type_id, name: atual.table_name, seats: atual.seats_each, space: Number(atual.space_each) };
       tables = tem('tables') ? inteiro(b.tables, 1, 100) : Math.ceil(people / tipo.seats);
       if (!tables) return { erro: 'Quantidade de mesas inválida' };
@@ -1462,7 +1462,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
       cid = (await q(`INSERT INTO customers (name, phone, status, source) VALUES ($1,$2,'lead',$3)
                       ON CONFLICT (phone) DO UPDATE SET name = COALESCE(customers.name, EXCLUDED.name) RETURNING id`, [nome, phone, quemCriou])).rows[0].id;
     }
-    // aniversário (dd/mm ou dd/mm/aaaa) de quem reserva: vai para a ficha, sem sobrescrever o que já existe
+    // aniversário (dd/mm ou dd/mm/aaaa) de quem compra: vai para a ficha, sem sobrescrever o que já existe
     let aniversario;
     if (tem('birthday') && b.birthday !== null && String(b.birthday).trim() !== '') {
       aniversario = parseBirthday(b.birthday);
@@ -1489,39 +1489,39 @@ export function registerCasaDeShowsRoutes(r, wrap) {
   }
 
 
-  r.post('/casa-de-shows/reservations', comTratamento(async (req, res) => {
+  r.post('/casa-de-shows/sales', comTratamento(async (req, res) => {
     const p = await preparar(req.body || {}, null, quem(req));
     if (p.erro) return res.status(p.status || 400).json({ error: p.erro });
     const id = await gravar({ ...p.v });
-    res.status(201).json((await q(`${RESERVA} WHERE v.id=$1`, [id])).rows[0]);
+    res.status(201).json((await q(`${VENDA} WHERE v.id=$1`, [id])).rows[0]);
   }));
 
-  r.put('/casa-de-shows/reservations/:id', comTratamento(async (req, res) => {
-    const atual = (await q('SELECT *, occasion_date::text AS occasion_date FROM shows_reservations WHERE id=$1', [req.params.id])).rows[0];
-    if (!atual) return res.status(404).json({ error: 'Reserva não encontrada' });
+  r.put('/casa-de-shows/sales/:id', comTratamento(async (req, res) => {
+    const atual = (await q('SELECT *, occasion_date::text AS occasion_date FROM shows_sales WHERE id=$1', [req.params.id])).rows[0];
+    if (!atual) return res.status(404).json({ error: 'Venda não encontrada' });
     const p = await preparar(req.body || {}, atual, quem(req));
     if (p.erro) return res.status(p.status || 400).json({ error: p.erro });
     await gravar({ ...p.v, id: atual.id });
-    res.json((await q(`${RESERVA} WHERE v.id=$1`, [atual.id])).rows[0]);
+    res.json((await q(`${VENDA} WHERE v.id=$1`, [atual.id])).rows[0]);
   }));
 
-  // ---------- pagamentos da reserva ----------
-  const PAGTO = `SELECT p.id, p.reservation_id, p.method, p.amount::float AS amount, p.pix_key_id, k.beneficiary, k.key AS pix_key,
+  // ---------- pagamentos da venda ----------
+  const PAGTO = `SELECT p.id, p.sale_id, p.method, p.amount::float AS amount, p.pix_key_id, k.beneficiary, k.key AS pix_key,
                         p.payment_id, p.note, p.created_at
-                 FROM shows_res_payments p LEFT JOIN pix_keys k ON k.id = p.pix_key_id`;
+                 FROM shows_sale_payments p LEFT JOIN pix_keys k ON k.id = p.pix_key_id`;
 
-  r.get('/casa-de-shows/reservations/:id/payments', wrap(async (req, res) => {
+  r.get('/casa-de-shows/sales/:id/payments', wrap(async (req, res) => {
     const id = idOk(req.params.id);
-    if (!id) return res.status(400).json({ error: 'Reserva inválida' });
-    const v = (await q(`${RESERVA} WHERE v.id=$1`, [id])).rows[0];
-    if (!v) return res.status(404).json({ error: 'Reserva não encontrada' });
-    res.json({ total: v.total, paid: v.paid, courtesy: v.courtesy, payments: (await q(`${PAGTO} WHERE p.reservation_id=$1 ORDER BY p.id`, [id])).rows });
+    if (!id) return res.status(400).json({ error: 'Venda inválida' });
+    const v = (await q(`${VENDA} WHERE v.id=$1`, [id])).rows[0];
+    if (!v) return res.status(404).json({ error: 'Venda não encontrada' });
+    res.json({ total: v.total, paid: v.paid, courtesy: v.courtesy, payments: (await q(`${PAGTO} WHERE p.sale_id=$1 ORDER BY p.id`, [id])).rows });
   }));
 
-  r.post('/casa-de-shows/reservations/:id/payments', comTratamento(async (req, res) => {
+  r.post('/casa-de-shows/sales/:id/payments', comTratamento(async (req, res) => {
     const id = idOk(req.params.id);
-    if (!id) return res.status(400).json({ error: 'Reserva inválida' });
-    if (!(await q('SELECT 1 FROM shows_reservations WHERE id=$1', [id])).rows.length) return res.status(404).json({ error: 'Reserva não encontrada' });
+    if (!id) return res.status(400).json({ error: 'Venda inválida' });
+    if (!(await q('SELECT 1 FROM shows_sales WHERE id=$1', [id])).rows.length) return res.status(404).json({ error: 'Venda não encontrada' });
     const b = req.body || {};
     const method = String(b.method || '').toLowerCase();
     if (!FORMAS.includes(method)) return res.status(400).json({ error: 'Forma de pagamento inválida' });
@@ -1539,37 +1539,37 @@ export function registerCasaDeShowsRoutes(r, wrap) {
       if (!c) return res.status(400).json({ error: 'Comprovante não encontrado em Recebimentos' });
       if (method !== 'pix') return res.status(400).json({ error: 'Comprovante só vale para pagamento em Pix' });
       if (c.status !== 'accepted') return res.status(400).json({ error: 'Esse comprovante não foi aceito' });
-      if ((await q('SELECT 1 FROM shows_res_payments WHERE payment_id=$1', [payId])).rows.length) return res.status(409).json({ error: 'Esse comprovante já está ligado a uma reserva' });
+      if ((await q('SELECT 1 FROM shows_sale_payments WHERE payment_id=$1', [payId])).rows.length) return res.status(409).json({ error: 'Esse comprovante já está ligado a uma venda' });
       if (amount === null) amount = c.amount;
       if (!keyId && c.pix_key_id) keyId = String(c.pix_key_id);
     }
     if (method === 'cortesia') amount = 0;
     else if (amount === null || amount <= 0) return res.status(400).json({ error: 'Informe o valor pago' });
     const note = b.note ? String(b.note).slice(0, 300) : null;
-    const novo = (await q('INSERT INTO shows_res_payments (reservation_id, method, amount, pix_key_id, payment_id, note) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
+    const novo = (await q('INSERT INTO shows_sale_payments (sale_id, method, amount, pix_key_id, payment_id, note) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
       [id, method, amount, keyId, payId, note])).rows[0].id;
     res.status(201).json((await q(`${PAGTO} WHERE p.id=$1`, [novo])).rows[0]);
   }));
 
   r.delete('/casa-de-shows/payments/:id', wrap(async (req, res) => {
     if ((req.baseUrl || '').includes('n8n')) return res.status(403).json({ error: 'Só pelo painel' });
-    const { rowCount } = await q('DELETE FROM shows_res_payments WHERE id=$1', [req.params.id]);
+    const { rowCount } = await q('DELETE FROM shows_sale_payments WHERE id=$1', [req.params.id]);
     rowCount ? res.json({ ok: true }) : res.status(404).json({ error: 'Pagamento não encontrado' });
   }));
 
-  // Totais por evento ou data: previsto x recebido, por forma de pagamento e por chave Pix/beneficiário. Reservas canceladas ficam de fora.
+  // Totais por evento ou data: previsto x recebido, por forma de pagamento e por chave Pix/beneficiário. Vendas canceladas ficam de fora.
   r.get('/casa-de-shows/payments/summary', wrap(async (req, res) => {
     const w = ["v.status = ANY($1)"], a = [OCUPAM];
     if (req.query.event_id) { const e = idOk(req.query.event_id); if (!e) return res.status(400).json({ error: 'Evento inválido' }); a.push(e); w.push(`v.event_id = $${a.length}`); }
     if (req.query.date) { const d = dataOk(req.query.date); if (!d) return res.status(400).json({ error: 'Data inválida' }); a.push(d); w.push(`v.occasion_date = $${a.length}::date`); }
     const onde = w.join(' AND ');
-    const base = (await q(`SELECT COUNT(*)::int AS reservations, COALESCE(SUM(v.people),0)::int AS people,
+    const base = (await q(`SELECT COUNT(*)::int AS sales, COALESCE(SUM(v.people),0)::int AS people,
                              COALESCE(SUM(v.people * v.unit_price),0)::float AS expected
-                           FROM shows_reservations v WHERE ${onde}`, a)).rows[0];
+                           FROM shows_sales v WHERE ${onde}`, a)).rows[0];
     const formas = (await q(`SELECT p.method, COUNT(*)::int AS n, COALESCE(SUM(p.amount),0)::float AS total
-                             FROM shows_res_payments p JOIN shows_reservations v ON v.id = p.reservation_id WHERE ${onde} GROUP BY p.method ORDER BY p.method`, a)).rows;
+                             FROM shows_sale_payments p JOIN shows_sales v ON v.id = p.sale_id WHERE ${onde} GROUP BY p.method ORDER BY p.method`, a)).rows;
     const chaves = (await q(`SELECT p.pix_key_id, k.beneficiary, k.key AS pix_key, COUNT(*)::int AS n, COALESCE(SUM(p.amount),0)::float AS total
-                             FROM shows_res_payments p JOIN shows_reservations v ON v.id = p.reservation_id LEFT JOIN pix_keys k ON k.id = p.pix_key_id
+                             FROM shows_sale_payments p JOIN shows_sales v ON v.id = p.sale_id LEFT JOIN pix_keys k ON k.id = p.pix_key_id
                              WHERE ${onde} AND p.method = 'pix' GROUP BY p.pix_key_id, k.beneficiary, k.key ORDER BY total DESC`, a)).rows;
     const estado = (await q(`SELECT
         COUNT(*) FILTER (WHERE x.courtesy)::int AS courtesy,
@@ -1578,16 +1578,16 @@ export function registerCasaDeShowsRoutes(r, wrap) {
         COUNT(*) FILTER (WHERE NOT x.courtesy AND x.paid = 0 AND COALESCE(x.total,0) > 0)::int AS pending,
         COALESCE(SUM(GREATEST(x.total - x.paid, 0)) FILTER (WHERE NOT x.courtesy),0)::float AS open_amount
       FROM (SELECT v.id, COALESCE(v.people * v.unit_price, 0) AS total,
-                   COALESCE((SELECT SUM(p.amount) FROM shows_res_payments p WHERE p.reservation_id = v.id AND p.method <> 'cortesia'),0) AS paid,
-                   EXISTS (SELECT 1 FROM shows_res_payments p WHERE p.reservation_id = v.id AND p.method = 'cortesia') AS courtesy
-            FROM shows_reservations v WHERE ${onde}) x`, a)).rows[0];
+                   COALESCE((SELECT SUM(p.amount) FROM shows_sale_payments p WHERE p.sale_id = v.id AND p.method <> 'cortesia'),0) AS paid,
+                   EXISTS (SELECT 1 FROM shows_sale_payments p WHERE p.sale_id = v.id AND p.method = 'cortesia') AS courtesy
+            FROM shows_sales v WHERE ${onde}) x`, a)).rows[0];
     const recebido = r2(formas.filter((f) => f.method !== 'cortesia').reduce((s, f) => s + f.total, 0));
     res.json({ ...base, received: recebido, by_method: formas, by_pix_key: chaves, ...estado });
   }));
 
-  r.delete('/casa-de-shows/reservations/:id', wrap(async (req, res) => {
-    const { rowCount } = await q('DELETE FROM shows_reservations WHERE id=$1', [req.params.id]);
-    rowCount ? res.json({ ok: true }) : res.status(404).json({ error: 'Reserva não encontrada' });
+  r.delete('/casa-de-shows/sales/:id', wrap(async (req, res) => {
+    const { rowCount } = await q('DELETE FROM shows_sales WHERE id=$1', [req.params.id]);
+    rowCount ? res.json({ ok: true }) : res.status(404).json({ error: 'Venda não encontrada' });
   }));
 }
 
@@ -1607,6 +1607,38 @@ export const SHOWS_RENOMEAR_SQL = `
       END IF;
     END LOOP;
   END $r$;
+`;
+
+// Passo 37: a venda deixa de se chamar "reserva" (tabelas, índices e colunas); empresas que já estão no nome novo não mudam.
+// Também roda no começo do passo 36, para quem ainda estava no nome antigo quando o passo dos lotes foi aplicado.
+export const SHOWS_VENDAS_SQL = `
+  DO $v$
+  DECLARE x RECORD;
+  BEGIN
+    IF to_regclass('shows_reservations') IS NOT NULL AND to_regclass('shows_sales') IS NULL THEN
+      ALTER TABLE shows_reservations RENAME TO shows_sales;
+    END IF;
+    IF to_regclass('shows_res_payments') IS NOT NULL AND to_regclass('shows_sale_payments') IS NULL THEN
+      ALTER TABLE shows_res_payments RENAME TO shows_sale_payments;
+    END IF;
+    IF to_regclass('shows_sale_payments') IS NOT NULL AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'shows_sale_payments' AND column_name = 'reservation_id') THEN
+      ALTER TABLE shows_sale_payments RENAME COLUMN reservation_id TO sale_id;
+    END IF;
+    FOR x IN SELECT * FROM (VALUES
+      ('shows_reservations_id_seq','shows_sales_id_seq'), ('shows_res_payments_id_seq','shows_sale_payments_id_seq')) AS t(a, b) LOOP
+      IF to_regclass(x.a) IS NOT NULL AND to_regclass(x.b) IS NULL THEN EXECUTE format('ALTER SEQUENCE %I RENAME TO %I', x.a, x.b); END IF;
+    END LOOP;
+    FOR x IN SELECT * FROM (VALUES
+      ('idx_shows_res_event','idx_shows_sales_event'), ('idx_shows_res_date','idx_shows_sales_date'),
+      ('shows_res_pay_res','shows_sale_pay_sale'), ('shows_res_pay_comprovante','shows_sale_pay_comprovante')) AS t(a, b) LOOP
+      IF to_regclass(x.a) IS NOT NULL AND to_regclass(x.b) IS NULL THEN EXECUTE format('ALTER INDEX %I RENAME TO %I', x.a, x.b); END IF;
+    END LOOP;
+    FOR x IN SELECT c.conname, c.conrelid::regclass AS tbl FROM pg_constraint c
+             WHERE c.connamespace = to_regnamespace(current_schema()) AND (c.conname LIKE 'shows_reservations\_%' OR c.conname LIKE 'shows_res_payments\_%') LOOP
+      EXECUTE format('ALTER TABLE %s RENAME CONSTRAINT %I TO %I', x.tbl, x.conname,
+                     replace(replace(x.conname, 'shows_reservations_', 'shows_sales_'), 'shows_res_payments_', 'shows_sale_payments_'));
+    END LOOP;
+  END $v$;
 `;
 
 // Passo 34: o local criado na migração se chama "Padrão" (não existe necessariamente um local principal)
@@ -1633,7 +1665,7 @@ export const SHOWS_LOTES_SQL = `
     UNIQUE (event_id, position)
   );
   ALTER TABLE shows_event_lots ADD COLUMN IF NOT EXISTS max_qty INT CHECK (max_qty > 0);   -- ingressos (pessoas) do lote; vazio = só vale o prazo
-  ALTER TABLE shows_reservations ADD COLUMN IF NOT EXISTS lot_id BIGINT REFERENCES shows_event_lots(id) ON DELETE SET NULL;   -- lote em que a reserva foi vendida
+  ALTER TABLE shows_sales ADD COLUMN IF NOT EXISTS lot_id BIGINT REFERENCES shows_event_lots(id) ON DELETE SET NULL;   -- lote em que a venda foi vendida
 `;
 
 export const SHOWS_LOCAL_PADRAO_SQL = `
