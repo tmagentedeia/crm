@@ -6,6 +6,7 @@ import { q, qg, runAs, currentCompany } from './db.js';
 import { normPhone } from './phone.js';
 import { isAdmin } from './auth.js';
 import { variaveisDoIngresso, qrHtml } from './ingresso_qr.js';
+import { blocosParaHtml, normalizarDoc, INGRESSO_EXEMPLO } from './doc_blocos.js';
 
 export const DOCUMENTOS_SQL = `
   CREATE TABLE IF NOT EXISTS doc_templates (
@@ -44,6 +45,11 @@ export const DOC_FILES_VENDA_SQL = `
   CREATE INDEX IF NOT EXISTS idx_doc_files_sale ON doc_files (sale_id, seq) WHERE sale_id IS NOT NULL;
   CREATE INDEX IF NOT EXISTS idx_doc_files_event ON doc_files (event_id) WHERE event_id IS NOT NULL;`;
 
+// Modelos montados por blocos (editor visual) e logotipo da empresa para os documentos
+export const DOC_BLOCOS_SQL = `
+  ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS blocks JSONB;
+  ALTER TABLE doc_settings ADD COLUMN IF NOT EXISTS logo TEXT;`;
+
 const TIPOS = ['ingresso', 'contrato', 'proposta', 'outro'];
 const HTML_MAX = 3 * 1024 * 1024;
 const TZ = 'America/Sao_Paulo';
@@ -61,7 +67,8 @@ export const variaveisDe = (html) => [...new Set([...String(html).matchAll(new R
 export function renderizar(html, vars) {
   return String(html)
     .replace(new RegExp(`\\{\\{\\{\\s*(${NOME_VAR})\\s*\\}\\}\\}`, 'g'), (_, k) => limparHtml(vars[k]))
-    .replace(new RegExp(`\\{\\{\\s*(${NOME_VAR})\\s*\\}\\}`, 'g'), (_, k) => esc(vars[k]));
+    .replace(new RegExp(`\\{\\{\\s*(${NOME_VAR})\\s*\\}\\}`, 'g'), (_, k) => esc(vars[k]))
+    .replace(/<img\b[^>]*\ssrc=""[^>]*>/gi, '');   // logotipo ainda não enviado: o espaço some em vez de mostrar uma imagem quebrada
 }
 const partes = (d = new Date()) => Object.fromEntries(new Intl.DateTimeFormat('pt-BR', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
   .formatToParts(d).filter((p) => p.type !== 'literal').map((p) => [p.type, p.value === '24' ? '00' : p.value]));
@@ -130,14 +137,8 @@ export const EXEMPLOS = [
 <div class="rodape">{{empresa}}</div></body></html>`,
   },
   {
-    kind: 'ingresso', name: 'Ingresso (exemplo)',
-    html: `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Ingresso</title>${EST_BASE}
-<style>.t{border:1px solid #d8d8d8;border-radius:14px;padding:26px}.n{font-size:34px;font-weight:bold}</style></head><body><div class="t">
-<h1>INGRESSO</h1><p style="text-align:center;color:#666">{{empresa}} · documento de acesso ao evento</p>
-<h3>Resumo da transação</h3><div style="font-size:18px;font-weight:bold;margin:12px 0">{{{text}}}</div>
-<p>Ingresso Nº <span class="n">#{{numero_curto}}</span></p>
-<h3>Informações importantes</h3>
-<ul><li>Este ingresso vale para uma mesa conforme descrito acima.</li><li>A apresentação pode ser em papel ou PDF no celular.</li></ul></div></body></html>`,
+    kind: 'ingresso', name: 'Ingresso (exemplo)', blocks: INGRESSO_EXEMPLO,
+    html: blocosParaHtml(INGRESSO_EXEMPLO, 'Ingresso'),
   },
   {
     kind: 'proposta', name: 'Proposta comercial (exemplo)',
@@ -168,6 +169,13 @@ function lerVars(obj) {
 async function varsFixas() {
   return (await q('SELECT vars FROM doc_settings WHERE id=1')).rows[0]?.vars || {};
 }
+const LOGO_MAX = 1024 * 1024 * 1.4;   // texto do arquivo em base64 (~1 MB de imagem)
+const logoOk = (v) => typeof v === 'string' && v.length <= LOGO_MAX && /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(v);
+// {{logotipo_src}} é o endereço da imagem (para blocos e modelos próprios); {{{logotipo}}} já vem como imagem pronta
+async function varsLogo() {
+  const logo = (await q('SELECT logo FROM doc_settings WHERE id=1')).rows[0]?.logo || '';
+  return { logotipo_src: logo, logotipo: logo ? `<img src="${logo}" alt="" style="max-height:90px;max-width:100%">` : '' };
+}
 
 // ---------- rotas ----------
 export function registerDocumentRoutes(r, wrap) {
@@ -186,13 +194,21 @@ export function registerDocumentRoutes(r, wrap) {
     res.json({ vars });
   }));
 
+  r.get('/documents/logo', wrap(async (req, res) => res.json({ logo: (await varsLogo()).logotipo_src || null })));
+  r.put('/documents/logo', wrap(async (req, res) => {
+    const logo = req.body?.logo;
+    if (logo !== null && !logoOk(logo)) return res.status(400).json({ error: 'Use uma imagem PNG, JPG, WebP ou GIF de até 1 MB.' });
+    await q(`INSERT INTO doc_settings (id, vars, logo) VALUES (1, '{}'::jsonb, $1) ON CONFLICT (id) DO UPDATE SET logo=EXCLUDED.logo`, [logo]);
+    res.json({ logo });
+  }));
+
   r.get('/documents/templates', wrap(async (req, res) => {
     const { rows } = await q('SELECT id::text AS id, kind, name, is_default, updated_at FROM doc_templates ORDER BY kind, is_default DESC, name');
     res.json(rows);
   }));
   r.get('/documents/templates/:id', wrap(async (req, res) => {
     const id = idOk(req.params.id);
-    const t = id && (await q('SELECT id::text AS id, kind, name, html, is_default FROM doc_templates WHERE id=$1', [id])).rows[0];
+    const t = id && (await q('SELECT id::text AS id, kind, name, html, blocks, is_default FROM doc_templates WHERE id=$1', [id])).rows[0];
     if (!t) return res.status(404).json({ error: 'Modelo não encontrado' });
     res.json({ ...t, variables: variaveisDe(t.html) });
   }));
@@ -201,7 +217,7 @@ export function registerDocumentRoutes(r, wrap) {
     for (const e of EXEMPLOS) {
       if ((await q('SELECT 1 FROM doc_templates WHERE kind=$1 AND name=$2', [e.kind, e.name])).rowCount) continue;
       const temPadrao = (await q('SELECT 1 FROM doc_templates WHERE kind=$1 AND is_default', [e.kind])).rowCount > 0;
-      await q('INSERT INTO doc_templates (kind, name, html, is_default) VALUES ($1,$2,$3,$4)', [e.kind, e.name, e.html, !temPadrao]);
+      await q('INSERT INTO doc_templates (kind, name, html, blocks, is_default) VALUES ($1,$2,$3,$4::jsonb,$5)', [e.kind, e.name, e.html, e.blocks ? JSON.stringify(e.blocks) : null, !temPadrao]);
       novos++;
     }
     res.json({ added: novos });
@@ -211,7 +227,12 @@ export function registerDocumentRoutes(r, wrap) {
     const o = {};
     if (!parcial || b.name !== undefined) { o.name = txt(b.name, 80); if (!o.name) return { erro: 'Dê um nome ao modelo (até 80 letras)' }; }
     if (!parcial || b.kind !== undefined) { if (!TIPOS.includes(b.kind)) return { erro: 'Tipo de documento inválido' }; o.kind = b.kind; }
-    if (!parcial || b.html !== undefined) {
+    if (b.blocks !== undefined && b.blocks !== null) {
+      if (typeof b.blocks !== 'object') return { erro: 'Os blocos do modelo são inválidos' };
+      o.blocks = normalizarDoc(b.blocks);
+      o.html = blocosParaHtml(o.blocks, o.name || 'Documento');
+    } else if (!parcial || b.html !== undefined) {
+      o.blocks = null;
       if (typeof b.html !== 'string' || !b.html.trim()) return { erro: 'O modelo está vazio' };
       if (b.html.length > HTML_MAX) return { erro: 'O modelo é grande demais (máximo 3 MB, contando as imagens)' };
       o.html = b.html;
@@ -226,7 +247,7 @@ export function registerDocumentRoutes(r, wrap) {
   r.post('/documents/templates', soAdmin(async (req, res) => {
     const { o, erro } = lerModelo(req.body || {}, false);
     if (erro) return res.status(400).json({ error: erro });
-    const id = (await q('INSERT INTO doc_templates (kind, name, html) VALUES ($1,$2,$3) RETURNING id', [o.kind, o.name, o.html])).rows[0].id;
+    const id = (await q('INSERT INTO doc_templates (kind, name, html, blocks) VALUES ($1,$2,$3,$4::jsonb) RETURNING id', [o.kind, o.name, o.html, o.blocks ? JSON.stringify(o.blocks) : null])).rows[0].id;
     const tem = (await q('SELECT 1 FROM doc_templates WHERE kind=$1 AND is_default', [o.kind])).rowCount > 0;
     if (o.is_default || !tem) await aplicarPadrao(id, o.kind);
     res.status(201).json({ id: String(id) });
@@ -239,7 +260,8 @@ export function registerDocumentRoutes(r, wrap) {
     if (erro) return res.status(400).json({ error: erro });
     const kind = o.kind || cur.kind;
     if (kind !== cur.kind) await q('UPDATE doc_templates SET is_default=false WHERE id=$1', [id]);
-    await q(`UPDATE doc_templates SET name=COALESCE($2,name), kind=$3, html=COALESCE($4,html), updated_at=now() WHERE id=$1`, [id, o.name ?? null, kind, o.html ?? null]);
+    await q(`UPDATE doc_templates SET name=COALESCE($2,name), kind=$3, html=COALESCE($4,html), blocks=CASE WHEN $5::boolean THEN $6::jsonb ELSE blocks END, updated_at=now() WHERE id=$1`,
+      [id, o.name ?? null, kind, o.html ?? null, o.html !== undefined, o.blocks ? JSON.stringify(o.blocks) : null]);
     if (o.is_default) await aplicarPadrao(id, kind);
     res.json({ ok: true });
   }));
@@ -249,11 +271,17 @@ export function registerDocumentRoutes(r, wrap) {
     rowCount ? res.json({ ok: true }) : res.status(404).json({ error: 'Modelo não encontrado' });
   }));
 
+  // HTML de um modelo por blocos (para quem quiser seguir editando o código)
+  r.post('/documents/blocks-html', soAdmin(async (req, res) => {
+    if (!req.body?.blocks || typeof req.body.blocks !== 'object') return res.status(400).json({ error: 'Blocos inválidos' });
+    res.json({ html: blocosParaHtml(req.body.blocks, txt(req.body.name, 80) || 'Documento') });
+  }));
+
   // Pré-visualização do modelo com dados de teste (o HTML volta pronto para o painel mostrar)
   r.post('/documents/preview', soAdmin(async (req, res) => {
-    const html = typeof req.body?.html === 'string' ? req.body.html : '';
+    const html = req.body?.blocks && typeof req.body.blocks === 'object' ? blocosParaHtml(req.body.blocks) : typeof req.body?.html === 'string' ? req.body.html : '';
     if (!html || html.length > HTML_MAX) return res.status(400).json({ error: 'Modelo inválido' });
-    const vars = { ...variaveisBase(), nome: 'Maria da Silva', telefone: '5532999990000', empresa: 'Sua empresa', qrcode: await qrHtml('TMI-0-0-0-000000000000', 120), codigo: 'TMI-0-0-0-000000000000', evento: 'Show de exemplo', evento_data: '10/10/2026 21:00', abertura: '10/10/2026 19:00', local: 'Casa de exemplo', setor: 'Pista', mesa: '1 × Mesa 4 lugares', pessoa: '1 de 4', text: '<ul><li>Item de exemplo: valor</li><li>Outro item: valor</li></ul>', ...(await varsFixas()), ...lerVars(req.body?.vars) };
+    const vars = { ...variaveisBase(), nome: 'Maria da Silva', telefone: '5532999990000', empresa: 'Sua empresa', qrcode: await qrHtml('TMI-0-0-0-000000000000', 120), codigo: 'TMI-0-0-0-000000000000', evento: 'Show de exemplo', evento_data: '10/10/2026 21:00', abertura: '10/10/2026 19:00', local: 'Casa de exemplo', setor: 'Pista', mesa: '1 × Mesa 4 lugares', pessoa: '1 de 4', text: '<ul><li>Item de exemplo: valor</li><li>Outro item: valor</li></ul>', ...(await varsLogo()), ...(await varsFixas()), ...lerVars(req.body?.vars) };
     const usadas = variaveisDe(html);
     const vazias = usadas.filter((k) => !(k in vars));
     res.json({ html: renderizar(html, vars), missing: vazias });
@@ -282,7 +310,7 @@ export function registerDocumentRoutes(r, wrap) {
     const texto = String(b.text ?? '');
     if (texto.length > 20000) return { status: 400, body: { error: 'Texto grande demais' } };
     const empresa = (await qg('SELECT name FROM companies WHERE id=$1', [currentCompany()])).rows[0]?.name || '';
-    const vars = { ...variaveisBase(), empresa, ...(await varsFixas()), ...extras, ...lerVars(b.fields), nome: nomeFinal, telefone: phone || '', text: texto };
+    const vars = { ...variaveisBase(), empresa, ...(await varsLogo()), ...(await varsFixas()), ...extras, ...lerVars(b.fields), nome: nomeFinal, telefone: phone || '', text: texto };
     let modelo = t.html;
     // o ingresso de uma pessoa sempre leva o QR Code: se o modelo não reservou o espaço, ele entra no fim da página
     if (extras.qrcode && !/\{\{\{?\s*qrcode\s*\}?\}\}/.test(modelo)) modelo = modelo.replace(/<\/body>/i, '<div style="text-align:center;margin:18px 0">{{{qrcode}}}<div style="font-size:11px;color:#666;margin-top:4px">{{codigo}}</div></div></body>');

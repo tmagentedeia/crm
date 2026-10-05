@@ -1,8 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api } from '../api.js';
+import EditorBlocos, { NOVO_DOC } from './EditorBlocos.jsx';
 
 const TIPOS = { ingresso: 'Ingresso', contrato: 'Contrato', proposta: 'Proposta', outro: 'Outro' };
 const quando = (iso) => new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+const ROTULOS = { nome: 'Nome do cliente', telefone: 'Telefone', empresa: 'Nome da empresa', data: 'Data de hoje', hora: 'Hora', numero: 'Número do documento', numero_curto: 'Número curto', evento: 'Evento', evento_data: 'Data do evento', abertura: 'Abertura das portas', local: 'Local', setor: 'Setor', mesa: 'Mesa', pessoa: 'Pessoa (1 de 4)', codigo: 'Código do ingresso' };
 const BASE = ['numero', 'numero_curto', 'data', 'hora', 'empresa', 'nome', 'telefone', 'text', 'qrcode', 'codigo', 'evento', 'evento_data', 'abertura', 'local', 'setor', 'mesa', 'pessoa'];
 
 export default function Documentos() {
@@ -104,6 +106,8 @@ function DadosFixos() {
     } catch (e) { setErr(e.message); }
   }
   return (
+    <>
+    <Logotipo />
     <div className="card">
       <h3>Dados fixos</h3>
       <p className="muted">Valores que entram sozinhos em todos os documentos. O nome é o que aparece no modelo entre chaves, por exemplo <code>{'{{chave_pix}}'}</code>. Use letras, números e sublinhado, sem espaços.</p>
@@ -121,6 +125,36 @@ function DadosFixos() {
         {msg && <span className="muted">{msg}</span>}
       </div>
     </div>
+    </>
+  );
+}
+
+// Logotipo da empresa: entra nos documentos pelo bloco “Logotipo” (ou por {{{logotipo}}} nos modelos escritos à mão)
+function Logotipo() {
+  const [logo, setLogo] = useState(undefined);
+  const [err, setErr] = useState('');
+  useEffect(() => { api('/documents/logo').then((r) => setLogo(r.logo)).catch((e) => setErr(e.message)); }, []);
+  function enviar(e) {
+    const arq = e.target.files?.[0]; e.target.value = '';
+    if (!arq) return;
+    setErr('');
+    if (!/^image\/(png|jpe?g|gif|webp)$/.test(arq.type) || arq.size > 1024 * 1024) { setErr('Use uma imagem PNG, JPG, WebP ou GIF de até 1 MB.'); return; }
+    const rd = new FileReader();
+    rd.onload = () => api('/documents/logo', { method: 'PUT', body: { logo: rd.result } }).then((r) => setLogo(r.logo)).catch((x) => setErr(x.message));
+    rd.readAsDataURL(arq);
+  }
+  const tirar = () => api('/documents/logo', { method: 'PUT', body: { logo: null } }).then(() => setLogo(null)).catch((x) => setErr(x.message));
+  return (
+    <div className="card" style={{ marginBottom: 12 }}>
+      <h3>Logotipo para documentos</h3>
+      <p className="muted">Envie, de preferência, um PNG com o desenho em cor escura e fundo transparente (vazado). Assim ele aparece bem no papel branco; um logotipo branco some. Envie antes de montar os modelos.</p>
+      {err && <div className="error">{err}</div>}
+      <div className="row" style={{ alignItems: 'center', gap: 12 }}>
+        {logo ? <img src={logo} alt="Logotipo" style={{ maxHeight: 70, maxWidth: 220, background: '#fff', border: '1px solid #ddd', padding: 6 }} /> : logo === null ? <span className="muted">Nenhum logotipo enviado.</span> : <span className="muted">Carregando…</span>}
+        <label className="btn">{logo ? 'Trocar logotipo' : 'Enviar logotipo'}<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" onChange={enviar} style={{ display: 'none' }} /></label>
+        {logo && <button className="btn" onClick={tirar}>Remover</button>}
+      </div>
+    </div>
   );
 }
 
@@ -134,17 +168,28 @@ function Modelos() {
   const [err, setErr] = useState('');
   const [msg, setMsg] = useState('');
   const area = useRef(null);
+  const [logo, setLogo] = useState(null);
+  const [fixas, setFixas] = useState([]);
+  const [avancado, setAvancado] = useState(false);
   const carregar = () => api('/documents/templates').then(setLista).catch((e) => setErr(e.message));
-  useEffect(() => { carregar(); }, []);
+  useEffect(() => {
+    carregar();
+    api('/documents/logo').then((r) => setLogo(r.logo)).catch(() => {});
+    api('/documents/settings').then((r) => setFixas(Object.keys(r.vars || {}))).catch(() => {});
+  }, []);
+  const variaveis = [
+    ...['nome', 'telefone', 'empresa', 'data', 'hora', 'evento', 'evento_data', 'abertura', 'local', 'setor', 'mesa', 'pessoa', 'numero', 'numero_curto', 'codigo'].map((n) => ({ nome: n, rotulo: ROTULOS[n] })),
+    ...fixas.map((n) => ({ nome: n, rotulo: `Dado fixo: ${n}` })),
+  ];
 
   async function abrir(id) {
-    setErr(''); setMsg(''); setPrev('');
+    setErr(''); setMsg(''); setPrev(''); setAvancado(false);
     try { setM(await api(`/documents/templates/${id}`)); } catch (e) { setErr(e.message); }
   }
   async function salvar() {
     setErr(''); setMsg('');
     try {
-      const corpo = { name: m.name, kind: m.kind, html: m.html, is_default: m.is_default };
+      const corpo = { name: m.name, kind: m.kind, is_default: m.is_default, ...(m.blocks ? { blocks: m.blocks } : { html: m.html }) };
       if (m.id) await api(`/documents/templates/${m.id}`, { method: 'PUT', body: corpo });
       else { const r = await api('/documents/templates', { method: 'POST', body: corpo }); setM({ ...m, id: r.id }); }
       setMsg('Modelo salvo'); carregar();
@@ -153,6 +198,14 @@ function Modelos() {
   async function apagar() {
     if (!window.confirm(`Apagar o modelo "${m.name}"?`)) return;
     try { await api(`/documents/templates/${m.id}`, { method: 'DELETE' }); setM(null); carregar(); } catch (e) { setErr(e.message); }
+  }
+  async function irParaCodigo() {
+    if (!window.confirm('Ao editar o código, este modelo deixa de ser editável pelos blocos. Continuar?')) return;
+    try { const r = await api('/documents/blocks-html', { method: 'POST', body: { blocks: m.blocks, name: m.name } }); setM({ ...m, html: r.html, blocks: null }); setAvancado(true); } catch (e) { setErr(e.message); }
+  }
+  function recomecarComBlocos() {
+    if (!window.confirm('Isto troca o conteúdo atual por um modelo novo em blocos. Continuar?')) return;
+    setM({ ...m, blocks: NOVO_DOC }); setAvancado(false);
   }
   async function previa() {
     setErr('');
@@ -183,7 +236,7 @@ function Modelos() {
       {msg && <p>{msg}</p>}
       <div className="card" style={{ marginBottom: 12 }}>
         <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
-          <button className="btn primary" onClick={() => { setPrev(''); setMsg(''); setM({ name: '', kind: 'contrato', html: '<!DOCTYPE html>\n<html lang="pt-BR"><head><meta charset="UTF-8"></head>\n<body>\n<h1>Título</h1>\n<p>Cliente: {{nome}}</p>\n<div>{{{text}}}</div>\n</body></html>', is_default: false }); }}>Novo modelo</button>
+          <button className="btn primary" onClick={() => { setPrev(''); setMsg(''); setAvancado(false); setM({ name: '', kind: 'contrato', blocks: NOVO_DOC, html: '', is_default: false }); }}>Novo modelo</button>
           <button className="btn" onClick={exemplos}>Adicionar modelos de exemplo</button>
           <button className="btn" onClick={testar}>Testar serviço de PDF</button>
           {saude && <span className={saude.ok ? '' : 'error'}>{saude.ok ? 'Serviço de PDF funcionando' : saude.motivo}{!saude.ok && saude.detalhe && <span className="muted" style={{ display: 'block', fontSize: 12 }}>{saude.detalhe}</span>}</span>}
@@ -203,21 +256,32 @@ function Modelos() {
               <select value={m.kind} onChange={(e) => setM({ ...m, kind: e.target.value })}>{Object.entries(TIPOS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></div>
             <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}><input type="checkbox" checked={!!m.is_default} onChange={(e) => setM({ ...m, is_default: e.target.checked })} /> Modelo padrão do tipo</label>
           </div>
-          <div className="field"><label>Conteúdo (HTML)</label>
-            <textarea ref={area} rows={16} spellCheck={false} style={{ fontFamily: 'monospace', fontSize: 13 }} value={m.html} onChange={(e) => setM({ ...m, html: e.target.value })} /></div>
-          <p className="muted">
-            Variáveis: escreva <code>{'{{nome}}'}</code> para um valor simples ou <code>{'{{{text}}}'}</code> (três chaves) para um bloco com quebras de linha. Já existem: {BASE.map((v) => `{{${v}}}`).join(', ')}. Os dados fixos e quaisquer campos enviados pelo atendente também viram variáveis.
-            {usadas.length > 0 && <> Neste modelo: {usadas.join(', ')}.</>}
-          </p>
+          {m.blocks ? (
+            <>
+              <EditorBlocos doc={m.blocks} onChange={(d) => setM({ ...m, blocks: d })} variaveis={variaveis} logo={logo} />
+              <p className="muted" style={{ marginTop: 8 }}>Prefere escrever em código? <button type="button" className="btn sm" onClick={irParaCodigo}>Modo avançado (HTML)</button></p>
+            </>
+          ) : (
+            <>
+              <p className="muted">Este modelo está em código. <button type="button" className="btn sm" onClick={recomecarComBlocos}>Recomeçar com o editor de blocos</button></p>
+            <div className="field"><label>Conteúdo (HTML)</label>
+              <textarea ref={area} rows={16} spellCheck={false} style={{ fontFamily: 'monospace', fontSize: 13 }} value={m.html} onChange={(e) => setM({ ...m, html: e.target.value })} /></div>
+            <p className="muted">
+              Variáveis: escreva <code>{'{{nome}}'}</code> para um valor simples ou <code>{'{{{text}}}'}</code> (três chaves) para um bloco com quebras de linha. Já existem: {BASE.map((v) => `{{${v}}}`).join(', ')}. Os dados fixos e quaisquer campos enviados pelo atendente também viram variáveis.
+              {usadas.length > 0 && <> Neste modelo: {usadas.join(', ')}.</>}
+            </p>
+
+            </>
+          )}
           <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
-            <label className="btn">Inserir imagem<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" onChange={imagem} style={{ display: 'none' }} /></label>
-            <button className="btn" onClick={previa}>Pré-visualizar</button>
+            {!m.blocks && <label className="btn">Inserir imagem<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" onChange={imagem} style={{ display: 'none' }} /></label>}
+            {!m.blocks && <button className="btn" onClick={previa}>Pré-visualizar</button>}
             <button className="btn primary" onClick={salvar}>Salvar modelo</button>
             {m.id && <button className="btn" onClick={apagar}>Apagar</button>}
             <button className="btn" onClick={() => setM(null)}>Fechar</button>
           </div>
           {faltam.length > 0 && <p className="muted">Sem valor na pré-visualização: {faltam.join(', ')}. Elas saem em branco se o atendente não enviar.</p>}
-          {prev && <iframe title="Pré-visualização" sandbox="" srcDoc={prev} style={{ width: '100%', height: 520, border: '1px solid #ccc', background: '#fff', marginTop: 10 }} />}
+          {!m.blocks && prev && <iframe title="Pré-visualização" sandbox="" srcDoc={prev} style={{ width: '100%', height: 520, border: '1px solid #ccc', background: '#fff', marginTop: 10 }} />}
         </div>
       )}
     </>
