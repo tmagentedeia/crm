@@ -125,6 +125,11 @@ export default function App() {
   const listaDentroDeEventos = (m) => m.id === 'lista_evento' && moduleOn(company.modules, 'eventos') && (!equipe || equipe.telas.includes('eventos'));
   const visible = BASE_MENU.filter(liberada).filter((m) => !listaDentroDeEventos(m)).filter((m) => !m.module || moduleOn(company.modules, m.module) || bloqueada(m))
     .map((m) => ({ ...personalizado(m), locked: bloqueada(m) }));
+  // a lista do evento pode ficar escondida do menu (dentro de Eventos), mas seus níveis de acesso continuam existindo na Equipe
+  const itemLista = BASE_MENU.find((m) => m.id === 'lista_evento');
+  const menuDasTelas = itemLista && moduleOn(company.modules, 'casa_de_shows') && !visible.some((m) => m.id === 'lista_evento') ? [...visible, personalizado(itemLista)] : visible;
+  // nome de cada tela, mesmo das que a empresa não tem no menu (Equipe e acessos precisa mostrar todas com o nome certo)
+  const rotulosTelas = Object.fromEntries(BASE_MENU.map((m) => [m.id, personalizado(m).label]));
   const MENU = admin ? [...visible, ADMIN_ITEM] : visible;
   // Sem nenhum módulo ligado, o administrador começa direto na Administração
   const inicial = admin && !visible.some((m) => m.module && !m.locked) ? ADMIN_ITEM : (equipe?.inicio && MENU.find((m) => m.id === equipe.inicio && !m.locked)) || MENU.find((m) => !m.locked) || MENU[0];
@@ -193,7 +198,7 @@ export default function App() {
             </select>
           </label>
         </div>
-        <Current company={company} menu={visible} />
+        <Current company={company} menu={menuDasTelas} rotulos={rotulosTelas} />
       </main>
       {upgrade && <UpgradeModal company={company} nome={upgrade} onClose={() => setUpgrade(null)} />}
     </div>

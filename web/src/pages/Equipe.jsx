@@ -2,14 +2,14 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
 
 // Equipe e acessos: o administrador da empresa cria funções (conjuntos de telas) e dá uma a cada pessoa.
-export default function Equipe({ menu = [] }) {
+export default function Equipe({ menu = [], rotulos = {} }) {
   const [d, setD] = useState(null);
   const [aba, setAba] = useState('pessoas');
   const [erro, setErro] = useState('');
   const carregar = () => api('/equipe').then(setD).catch((e) => setErro(e.message));
   useEffect(() => { carregar(); }, []);
   const NIVEIS = { lista_evento: 'Lista do evento · só consulta', lista_evento_comentarista: 'Lista do evento · comentarista (marca entrada e comenta)', lista_evento_editor: 'Lista do evento · editor (edita tudo)', lista_evento_telefone: 'Lista do evento · pode ver os telefones' };
-  const rotulo = (id) => NIVEIS[id] || menu.find((m) => m.id === id)?.label || id;
+  const rotulo = (id) => NIVEIS[id] || rotulos[id] || menu.find((m) => m.id === id)?.label || (id.charAt(0).toUpperCase() + id.slice(1));
   // só entram telas dos módulos que a empresa tem ligados (os três níveis da lista seguem a tela "Lista do evento")
   const disponiveis = d ? d.telas.filter((t) => menu.some((m) => m.id === t) || (NIVEIS[t] && menu.some((m) => m.id === 'lista_evento'))) : [];
   if (erro && !d) return <p className="muted">{erro}</p>;
@@ -33,11 +33,13 @@ export default function Equipe({ menu = [] }) {
 
 function Telas({ valor, onChange, disponiveis, rotulo }) {
   const alterna = (t) => onChange(valor.includes(t) ? valor.filter((x) => x !== t) : [...valor, t]);
+  // telas que a função já tem, mas cujo módulo está desligado na empresa, continuam aparecendo para poderem ser desmarcadas
+  const todas = [...disponiveis, ...valor.filter((t) => !disponiveis.includes(t))];
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px' }}>
-      {disponiveis.map((t) => (
+      {todas.map((t) => (
         <label key={t} style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 400 }}>
-          <input type="checkbox" style={{ width: 'auto' }} checked={valor.includes(t)} onChange={() => alterna(t)} /> {rotulo(t)}
+          <input type="checkbox" style={{ width: 'auto' }} checked={valor.includes(t)} onChange={() => alterna(t)} /> {rotulo(t)}{disponiveis.includes(t) ? '' : ' (desligada na empresa)'}
         </label>
       ))}
     </div>

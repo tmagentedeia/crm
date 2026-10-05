@@ -64,6 +64,22 @@ function FormEvento({ e, onClose, onSaved }) {
   const [f, setF] = useState(e);
   const [err, setErr] = useState('');
   const set = (k) => (ev) => setF({ ...f, [k]: ev.target.value });
+  // Ao escolher quando o show começa, a abertura da casa já vem com o mesmo dia (e o mesmo horário, para ajustar) se ainda estiver vazia ou intocada
+  const [aberturaAuto, setAberturaAuto] = useState(!e.id || !e.doors_at);
+  const mudaInicio = (ev) => {
+    const v = ev.target.value;
+    setF({ ...f, starts_at: v, ...(v && aberturaAuto ? { doors_at: v } : {}) });
+  };
+  // botões "usar a data do início": copiam o dia do início e deixam o horário para a pessoa ajustar (o fim, por padrão, 3 horas depois, como o painel já considera)
+  const copiaDia = (campo) => {
+    if (!f.starts_at) return;
+    const d = new Date(f.starts_at);
+    if (campo === 'ends_at') d.setHours(d.getHours() + 3);
+    const x = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    setF({ ...f, [campo]: x });
+    if (campo === 'doors_at') setAberturaAuto(true);
+  };
+  const atalho = (campo) => f.starts_at && <button type="button" className="btn sm" style={{ marginTop: 4 }} onClick={() => copiaDia(campo)}>Usar o dia do início</button>;
   async function save(ev) {
     ev.preventDefault(); setErr('');
     try {
@@ -78,9 +94,9 @@ function FormEvento({ e, onClose, onSaved }) {
         <h2>{f.id ? 'Editar evento' : 'Novo evento'}</h2>
         {err && <div className="error">{err}</div>}
         <div className="field"><label>Nome do evento *</label><input value={f.title} maxLength={120} onChange={set('title')} required autoFocus /></div>
-        <div className="field"><label>Abre a casa em (opcional)</label><input type="datetime-local" value={f.doors_at} onChange={set('doors_at')} /></div>
-        <div className="field"><label>Começa em * (início do show)</label><input type="datetime-local" value={f.starts_at} onChange={set('starts_at')} required /></div>
-        <div className="field"><label>Termina em (opcional)</label><input type="datetime-local" value={f.ends_at} onChange={set('ends_at')} /></div>
+        <div className="field"><label>Começa em * (início do show)</label><input type="datetime-local" value={f.starts_at} onChange={mudaInicio} required /></div>
+        <div className="field"><label>Abre a casa em (opcional)</label><input type="datetime-local" value={f.doors_at} onChange={(ev) => { setAberturaAuto(false); set('doors_at')(ev); }} />{atalho('doors_at')}</div>
+        <div className="field"><label>Termina em (opcional)</label><input type="datetime-local" value={f.ends_at} onChange={set('ends_at')} />{atalho('ends_at')}</div>
         <div className="field"><label>Local ou link (opcional)</label><input value={f.place} maxLength={200} onChange={set('place')} /></div>
         <div className="field"><label>Observações (opcional)</label><textarea rows="3" value={f.notes} maxLength={2000} onChange={set('notes')} /></div>
         <div className="row"><button className="btn primary">Salvar</button><button type="button" className="btn" onClick={onClose}>Cancelar</button></div>
