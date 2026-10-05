@@ -166,6 +166,21 @@ async function garantirRestaurante(companyId) {
     await qg('INSERT INTO company_funcoes (company_id,name,telas,inicio) VALUES ($1,$2,$3::jsonb,$4) ON CONFLICT DO NOTHING', [companyId, f.name, JSON.stringify(f.telas), f.inicio]);
 }
 
+// Quem tem a Casa de Shows ligada ganha as funções prontas da lista do evento (uma vez, enquanto não houver nenhuma função com nível da lista)
+const FUNCOES_LISTA = [
+  { name: 'Lista do evento · Leitor', telas: ['lista_evento'], inicio: 'lista_evento' },
+  { name: 'Lista do evento · Comentarista', telas: ['lista_evento_comentarista'], inicio: 'lista_evento_comentarista' },
+  { name: 'Lista do evento · Editor', telas: ['lista_evento_editor'], inicio: 'lista_evento_editor' },
+];
+async function garantirLista(companyId) {
+  const c = (await qg("SELECT modules->>'casa_de_shows' AS on FROM companies WHERE id=$1", [companyId])).rows[0];
+  if (c?.on !== 'true') return;
+  const tem = (await qg(`SELECT 1 FROM company_funcoes WHERE company_id=$1 AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(telas) t WHERE t LIKE 'lista\_evento%') LIMIT 1`, [companyId])).rows[0];
+  if (tem) return;
+  for (const f of FUNCOES_LISTA)
+    await qg('INSERT INTO company_funcoes (company_id,name,telas,inicio) VALUES ($1,$2,$3::jsonb,$4) ON CONFLICT DO NOTHING', [companyId, f.name, JSON.stringify(f.telas), f.inicio]);
+}
+
 const limparTelas = (v) => (Array.isArray(v) ? [...new Set(v.filter((t) => TELAS.includes(t)))] : null);
 const nomeOk = (s) => typeof s === 'string' && s.trim().length > 0 && s.trim().length <= 40 && !/[\u0000-\u001f<>]/.test(s);
 const emailOk = (s) => typeof s === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim()) && s.length <= 120;
@@ -187,6 +202,7 @@ export function registerEquipeRoutes(app, requireUser) {
   app.get('/api/equipe', ...pre, w(async (req, res) => {
     await garantirPadrao(cid(req));
     await garantirRestaurante(cid(req));
+    await garantirLista(cid(req));
     const usuarios = (await qg(
       `SELECT id, name, email, role, active, funcao_id, telas_proprias FROM users WHERE company_id=$1 ORDER BY (role='owner') DESC, lower(name)`, [cid(req)])).rows;
     const funcoes = (await qg('SELECT id, name, telas, inicio FROM company_funcoes WHERE company_id=$1 ORDER BY id', [cid(req)])).rows;
