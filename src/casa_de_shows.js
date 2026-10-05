@@ -1229,7 +1229,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
       }
     }
     const abate = bene && people && pr.unit_price !== null ? descontoClube(pr.unit_price, pr.base_price, people, cfgUsado) : 0;
-    res.json({ event: { id: ev.id, title: ev.title }, ...pr, code_id: undefined, club: clube, club_discount: abate, people, total: people && pr.unit_price !== null ? r2(people * pr.unit_price - abate) : null, instructions: ins, pix_key: chaveOut(pix.current), pix_all_full: pix.all_full });
+    res.json({ event: { id: ev.id, title: ev.title, starts_at: ev.starts_at, date: ev.dia }, ...pr, code_id: undefined, club: clube, club_discount: abate, people, total: people && pr.unit_price !== null ? r2(people * pr.unit_price - abate) : null, instructions: ins, pix_key: chaveOut(pix.current), pix_all_full: pix.all_full });
   }));
 
   // ---------- lotes de ingresso ----------
