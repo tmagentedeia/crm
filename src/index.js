@@ -26,6 +26,8 @@ import { bloqueioPorFuncao, registerEquipeRoutes, acessoDe } from './funcoes.js'
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '4mb' }));
+// As respostas da API mudam conforme quem pergunta: nenhum navegador ou intermediário pode guardar e reaproveitar
+app.use(['/api', '/n8n'], (req, res, next) => { res.set({ 'Cache-Control': 'no-store, private', Pragma: 'no-cache', Vary: 'Authorization' }); next(); });
 // Equipe: quem tem uma função só usa as telas dela (vale para todas as rotas do painel)
 app.use('/api', bloqueioPorFuncao);
 

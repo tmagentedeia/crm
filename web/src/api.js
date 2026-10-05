@@ -41,6 +41,7 @@ export const guardarEmpresa = (c) => { ss.set(EMPRESA_ABA, JSON.stringify(c)); i
 export async function api(path, { method = 'GET', body } = {}) {
   const res = await fetch('/api' + path, {
     method,
+    cache: 'no-store',
     headers: {
       'Content-Type': 'application/json',
       ...(getToken() ? { Authorization: 'Bearer ' + getToken() } : {}),
