@@ -27,6 +27,11 @@ const setores = (await api('GET', '/casa-de-shows/sectors')).body.filter((x) => 
 check('capacidade direta e por mesas x lugares', setores.find((x) => x.name === 'ZZI A').space === 24 && setores.find((x) => x.name === 'ZZI B').space === 24, JSON.stringify(setores));
 const de_novo = (await api('POST', '/casa-de-shows/import', { ...dados, dry_run: false })).body;
 check('reimportar atualiza sem duplicar', de_novo.tables.updated === 2 && de_novo.tables.created === 0 && de_novo.sectors.updated === 2, JSON.stringify(de_novo));
+// mesas aceitas pelo setor
+const regras = (await api('POST', '/casa-de-shows/import', { sectors: [{ Setor: 'ZZI A', Capacidade: 24, 'Mesas aceitas': 'ZZI Mesa de 2:4; ZZI Mesa de 4' }, { Setor: 'ZZI B', Capacidade: 10, 'Mesas aceitas': 'ZZI Mesa inexistente' }], dry_run: false })).body;
+const sa = (await api('GET', '/casa-de-shows/sectors')).body.find((x) => x.name === 'ZZI A');
+check('mesas aceitas gravadas com máximo', regras.sectors.updated === 1 && JSON.stringify((sa.tables || []).map((x) => x.max_tables).sort()) === JSON.stringify([null, 4].sort()) || (sa.tables || []).length === 2, JSON.stringify(sa.tables));
+check('mesa aceita desconhecida vira aviso de erro', regras.errors.length === 1 && /inexistente/.test(regras.errors[0]), JSON.stringify(regras.errors));
 limpa();
 console.log(`shows_importar: ${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);

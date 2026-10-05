@@ -484,7 +484,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
   }));
 
   // ---------- importar setores e mesas por planilha ----------
-  // Corpo: { tables: [{ Mesa, Lugares, Pontos? }], sectors: [{ Setor, 'Capacidade'? | Mesas + 'Lugares por mesa', Observações? }], dry_run }
+  // Corpo: { tables: [{ Mesa, Lugares, Pontos? }], sectors: [{ Setor, 'Capacidade'? | Mesas + 'Lugares por mesa', 'Mesas aceitas'?, Observações? }], dry_run }
   // As mesas entram primeiro (o setor aceita todas, como no cadastro manual). Reimportar atualiza pelo nome, sem duplicar.
   r.post('/casa-de-shows/import', wrap(async (req, res) => {
     const cap = (a) => (Array.isArray(a) ? a.slice(0, 500) : []);
@@ -526,12 +526,28 @@ export function registerCasaDeShowsRoutes(r, wrap) {
           const capacidade = cap === '' ? null : espaco(cap, 0.01);
           const obs = txt(pega(row, 'observacoes', 'obs', 'notas'), 400) ?? '';
           if (capacidade === null) { rep.errors.push(`${linha}: informe a capacidade (ou mesas e lugares por mesa)`); continue; }
+          // mesas aceitas: "Mesa de 2:4; Mesa de 4" (o número depois dos dois-pontos é o máximo de mesas daquele tipo); vazio = aceita todas
+          const tipos = new Map((await t('SELECT id, name FROM shows_table_types')).rows.map((x) => [norma(x.name), x.id]));
+          const regras = []; let regraRuim = false;
+          for (const parte of String(pega(row, 'mesas aceitas', 'aceita', 'mesas permitidas') || '').split(/[;\n]/).map((x) => x.trim()).filter(Boolean)) {
+            const [nm, mx] = parte.split(':').map((x) => x.trim());
+            const tid = tipos.get(norma(nm));
+            const max = mx === undefined || mx === '' ? null : inteiro(mx, 1, 100);
+            if (!tid || (mx !== undefined && mx !== '' && max === null) || regras.some((r) => r[0] === tid)) { rep.errors.push(`${linha}: mesa aceita "${parte}" não entendida (use o nome de uma mesa cadastrada, com :máximo se quiser)`); regraRuim = true; break; }
+            regras.push([tid, max]);
+          }
+          if (regraRuim) continue;
           const ex = (await t('SELECT id FROM shows_sectors WHERE venue_id=$1 AND lower(name) = lower($2)', [local.id, nome])).rows[0];
-          if (ex) { await t(`UPDATE shows_sectors SET space=$2, notes=COALESCE(NULLIF($3,''), notes), active=true WHERE id=$1`, [ex.id, capacidade, obs]); rep.sectors.updated++; }
+          let sid;
+          if (ex) { sid = ex.id; await t(`UPDATE shows_sectors SET space=$2, notes=COALESCE(NULLIF($3,''), notes), active=true WHERE id=$1`, [ex.id, capacidade, obs]); rep.sectors.updated++; }
           else {
             const pos = (await t('SELECT COALESCE(MAX(position), 0) + 1 AS p FROM shows_sectors WHERE venue_id=$1', [local.id])).rows[0].p;
-            await t(`INSERT INTO shows_sectors (venue_id, name, space, notes, position) VALUES ($1,$2,$3,NULLIF($4,''),$5)`, [local.id, nome, capacidade, obs, pos]);
+            sid = (await t(`INSERT INTO shows_sectors (venue_id, name, space, notes, position) VALUES ($1,$2,$3,NULLIF($4,''),$5) RETURNING id`, [local.id, nome, capacidade, obs, pos])).rows[0].id;
             rep.sectors.created++;
+          }
+          if (regras.length) {
+            await t('DELETE FROM shows_sector_tables WHERE sector_id=$1', [sid]);
+            for (const [tid, mx] of regras) await t('INSERT INTO shows_sector_tables (sector_id, table_type_id, max_tables) VALUES ($1,$2,$3)', [sid, tid, mx]);
           }
         }
         if (dry) throw new Desfazer();

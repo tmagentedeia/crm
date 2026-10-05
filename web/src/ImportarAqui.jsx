@@ -27,8 +27,8 @@ const TIPOS = {
     ],
   },
   shows_sectors: {
-    nome: 'setores', arquivo: 'modelo-setores.xlsx', chave: 'sectors', aviso: 'Informe a capacidade em pessoas, ou então quantas mesas e quantos lugares por mesa (a capacidade sai da conta). O setor aceita todas as mesas.',
-    exemplo: [{ Setor: 'Setor 1', Capacidade: 24, Observações: '' }, { Setor: 'Setor 2', Mesas: 6, 'Lugares por mesa': 4, Observações: 'Perto do palco' }],
+    nome: 'setores', arquivo: 'modelo-setores.xlsx', chave: 'sectors', aviso: 'Informe a capacidade em pessoas, ou então quantas mesas e quantos lugares por mesa (a capacidade sai da conta). Em Mesas aceitas, escreva as mesas separadas por ponto e vírgula, com o máximo depois de dois-pontos (Mesa de 2:4). Vazio = aceita todas.',
+    exemplo: [{ Setor: 'Setor 1', Capacidade: 24, 'Mesas aceitas': '', Observações: '' }, { Setor: 'Setor 2', Mesas: 6, 'Lugares por mesa': 4, 'Mesas aceitas': 'Mesa de 4:6', Observações: 'Perto do palco' }],
   },
   shows_tables: {
     nome: 'mesas', arquivo: 'modelo-mesas.xlsx', chave: 'tables', aviso: 'Cada lugar ocupa um ponto do setor. A coluna Pontos é opcional: vazia, vale o número de lugares.',
