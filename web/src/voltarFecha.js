@@ -33,6 +33,14 @@ export function iniciarVoltarFecha() {
     }
   };
 
+  // Selecionar texto dentro da janela e soltar o mouse fora dela não é "clicar fora": o navegador dispara o clique no fundo,
+  // mas a janela só fecha se o clique começou no próprio fundo.
+  let ondePressionou = null;
+  document.addEventListener('mousedown', (e) => { ondePressionou = e.target; }, true);
+  document.addEventListener('click', (e) => {
+    if (e.isTrusted && e.target.closest?.(SEL) === e.target && ondePressionou !== e.target) e.stopPropagation();
+  }, true);
+
   new MutationObserver(sincronizar).observe(document.body, { childList: true, subtree: true });
 
   window.addEventListener('popstate', () => {
