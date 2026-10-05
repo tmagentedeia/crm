@@ -1,0 +1,112 @@
+// Lista do evento (uma linha por pessoa) e acessos. Uso: BASE=http://localhost:3999 node test/lista_evento.mjs
+import { execSync } from 'child_process';
+const BASE = process.env.BASE || 'http://localhost:3999';
+let ok = 0, fail = 0;
+const check = (name, cond, extra = '') => { cond ? ok++ : (fail++, console.log('FALHOU:', name, extra)); };
+const call = async (method, path, { token, body } = {}) => {
+  const headers = { 'content-type': 'application/json' };
+  if (token) headers.authorization = 'Bearer ' + token;
+  const r = await fetch(BASE + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  const raw = await r.text();
+  let j = null; try { j = JSON.parse(raw); } catch {}
+  return { status: r.status, body: j, raw, type: r.headers.get('content-type') || '' };
+};
+const psql = (sql) => execSync(`psql "${process.env.DATABASE_URL}" -tAc "${sql}"`).toString().trim();
+psql("set search_path to company_1, public; delete from company_1.shows_attendee_log; delete from company_1.shows_attendees; delete from company_1.shows_sale_payments; delete from company_1.shows_sales where sector_id in (select id from company_1.shows_sectors where name like 'Setor Lista%'); delete from company_1.shows_sectors where name like 'Setor Lista%'; delete from company_1.shows_table_types where name like 'Mesa Lista%'; delete from company_1.events where title like 'Show Lista%'; delete from company_1.customers where phone like '%3288860001' or phone like '%3288860002'");
+const psqlGlobal = (sql) => execSync(`psql "${process.env.DATABASE_URL}" -tAc "${sql}"`).toString().trim();
+psqlGlobal("delete from public.users where email like 'lista-%@x.com'; delete from public.company_funcoes where name like 'Lista %'");
+
+const A = (await call('POST', '/api/auth/login', { body: { email: 'demo@demo.com', password: 'demo1234' } })).body;
+const api = (m, p, body) => call(m, '/api' + p, { token: A.token, body });
+const funcao = async (nome, telas) => (await api('POST', '/equipe/funcoes', { name: nome, telas })).body;
+const pessoa = async (nome, email, f) => { await api('POST', '/equipe/usuarios', { name: nome, email, password: 'senha1234', funcao_id: f.id }); return (await call('POST', '/api/auth/login', { body: { email, password: 'senha1234' } })).body.token; };
+const fLeitor = await funcao('Lista Leitor', ['lista_evento']);
+const fPorteiro = await funcao('Lista Porteiro', ['lista_evento_porteiro']);
+const fAdmin = await funcao('Lista Admin', ['lista_evento_edicao']);
+const fNada = await funcao('Lista Nada', ['clientes']);
+const tLeitor = await pessoa('Lia Leitora', 'lista-leitor@x.com', fLeitor);
+const tPorteiro = await pessoa('Paulo Porteiro', 'lista-porteiro@x.com', fPorteiro);
+const tAdmin = await pessoa('Ada Admin', 'lista-admin@x.com', fAdmin);
+const tNada = await pessoa('Nina Nada', 'lista-nada@x.com', fNada);
+const as = (t) => (m, p, body) => call(m, '/api' + p, { token: t, body });
+const leitor = as(tLeitor), porteiro = as(tPorteiro), admin = as(tAdmin), nada = as(tNada);
+
+const ev = (await api('POST', '/events', { title: 'Show Lista', starts_at: new Date(Date.now() + 10 * 864e5).toISOString() })).body;
+const setor = (await api('POST', '/casa-de-shows/sectors', { name: 'Setor Lista', space: 50 })).body;
+const mesa = (await api('POST', '/casa-de-shows/table-types', { name: 'Mesa Lista 4', seats: 4, space: 2 })).body;
+const venda = async (b) => (await api('POST', '/casa-de-shows/sales', { event_id: ev.id, sector_id: setor.id, table_type_id: mesa.id, ...b })).body;
+const ana = await venda({ name: 'Ana', phone: '32988860001', people: 3, guests: 'Ana\nBia', unit_price: 100 });
+const carlos = await venda({ name: 'Carlos', phone: '32988860002', people: 1, unit_price: 100 });
+const cancelada = await venda({ name: 'Cancelada', people: 2, unit_price: 100 });
+await api('PUT', `/casa-de-shows/sales/${cancelada.id}`, { status: 'cancelled' });
+await api('POST', `/casa-de-shows/sales/${ana.id}/payments`, { method: 'dinheiro', amount: 150 });
+await api('POST', `/casa-de-shows/sales/${carlos.id}/payments`, { method: 'dinheiro', amount: 100 });
+
+// ---- a lista ----
+let l = (await api('GET', `/event-list?event_id=${ev.id}`)).body;
+check('uma linha por pessoa, sem as canceladas', l.rows.length === 4 && l.summary.people === 4, JSON.stringify(l.summary));
+check('nomes: lista da venda, comprador e acompanhante', l.rows[0].name === 'Ana' && l.rows[1].name === 'Bia' && l.rows[2].name === 'Acompanhante de Ana' && l.rows[3].name === 'Carlos', JSON.stringify(l.rows.map((x) => x.name)));
+check('colunas da planilha', l.rows[0].sector === 'Setor Lista' && l.rows[0].table === '1 × Mesa Lista 4' && l.rows[0].unit_price === 100 && /32988860001|3288860001/.test(l.rows[0].phone), JSON.stringify(l.rows[0]));
+check('pagamento por venda', l.rows[0].payment === 'partial' && l.rows[3].payment === 'paid', JSON.stringify([l.rows[0].payment, l.rows[3].payment]));
+check('ninguém entrou ainda', l.summary.entered === 0 && l.summary.pending_payment === 3);
+check('evento obrigatório', (await api('GET', '/event-list')).status === 400);
+check('evento inexistente', (await api('GET', '/event-list?event_id=999999')).status === 404);
+
+// ---- leitor: só consulta ----
+check('leitor vê a lista', (await leitor('GET', `/event-list?event_id=${ev.id}`)).status === 200);
+check('leitor escolhe o evento', (await leitor('GET', '/events?quando=proximos')).status === 200);
+check('leitor baixa a planilha', (await leitor('GET', `/event-list/export?event_id=${ev.id}`)).status === 200);
+check('leitor não edita', (await leitor('PUT', `/event-list/${ana.id}/1`, { name: 'X' })).status === 403);
+check('leitor não marca entrada', (await leitor('PUT', `/event-list-door/${ana.id}/1/entry`, { entered: true })).status === 403);
+check('leitor não anota', (await leitor('PUT', `/event-list-door/${ana.id}/1/note`, { note: 'x' })).status === 403);
+check('leitor não vê as vendas da Casa de Shows', (await leitor('GET', `/casa-de-shows/sales?event_id=${ev.id}`)).status === 403);
+check('quem não tem a tela não vê a lista', (await nada('GET', `/event-list?event_id=${ev.id}`)).status === 403);
+
+// ---- porteiro: entrada e observações ----
+check('porteiro vê a lista', (await porteiro('GET', `/event-list?event_id=${ev.id}`)).status === 200);
+check('porteiro marca entrada', (await porteiro('PUT', `/event-list-door/${ana.id}/1/entry`, { entered: true })).status === 200);
+check('porteiro anota', (await porteiro('PUT', `/event-list-door/${ana.id}/2/note`, { note: 'Chega mais tarde' })).status === 200);
+check('porteiro não edita nome', (await porteiro('PUT', `/event-list/${ana.id}/1`, { name: 'X' })).status === 403);
+check('porteiro não mexe nas vendas', (await porteiro('PUT', `/casa-de-shows/sales/${ana.id}`, { people: 2 })).status === 403);
+l = (await api('GET', `/event-list?event_id=${ev.id}`)).body;
+check('entrada registrada com quem marcou', l.rows[0].entered_at && l.rows[0].entered_by === 'Paulo Porteiro' && l.summary.entered === 1, JSON.stringify(l.rows[0]));
+check('observação da portaria registrada', l.rows[1].door_note === 'Chega mais tarde' && l.rows[1].note === '');
+check('entrada exige verdadeiro ou falso', (await porteiro('PUT', `/event-list-door/${ana.id}/1/entry`, { entered: 'sim' })).status === 400);
+check('pessoa além da venda', (await porteiro('PUT', `/event-list-door/${carlos.id}/2/entry`, { entered: true })).status === 404);
+check('venda cancelada', (await porteiro('PUT', `/event-list-door/${cancelada.id}/1/entry`, { entered: true })).status === 409);
+check('desfazer entrada', (await porteiro('PUT', `/event-list-door/${ana.id}/1/entry`, { entered: false })).status === 200 && (await api('GET', `/event-list?event_id=${ev.id}`)).body.summary.entered === 0);
+check('marcar a venda inteira', (await porteiro('PUT', `/event-list-door/${ana.id}/entry`, { entered: true })).status === 200 && (await api('GET', `/event-list?event_id=${ev.id}`)).body.summary.entered === 3);
+
+// ---- administrador: edita tudo ----
+check('administrador edita nome, telefone e observação', (await admin('PUT', `/event-list/${ana.id}/3`, { name: 'Cris', phone: '32988860002', note: 'Vegetariana' })).status === 200);
+l = (await api('GET', `/event-list?event_id=${ev.id}`)).body;
+check('edição aparece na lista', l.rows[2].name === 'Cris' && l.rows[2].named && l.rows[2].note === 'Vegetariana' && /3288860002$/.test(l.rows[2].phone), JSON.stringify(l.rows[2]));
+check('nome vazio volta ao padrão', (await admin('PUT', `/event-list/${ana.id}/3`, { name: '' })).status === 200 && (await api('GET', `/event-list?event_id=${ev.id}`)).body.rows[2].name === 'Acompanhante de Ana');
+check('telefone inválido', (await admin('PUT', `/event-list/${ana.id}/3`, { phone: '12' })).status === 400);
+check('nome com símbolo inválido', (await admin('PUT', `/event-list/${ana.id}/3`, { name: '<b>x</b>' })).status === 400);
+check('administrador também marca entrada', (await admin('PUT', `/event-list-door/${carlos.id}/1/entry`, { entered: true })).status === 200);
+check('administrador não mexe nas vendas', (await admin('PUT', `/casa-de-shows/sales/${ana.id}`, { people: 2 })).status === 403);
+
+// ---- registro de mudanças ----
+const log = (await api('GET', `/event-list/log?event_id=${ev.id}`)).body;
+check('registro guarda quem fez o quê', log.some((x) => x.actor === 'Paulo Porteiro' && x.action === 'entrada') && log.some((x) => x.actor === 'Paulo Porteiro' && x.action === 'observacao_portaria' && x.person === 'Bia') && log.some((x) => x.actor === 'Ada Admin' && x.action === 'edicao' && /Vegetariana/.test(x.detail)), JSON.stringify(log.slice(0, 3)));
+check('leitor também consulta o registro', (await leitor('GET', `/event-list/log?event_id=${ev.id}`)).status === 200);
+check('registro com entrada desfeita', log.some((x) => x.action === 'entrada_desfeita'));
+
+// ---- planilha ----
+const ex = await api('GET', `/event-list/export?event_id=${ev.id}`);
+check('planilha em CSV com acentos', ex.status === 200 && /text\/csv/.test(ex.type) && ex.raw.replace(/^﻿/, '').startsWith('Nome;Setor;Mesa;Telefone;Valor;Pagamento;Entrou;Observações'), ex.raw.slice(0, 120));
+check('planilha com uma linha por pessoa', ex.raw.trim().split('\r\n').length === 5 && /Bia;Setor Lista/.test(ex.raw) && /Carlos;.*;Pago;Sim;/.test(ex.raw), ex.raw);
+
+// ---- telas na equipe ----
+const eq = (await api('GET', '/equipe')).body;
+check('as três telas da lista existem na equipe', ['lista_evento', 'lista_evento_porteiro', 'lista_evento_edicao'].every((t) => eq.telas.includes(t)));
+const me = (await call('GET', '/api/me', { token: tPorteiro })).body;
+check('a pessoa vê as telas que tem', me.equipe && me.equipe.telas.includes('lista_evento_porteiro'), JSON.stringify(me));
+
+// limpeza
+psql("set search_path to company_1, public; delete from shows_attendee_log; delete from shows_attendees; delete from shows_sale_payments; delete from shows_sales where sector_id in (select id from shows_sectors where name = 'Setor Lista'); delete from customers where phone like '%3288860001' or phone like '%3288860002'");
+await api('DELETE', `/casa-de-shows/sectors/${setor.id}`); await api('DELETE', `/casa-de-shows/table-types/${mesa.id}`); await api('DELETE', '/events/' + ev.id);
+psqlGlobal("delete from public.users where email like 'lista-%@x.com'; delete from public.company_funcoes where name like 'Lista %'");
+console.log(`${ok} ok, ${fail} falhas`);
+process.exit(fail ? 1 : 0);

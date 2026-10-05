@@ -1102,7 +1102,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     const novos = [];
     let anterior = null;
     for (const [i, l] of ls.entries()) {
-      const nome = txt(l?.name || `Lote ${i + 1}`, 60);
+      const nome = txt(l?.name || String(i + 1), 60);
       if (!nome) return res.status(400).json({ error: 'Nome do lote inválido' });
       const preco = dinheiro(l?.price);
       if (l?.price === undefined || l?.price === null || l?.price === '' || preco === null) return res.status(400).json({ error: `Informe o valor do ${nome}` });

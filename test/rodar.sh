@@ -31,7 +31,7 @@ psql "$DB" -qc "drop table company_1.product_sales; update public.tenant_version
 node src/migrate.js
 psql "$DB" -qc "drop table company_1.commission_service_rates, company_1.commission_rates, company_1.commission_settings; update public.tenant_versions set version=21 where company_id=1"
 node src/migrate.js
-psql "$DB" -qc "drop table company_1.shows_event_setup, company_1.shows_layout_tables, company_1.shows_layout_sectors, company_1.shows_layouts, company_1.shows_sale_payments, company_1.shows_media, company_1.shows_sales, company_1.shows_event_sectors, company_1.shows_sector_tables, company_1.shows_extras, company_1.shows_event_interest, company_1.shows_event_codes, company_1.shows_event_conditions, company_1.shows_table_types, company_1.shows_sectors, company_1.shows_venues; update public.tenant_versions set version=22 where company_id=1"
+psql "$DB" -qc "drop table company_1.shows_attendee_log, company_1.shows_attendees, company_1.shows_event_setup, company_1.shows_layout_tables, company_1.shows_layout_sectors, company_1.shows_layouts, company_1.shows_sale_payments, company_1.shows_media, company_1.shows_sales, company_1.shows_event_sectors, company_1.shows_sector_tables, company_1.shows_extras, company_1.shows_event_interest, company_1.shows_event_codes, company_1.shows_event_conditions, company_1.shows_table_types, company_1.shows_sectors, company_1.shows_venues; update public.tenant_versions set version=22 where company_id=1"
 node src/migrate.js
 psql "$DB" -qc "drop table company_1.birthday_sends, company_1.birthday_settings; alter table company_1.campaigns drop column kind; update public.tenant_versions set version=23 where company_id=1"
 node src/migrate.js
@@ -109,6 +109,7 @@ BASE=http://localhost:3999 node test/casa_de_shows_locais.mjs || R=1
 BASE=http://localhost:3999 node test/casa_de_shows_pix_evento.mjs || R=1
 BASE=http://localhost:3999 node test/casa_de_shows_lotes.mjs || R=1
 BASE=http://localhost:3999 node test/casa_de_shows_mesa_reservada.mjs || R=1
+BASE=http://localhost:3999 node test/lista_evento.mjs || R=1
 BASE=http://localhost:3999 node test/contratacoes.mjs || R=1
 BASE=http://localhost:3999 node test/indicacoes.mjs || R=1
 BASE=http://localhost:3999 node test/documentos.mjs || R=1

@@ -17,6 +17,7 @@ import { registerFinanceRoutes } from './financeiro.js';
 import { TIPOS_ITEM } from './produtos.js';
 import { registerSalesRoutes } from './vendas.js';
 import { registerCommissionRoutes } from './comissoes.js';
+import { registerListaEventoRoutes } from './lista_evento.js';
 import { registerCasaDeShowsRoutes, historicoCasaDeShows, KINDS as PERFIS } from './casa_de_shows.js';
 
 const digits = (s) => String(s || '').replace(/\D/g, '');
@@ -1233,6 +1234,7 @@ export function buildRouter() {
   registerSalesRoutes(r, wrap);
   registerCommissionRoutes(r, wrap);
   registerCasaDeShowsRoutes(r, wrap);
+  registerListaEventoRoutes(r, wrap);
   registerHiringRoutes(r, wrap);
   registerDocumentRoutes(r, wrap);
   registerDeliveryRoutes(r, wrap);

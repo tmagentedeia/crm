@@ -146,7 +146,7 @@ function Vendas() {
   async function salvarCond(e) {
     e.preventDefault(); setErr('');
     try {
-      const ls = lotes.map((l, i) => ({ id: l.id, name: l.name || `Lote ${i + 1}`, price: l.price, max_qty: l.max_qty || null, valid_until: l.valid_until ? new Date(l.valid_until).toISOString() : null }));
+      const ls = lotes.map((l, i) => ({ id: l.id, name: l.name || String(i + 1), price: l.price, max_qty: l.max_qty || null, valid_until: l.valid_until ? new Date(l.valid_until).toISOString() : null }));
       await api(`/casa-de-shows/events/${oc}/lots`, { method: 'PUT', body: { lots: ls } });
       await api(`/casa-de-shows/events/${oc}/conditions`, { method: 'PUT', body: { price: ls[0]?.price ?? null, door_price: cond.door_price, price_until: ls[0]?.valid_until ?? null, instructions: cond.instructions } });
       setCond(null); load();
@@ -368,15 +368,15 @@ function Vendas() {
             <h3 style={{ margin: '4px 0' }}>Ingresso por pessoa</h3>
             <p className="muted">Cada lote fecha na data indicada ou quando acabam os ingressos, o que vier primeiro, e aí passa para o seguinte. Um lote sem prazo e sem quantidade vale até o começo do evento.</p>
             {lotes.length > 0 && (
-              <div className="muted" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 84px 84px 215px auto', gap: 8, fontSize: 13 }}>
+              <div className="muted" style={{ display: 'grid', gridTemplateColumns: 'minmax(110px,1fr) 80px 80px 200px auto', gap: 8, fontSize: 13 }}>
                 <span>Lote</span><span>Valor (R$)</span><span>Ingressos</span><span>Vale até</span><span />
               </div>
             )}
             {lotes.map((l, i) => {
               const mud = (k) => (e) => setLotes(lotes.map((y, j) => (j === i ? { ...y, [k]: e.target.value } : y)));
               return (
-                <div key={i} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 84px 84px 215px auto', gap: 8, alignItems: 'center', marginTop: 6 }}>
-                  <input value={l.name} maxLength="60" placeholder={`Lote ${i + 1}`} onChange={mud('name')} />
+                <div key={i} style={{ display: 'grid', gridTemplateColumns: 'minmax(110px,1fr) 80px 80px 200px auto', gap: 8, alignItems: 'center', marginTop: 6 }}>
+                  <input value={l.name} maxLength="60" placeholder={String(i + 1)} onChange={mud('name')} />
                   <input value={l.price} onChange={mud('price')} />
                   <input type="number" min="1" value={l.max_qty} placeholder="Sem limite" onChange={mud('max_qty')} />
                   <input type="datetime-local" value={l.valid_until} onChange={mud('valid_until')} />
@@ -386,7 +386,7 @@ function Vendas() {
               );
             })}
             <div className="row" style={{ marginTop: 8 }}>
-              <button type="button" className="btn" onClick={() => setLotes([...lotes, { name: `Lote ${lotes.length + 1}`, price: '', valid_until: '', max_qty: '' }])} disabled={lotes.length >= 12}>+ Adicionar lote</button>
+              <button type="button" className="btn" onClick={() => setLotes([...lotes, { name: String(lotes.length + 1), price: '', valid_until: '', max_qty: '' }])} disabled={lotes.length >= 12}>+ Adicionar lote</button>
             </div>
             <div className="field" style={{ marginTop: 10 }}><label>Na portaria (R$) — vale depois do último lote</label><input value={cond.door_price} onChange={(e) => setCond({ ...cond, door_price: e.target.value })} style={{ maxWidth: 200 }} /></div>
             <div className="field"><label>Instrução para o atendente (descontos excepcionais, avisos…)</label>

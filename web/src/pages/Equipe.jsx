@@ -8,9 +8,10 @@ export default function Equipe({ menu = [] }) {
   const [erro, setErro] = useState('');
   const carregar = () => api('/equipe').then(setD).catch((e) => setErro(e.message));
   useEffect(() => { carregar(); }, []);
-  const rotulo = (id) => menu.find((m) => m.id === id)?.label || id;
-  // só entram telas dos módulos que a empresa tem ligados
-  const disponiveis = d ? d.telas.filter((t) => menu.some((m) => m.id === t)) : [];
+  const NIVEIS = { lista_evento: 'Lista do evento · só consulta', lista_evento_porteiro: 'Lista do evento · porteiro (marca entrada e anota)', lista_evento_edicao: 'Lista do evento · administrador (edita tudo)' };
+  const rotulo = (id) => NIVEIS[id] || menu.find((m) => m.id === id)?.label || id;
+  // só entram telas dos módulos que a empresa tem ligados (os três níveis da lista seguem a tela "Lista do evento")
+  const disponiveis = d ? d.telas.filter((t) => menu.some((m) => m.id === t) || (NIVEIS[t] && menu.some((m) => m.id === 'lista_evento'))) : [];
   if (erro && !d) return <p className="muted">{erro}</p>;
   if (!d) return <p className="muted">Carregando…</p>;
   return (

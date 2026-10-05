@@ -31,6 +31,7 @@ export const MENU_PADRAO = [
   { id: 'eventos', label: 'Eventos', icon: '🗓️' },
   { id: 'comissoes', label: 'Comissões', icon: '💸' },
   { id: 'casa_de_shows', label: 'Casa de Shows', icon: '🎟️' },
+  { id: 'lista_evento', label: 'Lista do evento', icon: '📋' },
   { id: 'financeiro', label: 'Recebimentos', icon: '💰' },
   { id: 'fila', label: 'Fila de espera', icon: '⏳' },
   { id: 'comandos', label: 'Comandos', icon: '🎛️' },

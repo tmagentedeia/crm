@@ -28,6 +28,7 @@ import Beneficios from './pages/Beneficios.jsx';
 import { moduleOn } from './modules.js';
 import UpgradeModal from './UpgradeModal.jsx';
 import { IconeCadeado, IconeSair, IconeTema } from './icones.jsx';
+import ListaDoEvento from './pages/ListaDoEvento.jsx';
 import { MenuCustomContext, nomeDoMenu, iconeDoMenu } from './menu.jsx';
 
 const THEMES = [
@@ -57,6 +58,7 @@ const BASE_MENU = [
   { id: 'financeiro', module: 'financeiro', label: 'Recebimentos', icon: '💰', comp: Financeiro },
   { id: 'comissoes', module: 'comissoes', label: 'Comissões', icon: '💸', comp: Comissoes },
   { id: 'casa_de_shows', module: 'casa_de_shows', label: 'Casa de Shows', icon: '🎟️', comp: CasaDeShows },
+  { id: 'lista_evento', module: 'casa_de_shows', label: 'Lista do evento', icon: '📋', comp: ListaDoEvento },
   { id: 'fila', module: 'fila', label: 'Fila de espera', icon: '⏳', comp: Fila },
   { id: 'comandos', module: 'comandos', label: 'Comandos', icon: '🎛️', comp: Comandos },
   { id: 'bloqueios', module: 'bloqueios', label: 'Atendimentos bloqueados', icon: '🚫', comp: Bloqueios },
@@ -117,7 +119,8 @@ export default function App() {
   const personalizado = (m) => ({ ...m, label: m.id === 'beneficios' ? (nomeProg || m.label) : nomeDoMenu(custom, m.id, m.label), icon: iconeDoMenu(custom, m.id, m.icon) });
   // Função desligada que o administrador deixou à vista aparece apagada, com cadeado, convidando ao upgrade
   const bloqueada = (m) => !!m.module && !moduleOn(company.modules, m.module) && company.locked_modules?.[m.module] === true;
-  const liberada = (m) => !equipe || (!m.soDono && equipe.telas.includes(m.id));
+  const NIVEIS_LISTA = ['lista_evento', 'lista_evento_porteiro', 'lista_evento_edicao'];
+  const liberada = (m) => !equipe || (!m.soDono && (equipe.telas.includes(m.id) || (m.id === 'lista_evento' && equipe.telas.some((t) => NIVEIS_LISTA.includes(t)))));
   const visible = BASE_MENU.filter(liberada).filter((m) => !m.module || moduleOn(company.modules, m.module) || bloqueada(m))
     .map((m) => ({ ...personalizado(m), locked: bloqueada(m) }));
   const MENU = admin ? [...visible, ADMIN_ITEM] : visible;
