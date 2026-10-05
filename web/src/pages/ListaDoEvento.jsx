@@ -2,13 +2,13 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { api, getToken, fmtPhone } from '../api.js';
 
 const PAGTO = { paid: 'Pago', partial: 'Parcial', pending: 'Pendente', courtesy: 'Cortesia', no_price: '—' };
-const ACAO = { entrada: 'marcou entrada', entrada_desfeita: 'desfez a entrada', observacao_portaria: 'anotou na portaria', edicao: 'editou' };
+const ACAO = { entrada: 'marcou entrada', entrada_desfeita: 'desfez a entrada', comentario: 'comentou', edicao: 'editou' };
 const quando = (d) => new Date(d).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
 const hora = (d) => new Date(d).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 const dinheiro = (v) => (v === null || v === undefined ? '—' : Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }));
 
 // Lista do evento: uma linha por pessoa. Três níveis de acesso:
-// administrador edita, porteiro marca entrada e anota, leitor só consulta.
+// editor edita, comentarista marca entrada e comenta, leitor só consulta.
 export default function ListaDoEvento() {
   const [nivel, setNivel] = useState(null);
   const [eventos, setEventos] = useState([]);
@@ -24,7 +24,7 @@ export default function ListaDoEvento() {
   useEffect(() => {
     api('/me').then((m) => {
       const t = m.equipe?.telas;
-      setNivel(!t || t.includes('lista_evento_edicao') ? 'admin' : t.includes('lista_evento_porteiro') ? 'porteiro' : 'leitor');
+      setNivel(!t || t.includes('lista_evento_editor') ? 'editor' : t.includes('lista_evento_comentarista') ? 'comentarista' : 'leitor');
     }).catch(() => setNivel('leitor'));
     Promise.all([api('/events?quando=proximos'), api('/events?quando=passados').catch(() => [])]).then(([p, o]) => {
       const l = [...p, ...o.slice(0, 60)];
@@ -50,7 +50,7 @@ export default function ListaDoEvento() {
   }, [d, busca, filtro]);
 
   const agir = async (fn) => { try { await fn(); await carregar(); } catch (e) { setErro(e.message); } };
-  const entrada = (r) => agir(() => api(`/event-list-door/${r.sale_id}/${r.seq}/entry`, { method: 'PUT', body: { entered: !r.entered_at } }));
+  const entrada = (r) => agir(() => api(`/event-list-comment/${r.sale_id}/${r.seq}/entry`, { method: 'PUT', body: { entered: !r.entered_at } }));
   const baixar = async () => {
     try {
       const res = await fetch(`/api/event-list/export?event_id=${ev}`, { headers: { Authorization: 'Bearer ' + getToken() } });
@@ -67,18 +67,18 @@ export default function ListaDoEvento() {
   };
   const salvarNota = (e) => {
     e.preventDefault();
-    agir(async () => { await api(`/event-list-door/${nota.sale_id}/${nota.seq}/note`, { method: 'PUT', body: { note: nota.door_note } }); setNota(null); });
+    agir(async () => { await api(`/event-list-comment/${nota.sale_id}/${nota.seq}/note`, { method: 'PUT', body: { note: nota.door_note } }); setNota(null); });
   };
 
-  const podeMarcar = nivel === 'admin' || nivel === 'porteiro';
+  const podeMarcar = nivel === 'editor' || nivel === 'comentarista';
   return (
     <>
       <div style={{ marginBottom: 12 }}>
         <h1>Lista do evento</h1>
         <p className="muted">
           Todas as pessoas do evento, uma por linha.
-          {nivel === 'admin' && ' Você pode editar os dados, marcar a entrada e anotar.'}
-          {nivel === 'porteiro' && ' Marque quem entrou e anote o que for preciso na portaria.'}
+          {nivel === 'editor' && ' Você pode editar os dados, marcar a entrada e comentar.'}
+          {nivel === 'comentarista' && ' Marque quem entrou e deixe seus comentários.'}
           {nivel === 'leitor' && ' Somente consulta.'}
         </p>
       </div>
@@ -101,7 +101,7 @@ export default function ListaDoEvento() {
           </div>
           <div className="card table-wrap">
             <table>
-              <thead><tr><th>Entrou</th><th>Nome</th><th>Setor</th><th>Mesa</th><th>Telefone</th><th>Valor</th><th>Pagamento</th><th>Observações</th><th>Portaria</th>{nivel !== 'leitor' && <th></th>}</tr></thead>
+              <thead><tr><th>Entrou</th><th>Nome</th><th>Setor</th><th>Mesa</th><th>Telefone</th><th>Valor</th><th>Pagamento</th><th>Observações da casa</th><th>Comentário da equipe</th>{nivel !== 'leitor' && <th></th>}</tr></thead>
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.key} style={r.entered_at ? { opacity: 0.75 } : undefined}>
@@ -120,8 +120,8 @@ export default function ListaDoEvento() {
                     <td style={{ maxWidth: 200 }}>{r.door_note}</td>
                     {nivel !== 'leitor' && (
                       <td style={{ whiteSpace: 'nowrap' }}>
-                        {nivel === 'admin' && <button className="btn sm" onClick={() => setEdit({ ...r })}>Editar</button>}{' '}
-                        <button className="btn sm" onClick={() => setNota({ ...r })}>Anotar</button>
+                        {nivel === 'editor' && <button className="btn sm" onClick={() => setEdit({ ...r })}>Editar</button>}{' '}
+                        <button className="btn sm" onClick={() => setNota({ ...r })}>Comentar</button>
                       </td>
                     )}
                   </tr>
@@ -152,7 +152,7 @@ export default function ListaDoEvento() {
       {nota && (
         <div className="modal-bg" onClick={() => setNota(null)}>
           <form className="modal" style={{ maxWidth: 460 }} onClick={(e) => e.stopPropagation()} onSubmit={salvarNota}>
-            <h2>Anotação da portaria</h2>
+            <h2>Comentário</h2>
             <p className="muted">{nota.name}</p>
             <textarea rows="3" autoFocus value={nota.door_note} onChange={(e) => setNota({ ...nota, door_note: e.target.value })} />
             <div className="row" style={{ marginTop: 12, justifyContent: 'flex-end' }}>

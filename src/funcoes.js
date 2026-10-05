@@ -25,7 +25,7 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT true;
 // Telas que podem ser dadas à equipe. "config" e "equipe" ficam só com o dono.
 export const TELAS = [
   'dashboard', 'agenda', 'fila', 'clientes', 'inativos', 'profissionais', 'servicos', 'atendente', 'comandos', 'bloqueios', 'campanhas',
-  'clube', 'pedidos', 'eventos', 'financeiro', 'comissoes', 'casa_de_shows', 'lista_evento', 'lista_evento_porteiro', 'lista_evento_edicao', 'documentos', 'delivery',
+  'clube', 'pedidos', 'eventos', 'financeiro', 'comissoes', 'casa_de_shows', 'lista_evento', 'lista_evento_comentarista', 'lista_evento_editor', 'documentos', 'delivery',
   'rst_salao', 'rst_cozinha', 'rst_caixa', 'rst_gestao',
 ];
 export const registrarTelas = (...novas) => { for (const t of novas) if (!TELAS.includes(t)) TELAS.push(t); };
@@ -50,8 +50,8 @@ export const ROTAS_DA_TELA = {
   comissoes: ['commissions', 'product-sales'],
   casa_de_shows: ['casa-de-shows'],
   lista_evento: [],                                          // só consulta (as leituras estão abaixo)
-  lista_evento_porteiro: ['event-list-door'],               // marca entrada e anota na portaria
-  lista_evento_edicao: ['event-list', 'event-list-door'],   // edita a lista toda
+  lista_evento_comentarista: ['event-list-comment'],               // marca entrada e anota na portaria
+  lista_evento_editor: ['event-list', 'event-list-comment'],   // edita a lista toda
   documentos: ['documents'],
   delivery: ['delivery'],
   rst_salao: ['restaurant'],
@@ -71,8 +71,8 @@ export const LEITURAS_DA_TELA = {
   delivery: ['customers'],
   casa_de_shows: ['customers', 'finance', 'payments'],
   lista_evento: ['event-list', 'events'],
-  lista_evento_porteiro: ['event-list', 'events'],
-  lista_evento_edicao: ['events'],
+  lista_evento_comentarista: ['event-list', 'events'],
+  lista_evento_editor: ['events'],
   campanhas: ['customers', 'services', 'club'],
   financeiro: ['customers'],
 };

@@ -1,6 +1,6 @@
 // Lista do evento: uma linha por pessoa que vai ao evento (no lugar da planilha), montada a partir das vendas da Casa de Shows.
 // Cada pessoa pode ter nome, telefone e observações próprios; a portaria marca quem entrou. Toda mudança fica registrada.
-// Acessos (telas da equipe): lista_evento = só consulta · lista_evento_porteiro = marca entrada e anota na portaria · lista_evento_edicao = edita tudo.
+// Acessos (telas da equipe): lista_evento = só consulta · lista_evento_comentarista = marca entrada e comenta · lista_evento_editor = edita tudo.
 import { q, qg } from './db.js';
 import { normPhone } from './phone.js';
 
@@ -57,7 +57,7 @@ export function registerListaEventoRoutes(r, wrap) {
     const rs = (await q(
       `SELECT s.id AS sale_id, g.seq, s.name AS buyer, s.phone AS buyer_phone, sec.name AS sector, s.table_name, s.tables, s.host_sale_id,
               (SELECT h.name FROM shows_sales h WHERE h.id = s.host_sale_id) AS host_name,
-              s.status, s.people, s.guests, s.unit_price::float AS unit_price,
+              s.status, s.people, s.guests, s.unit_price::float AS unit_price, s.club_discount::float AS club_discount,
               COALESCE((SELECT SUM(p.amount) FROM shows_sale_payments p WHERE p.sale_id = s.id AND p.method <> 'cortesia'), 0)::float AS paid,
               EXISTS (SELECT 1 FROM shows_sale_payments p WHERE p.sale_id = s.id AND p.method = 'cortesia') AS courtesy,
               a.name AS att_name, a.phone AS att_phone, a.note, a.door_note, a.entered_at, a.entered_by
@@ -70,7 +70,7 @@ export function registerListaEventoRoutes(r, wrap) {
     return rs.map((x) => {
       const nomes = String(x.guests || '').split('\n').map((l) => l.trim()).filter(Boolean);
       const nome = x.att_name || nomes[x.seq - 1] || (x.seq === 1 ? x.buyer : `Acompanhante de ${x.buyer}`);
-      const total = x.unit_price !== null ? x.unit_price * x.people : null;
+      const total = x.unit_price !== null ? x.unit_price * x.people - x.club_discount : null;
       const pay = x.courtesy ? 'courtesy' : total === null || total === 0 ? 'no_price' : x.paid >= total - 0.005 ? 'paid' : x.paid > 0 ? 'partial' : 'pending';
       return {
         key: `${x.sale_id}:${x.seq}`, sale_id: x.sale_id, seq: x.seq, name: nome, named: !!x.att_name,
@@ -124,7 +124,7 @@ export function registerListaEventoRoutes(r, wrap) {
     q('INSERT INTO shows_attendee_log (event_id, sale_id, seq, person, actor, action, detail) VALUES ($1,$2,$3,$4,$5,$6,$7)', [event_id, sale_id, seq, person, actor, action, detail || null]);
   const garantir = (p) => q('INSERT INTO shows_attendees (sale_id, seq) VALUES ($1,$2) ON CONFLICT DO NOTHING', [p.s.id, p.seq]);
 
-  // ---- edição (administrador): nome, telefone e observação da casa ----
+  // ---- edição (editor): nome, telefone e observação da casa ----
   r.put('/event-list/:sale/:seq', tratar(async (req, res) => {
     const p = await pessoa(q, req.params.sale, req.params.seq);
     const b = req.body || {};
@@ -150,7 +150,7 @@ export function registerListaEventoRoutes(r, wrap) {
 
   // ---- portaria: marcar entrada e anotar ----
   // Corpo: { entered: true|false }
-  r.put('/event-list-door/:sale/:seq/entry', tratar(async (req, res) => {
+  r.put('/event-list-comment/:sale/:seq/entry', tratar(async (req, res) => {
     const p = await pessoa(q, req.params.sale, req.params.seq);
     if (typeof req.body?.entered !== 'boolean') throw erro(400, 'Informe se a pessoa entrou');
     const por = await ator(req);
@@ -160,7 +160,7 @@ export function registerListaEventoRoutes(r, wrap) {
     res.json({ ok: true });
   }));
   // Marca (ou desmarca) todas as pessoas de uma venda de uma vez
-  r.put('/event-list-door/:sale/entry', tratar(async (req, res) => {
+  r.put('/event-list-comment/:sale/entry', tratar(async (req, res) => {
     if (typeof req.body?.entered !== 'boolean') throw erro(400, 'Informe se as pessoas entraram');
     const p = await pessoa(q, req.params.sale, 1);
     const por = await ator(req);
@@ -173,13 +173,13 @@ export function registerListaEventoRoutes(r, wrap) {
     res.json({ ok: true });
   }));
   // Corpo: { note }
-  r.put('/event-list-door/:sale/:seq/note', tratar(async (req, res) => {
+  r.put('/event-list-comment/:sale/:seq/note', tratar(async (req, res) => {
     const p = await pessoa(q, req.params.sale, req.params.seq);
     const v = txt(req.body?.note, 500); if (v === null) throw erro(400, 'Observação inválida (até 500 letras)');
     const por = await ator(req);
     await garantir(p);
     await q('UPDATE shows_attendees SET door_note=NULLIF($3,\'\') WHERE sale_id=$1 AND seq=$2', [p.s.id, p.seq, v]);
-    await registrar(p.s.event_id, p.s.id, p.seq, p.nome, por, 'observacao_portaria', v || '(apagada)');
+    await registrar(p.s.event_id, p.s.id, p.seq, p.nome, por, 'comentario', v || '(apagada)');
     res.json({ ok: true });
   }));
 }

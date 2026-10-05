@@ -61,6 +61,7 @@ function Vendas() {
   const [cond, setCond] = useState(null);
   const [pix, setPix] = useState(null);
   const [lotes, setLotes] = useState([]);
+  const [clube, setClube] = useState({ percent: '', companions: '1' });
   const [chavesEmpresa, setChavesEmpresa] = useState([]);
   const [codigos, setCodigos] = useState([]);
   const [novoCod, setNovoCod] = useState({ word: '', kind: 'percent', value: '', max_uses: '', note: '' });
@@ -134,8 +135,9 @@ function Vendas() {
   async function abrirCond() {
     setErr('');
     try {
-      const [c, k, px, ch, lt] = await Promise.all([api(`/casa-de-shows/events/${oc}/conditions`), api(`/casa-de-shows/events/${oc}/codes`), api(`/casa-de-shows/events/${oc}/pix`), api('/finance/keys'), api(`/casa-de-shows/events/${oc}/lots`)]);
-      setLotes(lt.lots.length ? lt.lots.map((l) => ({ id: l.id, name: l.name, price: vir(l.price), valid_until: paraInput(l.valid_until), max_qty: l.max_qty ? String(l.max_qty) : '', sold: l.sold })) : (c.price !== null ? [{ name: 'Lote 1', price: vir(c.price), valid_until: paraInput(c.price_until) }] : []));
+      const [c, k, px, ch, lt, cl] = await Promise.all([api(`/casa-de-shows/events/${oc}/conditions`), api(`/casa-de-shows/events/${oc}/codes`), api(`/casa-de-shows/events/${oc}/pix`), api('/finance/keys'), api(`/casa-de-shows/events/${oc}/lots`), api('/casa-de-shows/club-discount')]);
+      setClube({ percent: cl.percent === null ? '' : vir(cl.percent), companions: String(cl.companions) });
+      setLotes(lt.lots.length ? lt.lots.map((l) => ({ id: l.id, name: l.name, price: vir(l.price), valid_until: paraInput(l.valid_until), max_qty: l.max_qty ? String(l.max_qty) : '', sold: l.sold })) : (c.price !== null ? [{ name: '1', price: vir(c.price), valid_until: paraInput(c.price_until) }] : []));
       setChavesEmpresa(ch.filter((x) => x.active));
       setPix({ keys: px.keys.map((x) => ({ key_id: String(x.key_id), limit: x.limit_amount === null ? '' : String(x.limit_amount).replace('.', ','), received: x.received })), configured: px.configured, current: px.current, all_full: px.all_full });
       setCond({ price: vir(c.price), door_price: vir(c.door_price), price_until: paraInput(c.price_until), instructions: c.instructions || '' });
@@ -147,6 +149,7 @@ function Vendas() {
     e.preventDefault(); setErr('');
     try {
       const ls = lotes.map((l, i) => ({ id: l.id, name: l.name || String(i + 1), price: l.price, max_qty: l.max_qty || null, valid_until: l.valid_until ? new Date(l.valid_until).toISOString() : null }));
+      await api('/casa-de-shows/club-discount', { method: 'PUT', body: { percent: clube.percent === '' ? null : clube.percent, companions: clube.companions } });
       await api(`/casa-de-shows/events/${oc}/lots`, { method: 'PUT', body: { lots: ls } });
       await api(`/casa-de-shows/events/${oc}/conditions`, { method: 'PUT', body: { price: ls[0]?.price ?? null, door_price: cond.door_price, price_until: ls[0]?.valid_until ?? null, instructions: cond.instructions } });
       setCond(null); load();
@@ -303,7 +306,7 @@ function Vendas() {
                 <td>{v.phone ? fmtPhone(v.phone) : <span className="muted">—</span>}</td>
                 <td>{v.people}</td>
                 <td>{v.host_sale_id ? <span className="muted">Lugar na mesa</span> : <>{v.tables} × {v.table_name}</>}</td>
-                <td>{v.total !== null ? n1(v.total) : <span className="muted">—</span>}{v.code_word && <div className="muted" style={{ fontSize: 12 }}>{v.code_word}</div>}</td>
+                <td>{v.total !== null ? n1(v.total) : <span className="muted">—</span>}{v.code_word && <div className="muted" style={{ fontSize: 12 }}>{v.code_word}</div>}{v.club_discount > 0 && <div className="muted" style={{ fontSize: 12 }}>Clube −{n1(v.club_discount)}</div>}</td>
                 <td><button className="btn sm" onClick={() => setPagto(v)} title="Pagamentos desta venda">{situacaoPagto(v)}</button></td>
                 <td><span className={'badge ' + BADGE[v.status]}>{SITUACAO[v.status]}</span></td>
                 <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
@@ -368,14 +371,14 @@ function Vendas() {
             <h3 style={{ margin: '4px 0' }}>Ingresso por pessoa</h3>
             <p className="muted">Cada lote fecha na data indicada ou quando acabam os ingressos, o que vier primeiro, e aí passa para o seguinte. Um lote sem prazo e sem quantidade vale até o começo do evento.</p>
             {lotes.length > 0 && (
-              <div className="muted" style={{ display: 'grid', gridTemplateColumns: 'minmax(110px,1fr) 80px 80px 200px auto', gap: 8, fontSize: 13 }}>
+              <div className="muted" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 84px 84px 215px auto', gap: 8, fontSize: 13 }}>
                 <span>Lote</span><span>Valor (R$)</span><span>Ingressos</span><span>Vale até</span><span />
               </div>
             )}
             {lotes.map((l, i) => {
               const mud = (k) => (e) => setLotes(lotes.map((y, j) => (j === i ? { ...y, [k]: e.target.value } : y)));
               return (
-                <div key={i} style={{ display: 'grid', gridTemplateColumns: 'minmax(110px,1fr) 80px 80px 200px auto', gap: 8, alignItems: 'center', marginTop: 6 }}>
+                <div key={i} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 84px 84px 215px auto', gap: 8, alignItems: 'center', marginTop: 6 }}>
                   <input value={l.name} maxLength="60" placeholder={String(i + 1)} onChange={mud('name')} />
                   <input value={l.price} onChange={mud('price')} />
                   <input type="number" min="1" value={l.max_qty} placeholder="Sem limite" onChange={mud('max_qty')} />
@@ -429,6 +432,15 @@ function Vendas() {
               {pix?.salvo && <span className="muted">Salvo.</span>}
             </div>
             {pix?.current && <p className="muted" style={{ marginTop: 6 }}>Chave da vez agora: <strong>{pix.current.beneficiary || pix.current.key}</strong>{pix.all_full && ' (todas já chegaram ao limite)'}</p>}
+            <h3 style={{ marginTop: 18 }}>Desconto do Clube</h3>
+            <p className="muted" style={{ fontSize: 13 }}>Vale para todos os eventos. Quem é membro do clube (conferido pelo telefone no cadastro de clientes) paga menos nele e nos acompanhantes. Não soma com palavra-chave: vale o que sair mais barato.</p>
+            <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+              <input style={{ width: 70 }} inputMode="decimal" placeholder="0" value={clube.percent} onChange={(e) => setClube({ ...clube, percent: e.target.value })} /> <span>% de desconto (vazio = sem desconto)</span>
+            </div>
+            <div className="row" style={{ gap: 8, alignItems: 'center', marginTop: 6 }}>
+              <input style={{ width: 70 }} inputMode="numeric" value={clube.companions} onChange={(e) => setClube({ ...clube, companions: e.target.value })} /> <span>acompanhante(s) com o mesmo desconto</span>
+            </div>
+
             <h3 style={{ marginTop: 18 }}>Palavras-chave de desconto</h3>
             <p className="muted">O atendente pergunta ao painel se a palavra dita pelo cliente vale; ele nunca vê a lista.</p>
             {codigos.map((k) => (

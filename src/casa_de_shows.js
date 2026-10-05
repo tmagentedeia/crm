@@ -110,7 +110,7 @@ export const CASA_DE_SHOWS_SQL = `
 export async function historicoCasaDeShows(customerId) {
   const rows = (await q(
     `SELECT v.id, v.occasion_date::text AS date, e.title AS event_title, s.name AS sector_name, v.people, v.table_name, v.status, v.code_word,
-            v.unit_price::float AS unit_price, (v.people * v.unit_price)::float AS total
+            v.unit_price::float AS unit_price, (v.people * v.unit_price - v.club_discount)::float AS total
      FROM shows_sales v JOIN shows_sectors s ON s.id = v.sector_id LEFT JOIN events e ON e.id = v.event_id
      WHERE v.customer_id = $1 ORDER BY v.occasion_date DESC, v.id DESC LIMIT 200`, [customerId])).rows;
   const contam = rows.filter((x) => ['confirmed', 'attended'].includes(x.status) && x.total > 0);   // cortesia (valor 0) aparece na lista, mas não entra no ticket médio
@@ -898,6 +898,24 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     const vend = Number((await run('SELECT COALESCE(SUM(people),0) AS n FROM shows_sales WHERE host_sale_id=$1 AND status = ANY($2)', [hostId, OCUPAM])).rows[0].n);
     return Math.max(0, h.seats_each * h.tables - h.people - vend);
   }
+  // ---------- desconto do Clube ----------
+  // Membro do clube (conferido no cadastro de clientes pelo telefone) paga menos nele e em N acompanhantes. Vale o que sair mais barato:
+  // não soma com palavra-chave nem com outro desconto, e nunca encarece.
+  async function clubeCfg(run) {
+    const c = (await run('SELECT percent::float AS percent, companions FROM shows_club_discount WHERE id')).rows[0];
+    return c && c.percent > 0 ? c : { percent: null, companions: 1 };
+  }
+  async function ehMembro(run, phone, cid) {
+    if (!phone && !cid) return false;
+    return !!(await run(`SELECT 1 FROM customers WHERE club_status = 'member' AND (id = $1::bigint OR phone = $2) LIMIT 1`, [cid || null, phone || null])).rows[0];
+  }
+  // Quanto abate da venda: para o membro e os acompanhantes (os primeiros da venda), o preço do clube se for menor que o preço já valendo
+  function descontoClube(unit, base, people, cfg) {
+    if (!cfg.percent || unit === null || unit === undefined || base === null || base === undefined) return 0;
+    const n = Math.min(people, 1 + cfg.companions);
+    const noClube = r2(base * (1 - cfg.percent / 100));
+    return noClube < unit ? r2(n * (unit - noClube)) : 0;
+  }
   async function precoPara(run, eventId, palavra, outroPct, excluirVenda) {
     const c = (await run('SELECT price::float AS price, door_price::float AS door_price, price_until FROM shows_event_conditions WHERE event_id=$1', [eventId])).rows[0];
     const lotes = (await run('SELECT id, name, price::float AS price, valid_until, max_qty FROM shows_event_lots WHERE event_id=$1 ORDER BY position', [eventId])).rows;
@@ -1074,7 +1092,20 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     const pr = await precoPara(q, ev.id, String(req.query.code || '').trim(), outro, null);
     const ins = (await q('SELECT instructions FROM shows_event_conditions WHERE event_id=$1', [ev.id])).rows[0]?.instructions || null;
     const pix = await chavesDoEvento(q, ev.id);
-    res.json({ event: { id: ev.id, title: ev.title }, ...pr, code_id: undefined, people, total: people && pr.unit_price !== null ? r2(people * pr.unit_price) : null, instructions: ins, pix_key: chaveOut(pix.current), pix_all_full: pix.all_full });
+    // Clube: com ?phone= o preço confere se a pessoa é membro; devolve quanto abate para ele e os acompanhantes
+    const cfgClube = await clubeCfg(q);
+    let clube = null;
+    if (cfgClube.percent) {
+      const fone = req.query.phone ? normPhone(req.query.phone) : null;
+      const membro = fone ? await ehMembro(q, fone, null) : null;
+      clube = { percent: cfgClube.percent, companions: cfgClube.companions, member: membro };
+      if (membro && pr.unit_price !== null) {
+        clube.discount = descontoClube(pr.unit_price, pr.base_price, people || 1 + cfgClube.companions, cfgClube);
+        clube.price = r2(Math.min(pr.unit_price, pr.base_price * (1 - cfgClube.percent / 100)));
+      }
+    }
+    const abate = clube?.member && people && pr.unit_price !== null ? descontoClube(pr.unit_price, pr.base_price, people, cfgClube) : 0;
+    res.json({ event: { id: ev.id, title: ev.title }, ...pr, code_id: undefined, club: clube, club_discount: abate, people, total: people && pr.unit_price !== null ? r2(people * pr.unit_price - abate) : null, instructions: ins, pix_key: chaveOut(pix.current), pix_all_full: pix.all_full });
   }));
 
   // ---------- lotes de ingresso ----------
@@ -1085,6 +1116,24 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     const pr = await precoPara(q, ev.id, '', 0, null);
     return { event_id: ev.id, lots: (await q(LOTES, [ev.id, OCUPAM])).rows, current: pr.lot ? { name: pr.lot, price: pr.base_price, remaining: pr.lot_remaining } : null, tier: pr.tier || null };
   };
+  // ---------- desconto do Clube ----------
+  r.get('/casa-de-shows/club-discount', wrap(async (req, res) => {
+    const c = await clubeCfg(q);
+    res.json({ percent: c.percent, companions: c.companions });
+  }));
+  // Corpo: { percent: 10 | null (desliga), companions: 1 }
+  r.put('/casa-de-shows/club-discount', wrap(async (req, res) => {
+    if ((req.baseUrl || '').includes('n8n')) return res.status(403).json({ error: 'Só pelo painel' });
+    const b = req.body || {};
+    const pct = b.percent === null || b.percent === '' || b.percent === undefined ? null : num(b.percent);
+    if (pct !== null && (pct <= 0 || pct > 100)) return res.status(400).json({ error: 'O desconto precisa ficar entre 0 e 100%' });
+    const comp = b.companions === undefined || b.companions === '' ? 1 : inteiro(b.companions, 0, 20);
+    if (comp === null || comp === undefined) return res.status(400).json({ error: 'Número de acompanhantes inválido' });
+    await q(`INSERT INTO shows_club_discount (id, percent, companions) VALUES (true, $1, $2) ON CONFLICT (id) DO UPDATE SET percent=$1, companions=$2`, [pct, comp]);
+    const c = await clubeCfg(q);
+    res.json({ percent: c.percent, companions: c.companions });
+  }));
+
   r.get('/casa-de-shows/events/:id/lots', wrap(async (req, res) => {
     const ev = await eventoDe(req.params.id);
     if (!ev) return res.status(404).json({ error: 'Evento não encontrado' });
@@ -1309,7 +1358,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
   // ---------- vendas ----------
   const VENDA = `SELECT v.id, v.event_id, e.title AS event_title, v.occasion_date::text AS date, v.sector_id, s.name AS sector_name,
                           v.customer_id, v.name, v.phone, v.people, v.table_type_id, v.table_name, v.seats_each, v.space_each::float AS space_each,
-                          v.tables, (v.tables * v.space_each)::float AS space, (v.tables * v.seats_each) AS seats, v.status, v.note, v.guests, v.unit_price::float AS unit_price, (v.people * v.unit_price)::float AS total, v.code_word, v.created_at, v.held, v.host_sale_id,
+                          v.tables, (v.tables * v.space_each)::float AS space, (v.tables * v.seats_each) AS seats, v.status, v.note, v.guests, v.unit_price::float AS unit_price, v.club_discount::float AS club_discount, (v.people * v.unit_price - v.club_discount)::float AS total, v.code_word, v.created_at, v.held, v.host_sale_id,
                           (SELECT h.name FROM shows_sales h WHERE h.id = v.host_sale_id) AS host_name,
                           CASE WHEN v.held THEN GREATEST(0, v.seats_each * v.tables - v.people) END AS held_seats,
                           CASE WHEN v.held THEN COALESCE((SELECT SUM(g.people) FROM shows_sales g WHERE g.host_sale_id = v.id AND g.status IN ('confirmed','attended')), 0)::int END AS held_sold,
@@ -1343,7 +1392,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
   }
 
   // Confere se cabe e grava, tudo dentro de uma transação trancada por ocasião (duas vendas ao mesmo tempo não estouram o setor)
-  async function gravar({ id, oc, setor, tipo, tables, people, status, nome, phone, cid, note, guests, confereMesa, preco, aniversario }) {
+  async function gravar({ id, oc, setor, tipo, tables, people, status, nome, phone, cid, note, guests, confereMesa, preco, clube, aniversario }) {
     return tx(currentCompany(), async (t) => {
       await t('SELECT pg_advisory_xact_lock(hashtext($1))', [`shows:${currentCompany()}:${oc.event_id || oc.date}`]);
       if (OCUPAM.includes(status) && confereMesa && tipo.id) {
@@ -1387,13 +1436,14 @@ export function registerCasaDeShowsRoutes(r, wrap) {
         await t(`UPDATE shows_sales SET event_id=$2, occasion_date=$3, sector_id=$4, customer_id=$5, name=$6, phone=$7, people=$8, table_type_id=$9,
                    table_name=$10, seats_each=$11, space_each=$12, tables=$13, status=$14, note=NULLIF($15,''), guests=NULLIF($16,''),
                    unit_price = CASE WHEN $17::boolean THEN $18::numeric ELSE unit_price END, code_id = CASE WHEN $17::boolean THEN $19::bigint ELSE code_id END,
-                   code_word = CASE WHEN $17::boolean THEN $20 ELSE code_word END, lot_id = CASE WHEN $17::boolean THEN $21::bigint ELSE lot_id END, updated_at=now() WHERE id=$1`,
-          [id, ...params.slice(0, 13), params[13] || '', params[14] || '', preco !== undefined, preco?.unit_price ?? null, preco?.code_id ?? null, preco?.code_word ?? null, preco?.lot_id ?? null]);
+                   code_word = CASE WHEN $17::boolean THEN $20 ELSE code_word END, lot_id = CASE WHEN $17::boolean THEN $21::bigint ELSE lot_id END,
+                   club_discount = CASE WHEN $22::boolean THEN $23::numeric ELSE club_discount END, updated_at=now() WHERE id=$1`,
+          [id, ...params.slice(0, 13), params[13] || '', params[14] || '', preco !== undefined, preco?.unit_price ?? null, preco?.code_id ?? null, preco?.code_word ?? null, preco?.lot_id ?? null, clube !== undefined, clube ?? 0]);
         return comprou(id);
       }
-      return comprou((await t(`INSERT INTO shows_sales (event_id, occasion_date, sector_id, customer_id, name, phone, people, table_type_id, table_name, seats_each, space_each, tables, status, note, guests, unit_price, code_id, code_word, lot_id)
-                       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NULLIF($14,''),NULLIF($15,''),$16,$17,$18,$19) RETURNING id`,
-        [...params, preco?.unit_price ?? null, preco?.code_id ?? null, preco?.code_word ?? null, preco?.lot_id ?? null])).rows[0].id);
+      return comprou((await t(`INSERT INTO shows_sales (event_id, occasion_date, sector_id, customer_id, name, phone, people, table_type_id, table_name, seats_each, space_each, tables, status, note, guests, unit_price, code_id, code_word, lot_id, club_discount)
+                       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NULLIF($14,''),NULLIF($15,''),$16,$17,$18,$19,$20) RETURNING id`,
+        [...params, preco?.unit_price ?? null, preco?.code_id ?? null, preco?.code_word ?? null, preco?.lot_id ?? null, clube ?? 0])).rows[0].id);
     });
   }
 
@@ -1503,7 +1553,21 @@ export function registerCasaDeShowsRoutes(r, wrap) {
         else if (atual) preco = { unit_price: null, code_id: null, code_word: null, lot_id: null };
       }
     }
-    return { v: { oc, setor, tipo, tables, people, status, nome, phone, cid, note, guests, confereMesa, preco, aniversario } };
+    // desconto do Clube: confere o telefone no cadastro; valor digitado à mão não leva desconto
+    let clube;
+    if (!atual || preco !== undefined || tem('people') || tem('phone') || tem('customer_id')) {
+      clube = 0;
+      const unit = preco !== undefined ? preco.unit_price : (atual?.unit_price == null ? null : Number(atual.unit_price));
+      const manual = tem('unit_price') && b.unit_price !== null && b.unit_price !== '';
+      if (oc.event_id && unit !== null && !manual && !atual?.host_sale_id) {
+        const cfg = await clubeCfg(q);
+        if (cfg.percent && await ehMembro(q, phone, cid)) {
+          const pr = await precoPara(q, oc.event_id, '', 0, atual?.id);
+          clube = descontoClube(unit, pr.base_price, people, cfg);
+        }
+      }
+    }
+    return { v: { oc, setor, tipo, tables, people, status, nome, phone, cid, note, guests, confereMesa, preco, clube, aniversario } };
   }
 
 
@@ -1735,7 +1799,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     if (req.query.date) { const d = dataOk(req.query.date); if (!d) return res.status(400).json({ error: 'Data inválida' }); a.push(d); w.push(`v.occasion_date = $${a.length}::date`); }
     const onde = w.join(' AND ');
     const base = (await q(`SELECT COUNT(*)::int AS sales, COALESCE(SUM(v.people),0)::int AS people,
-                             COALESCE(SUM(v.people * v.unit_price),0)::float AS expected
+                             COALESCE(SUM(v.people * v.unit_price - v.club_discount),0)::float AS expected
                            FROM shows_sales v WHERE ${onde}`, a)).rows[0];
     const formas = (await q(`SELECT p.method, COUNT(*)::int AS n, COALESCE(SUM(p.amount),0)::float AS total
                              FROM shows_sale_payments p JOIN shows_sales v ON v.id = p.sale_id WHERE ${onde} GROUP BY p.method ORDER BY p.method`, a)).rows;
@@ -1748,7 +1812,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
         COUNT(*) FILTER (WHERE NOT x.courtesy AND x.paid > 0 AND x.paid < x.total)::int AS partial,
         COUNT(*) FILTER (WHERE NOT x.courtesy AND x.paid = 0 AND COALESCE(x.total,0) > 0)::int AS pending,
         COALESCE(SUM(GREATEST(x.total - x.paid, 0)) FILTER (WHERE NOT x.courtesy),0)::float AS open_amount
-      FROM (SELECT v.id, COALESCE(v.people * v.unit_price, 0) AS total,
+      FROM (SELECT v.id, COALESCE(v.people * v.unit_price - v.club_discount, 0) AS total,
                    COALESCE((SELECT SUM(p.amount) FROM shows_sale_payments p WHERE p.sale_id = v.id AND p.method <> 'cortesia'),0) AS paid,
                    EXISTS (SELECT 1 FROM shows_sale_payments p WHERE p.sale_id = v.id AND p.method = 'cortesia') AS courtesy
             FROM shows_sales v WHERE ${onde}) x`, a)).rows[0];
@@ -1860,3 +1924,12 @@ export const SHOWS_LOTES_SQL = `
 export const SHOWS_LOCAL_PADRAO_SQL = `
   UPDATE shows_venues SET name = 'Padrão' WHERE name = 'Local principal' AND NOT EXISTS (SELECT 1 FROM shows_venues WHERE name = 'Padrão');
 `;
+
+// Desconto do Clube: percentual e número de acompanhantes, iguais para todos os eventos; a venda guarda quanto abateu
+export const SHOWS_CLUBE_SQL = `
+  CREATE TABLE IF NOT EXISTS shows_club_discount (
+    id         BOOLEAN PRIMARY KEY DEFAULT true CHECK (id),
+    percent    NUMERIC(5,2) CHECK (percent IS NULL OR (percent > 0 AND percent <= 100)),
+    companions INT NOT NULL DEFAULT 1 CHECK (companions BETWEEN 0 AND 20)
+  );
+  ALTER TABLE shows_sales ADD COLUMN IF NOT EXISTS club_discount NUMERIC(10,2) NOT NULL DEFAULT 0;`;
