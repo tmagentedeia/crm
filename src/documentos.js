@@ -89,7 +89,11 @@ export async function testarGotenberg() {
   if (!gotenbergLigado()) return { ok: false, motivo: 'O serviço de PDF ainda não foi configurado neste servidor.' };
   try {
     const r = await gotenbergFetch('/health', { timeout: 8000 });
-    return r.ok ? { ok: true } : { ok: false, motivo: `O serviço de PDF respondeu ${r.status}.`, detalhe: `endereço ${enderecoGotenberg()} · resposta ${r.status}` };
+    if (!r.ok) return { ok: false, motivo: `O serviço de PDF respondeu ${r.status}.`, detalhe: `endereço ${enderecoGotenberg()} · resposta ${r.status}` };
+    // o /health não pede senha: gera um PDF mínimo para conferir também o usuário e a senha
+    try { await htmlParaPdf('<html><body>teste</body></html>'); }
+    catch (e) { return { ok: false, motivo: e.message.includes('401') ? 'O serviço de PDF recusou o usuário ou a senha.' : 'O serviço de PDF está no ar, mas não conseguiu gerar um PDF de teste.', detalhe: `endereço ${enderecoGotenberg()} · ${e.message}` }; }
+    return { ok: true };
   } catch (e) {
     return { ok: false, motivo: 'Não foi possível alcançar o serviço de PDF.', detalhe: `endereço ${enderecoGotenberg()} · ${e.cause?.code || e.name}: ${e.cause?.message || e.message}` };
   }
@@ -277,7 +281,12 @@ export function registerDocumentRoutes(r, wrap) {
     const html = renderizar(modelo, vars);
     let pdf;
     try { pdf = await htmlParaPdf(html); }
-    catch (e) { console.error('documentos:', e.message, e.cause?.code || '', e.cause?.message || '', enderecoGotenberg()); return { status: 502, body: { error: 'Não foi possível gerar o PDF agora. Tente de novo em instantes.' } }; }
+    catch (e) {
+      console.error('documentos:', e.message, e.cause?.code || '', e.cause?.message || '', enderecoGotenberg());
+      // o administrador da plataforma vê o motivo técnico; o cliente vê só a mensagem simples
+      const detalhe = (await ehAdmin(req)) ? ` (${enderecoGotenberg()} · ${e.cause?.code || e.cause?.message || e.message})` : '';
+      return { status: 502, body: { error: 'Não foi possível gerar o PDF agora. Tente de novo em instantes.' + detalhe } };
+    }
 
     let customerId = null;
     if (phone) {
