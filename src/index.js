@@ -4,7 +4,7 @@ import bcrypt from 'bcryptjs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import 'dotenv/config';
-import { q, qg, runAs } from './db.js';
+import { q, qg, runAs, schemaOf } from './db.js';
 import { createCompany } from './companies.js';
 import { snapshotCompany } from './templates.js';
 import { pool } from './db.js';
@@ -208,6 +208,25 @@ app.get('/api/admin/access-log', requireUser, requireAdmin, async (req, res) => 
 
 registerIndicacoesAdmin(app, requireUser, requireAdmin);
 registerEquipeRoutes(app, requireUser);
+// Conferência de quem é quem: para cada empresa, o responsável (e-mail do login), o nome do agente e o manual publicado no banco.
+// Serve para apontar de onde vem um dado que parece estar na empresa errada.
+app.get('/api/admin/diagnostico', requireUser, requireAdmin, async (req, res) => {
+  const cs = (await qg('SELECT id, name, created_at, agent_name, adm_name FROM companies ORDER BY id')).rows;
+  const out = [];
+  for (const c of cs) {
+    const item = { id: c.id, name: c.name, created_at: c.created_at, donos: [], agente: c.agent_name || null, adm: c.adm_name || null, manual_publicado_em: null, manual_inicio: null };
+    try {
+      item.donos = (await qg("SELECT email, role FROM users WHERE company_id=$1 ORDER BY (role = 'owner') DESC, id LIMIT 5", [c.id])).rows;
+      const s = schemaOf(c.id);
+      item.manual_publicado_em = (await qg(`SELECT max(published_at) AS t FROM ${s}.agent_manual_versions`)).rows[0]?.t || null;
+      const m = (await qg(`SELECT content FROM ${s}.agent_manual_versions WHERE published_at IS NOT NULL ORDER BY published_at DESC, id DESC LIMIT 1`)).rows[0];
+      item.manual_inicio = m ? String(m.content).replace(/\s+/g, ' ').slice(0, 80) : null;
+    } catch (e) { item.erro = e.message.slice(0, 120); }
+    out.push(item);
+  }
+  res.json(out);
+});
+
 app.get('/api/admin/companies', requireUser, requireAdmin, async (req, res) => {
   const { rows } = await qg(
     `SELECT c.id, c.name, c.max_professionals, c.billing_due_day, c.billing_exempt, (SELECT count(*) FROM partner_referrals pr WHERE pr.company_id=c.id)::int AS referrals_total, c.created_at, c.modules, c.locked_modules, c.module_labels, c.whatsapp_instance, c.redis_prefix, c.campaign_webhook_url, c.wa_api_url, (c.wa_api_token IS NOT NULL) AS wa_api_set, right(c.wa_api_token, 4) AS wa_api_fim, c.booking_mode, c.api_key_hint, c.api_key_created_at,

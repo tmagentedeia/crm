@@ -199,14 +199,34 @@ export default function Admin() {
     try { await navigator.clipboard.writeText(novaChave.chave); setCopiada(true); } catch { setCopiada(false); }
   }
 
+  const [diag, setDiag] = useState(null);
+  const conferir = async () => { setErr(''); try { setDiag(await api('/admin/diagnostico')); } catch (e) { setErr(e.message); } };
   const setF = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
   return (
     <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <h1>Administração</h1>
-        {!form && <button className="btn primary" onClick={() => { setForm(FORM_VAZIO()); setErr(''); }}>+ Nova empresa</button>}
+        {!form && <div className="row"><button className="btn" onClick={conferir}>Conferir empresas</button><button className="btn primary" onClick={() => { setForm(FORM_VAZIO()); setErr(''); }}>+ Nova empresa</button></div>}
       </div>
+      {diag && (
+        <div className="card table-wrap" style={{ marginTop: 12 }}>
+          <div className="row" style={{ justifyContent: 'space-between' }}><h2>Conferência das empresas</h2><button className="btn sm" onClick={() => setDiag(null)}>Fechar</button></div>
+          <table>
+            <thead><tr><th>Código</th><th>Empresa</th><th>Login do responsável</th><th>Agente</th><th>Manual publicado</th></tr></thead>
+            <tbody>
+              {diag.map((d) => (
+                <tr key={d.id}>
+                  <td>{d.id}</td><td><strong>{d.name}</strong><div className="muted" style={{ fontSize: 12 }}>criada em {new Date(d.created_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</div></td>
+                  <td>{d.donos.map((u) => <div key={u.email}>{u.email}</div>)}</td>
+                  <td>{d.agente || '—'}{d.adm ? ` · ${d.adm}` : ''}</td>
+                  <td>{d.erro ? <span className="muted">{d.erro}</span> : d.manual_publicado_em ? <>{new Date(d.manual_publicado_em).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}<div className="muted" style={{ fontSize: 12 }}>{d.manual_inicio}</div></> : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
       {versao && (
         <p className="muted" style={{ marginBottom: 8 }}>
           Versão no ar: {versao.commit ? <strong>{versao.commit}</strong> : 'código não informado'} · desde {new Date(versao.started_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
