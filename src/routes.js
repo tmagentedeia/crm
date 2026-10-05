@@ -1117,10 +1117,24 @@ export function buildRouter() {
       q(`SELECT professional, COUNT(*)::int AS total ${base} GROUP BY professional ORDER BY total DESC`, [days]),
       q(`SELECT status, COUNT(*)::int AS total FROM customers GROUP BY status`),
     ]);
+    // Resumos dos outros módulos: pedidos de música, valores recebidos e vendas de ingresso (o painel mostra os que a empresa usa)
+    const [ped, musicas, rec, ing] = await Promise.all([
+      q(`SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE served_at IS NOT NULL)::int AS atendidos
+         FROM song_orders WHERE created_at >= now() - make_interval(days => $1)`, [days]),
+      q(`SELECT min(song) AS song, COUNT(*)::int AS total FROM song_orders
+         WHERE created_at >= now() - make_interval(days => $1) GROUP BY lower(btrim(song)) ORDER BY total DESC, song LIMIT 10`, [days]),
+      q(`SELECT COALESCE(SUM(amount),0)::float AS total, COUNT(*)::int AS aceitos FROM payments
+         WHERE status='accepted' AND created_at >= now() - make_interval(days => $1)`, [days]),
+      q(`SELECT COUNT(*)::int AS vendas, COALESCE(SUM(people),0)::int AS pessoas,
+                COALESCE(SUM(people * COALESCE(unit_price,0) - club_discount),0)::float AS total
+         FROM shows_sales WHERE status IN ('confirmed','attended')
+           AND created_at >= now() - make_interval(days => $1)`, [days]),
+    ]);
     res.json({
       days, ...tot.rows[0],
       por_dia_semana: byDay.rows, servicos: byService.rows,
       profissionais: byProfessional.rows, clientes: leads.rows,
+      pedidos: ped.rows[0], musicas: musicas.rows, recebido: rec.rows[0], ingressos: ing.rows[0],
     });
   }));
 

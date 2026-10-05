@@ -15,8 +15,9 @@ function useChartColor() {
 
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { api, money, WEEKDAYS } from '../api.js';
+import { moduleOn } from '../modules.js';
 
-function Chart({ title, data, x, layout }) {
+function Chart({ title, data, x, layout, vazio, nome }) {
   const color = useChartColor();
   const horizontal = layout === 'vertical';
   return (
@@ -39,16 +40,16 @@ function Chart({ title, data, x, layout }) {
                 </>
               )}
               <Tooltip cursor={{ opacity: 0.15 }} contentStyle={{ borderRadius: 8, background: 'var(--card)', border: '1px solid var(--line)', color: 'var(--text)' }} labelStyle={{ color: 'var(--text)' }} itemStyle={{ color: 'var(--text)' }} />
-              <Bar dataKey="total" name="Atendimentos" fill={color} radius={4} />
+              <Bar dataKey="total" name={nome || 'Atendimentos'} fill={color} radius={4} />
             </BarChart>
           </ResponsiveContainer>
-        ) : <p className="muted">Sem atendimentos concluídos no período.</p>}
+        ) : <p className="muted">{vazio || 'Sem atendimentos concluídos no período.'}</p>}
       </div>
     </div>
   );
 }
 
-export default function Dashboard() {
+export default function Dashboard({ company }) {
   const [days, setDays] = useState(30);
   const [d, setD] = useState(null);
   useEffect(() => { api('/dashboard?days=' + days).then(setD); }, [days]);
@@ -57,6 +58,8 @@ export default function Dashboard() {
   const week = WEEKDAYS.map((n, i) => ({ dia: n.slice(0, 3), total: d.por_dia_semana.find((x) => x.weekday === i)?.total || 0 }));
   const cli = Object.fromEntries(d.clientes.map((c) => [c.status, c.total]));
   const ticket = d.atendimentos ? d.faturamento / d.atendimentos : 0;
+  const mods = company?.modules;
+  const agenda = moduleOn(mods, 'agenda'), pedidos = moduleOn(mods, 'pedidos'), financeiro = moduleOn(mods, 'financeiro'), shows = moduleOn(mods, 'casa_de_shows');
 
   return (
     <>
@@ -68,15 +71,20 @@ export default function Dashboard() {
         </select>
       </div>
       <div className="grid cols-4" style={{ marginBottom: 16 }}>
-        <div className="card stat"><span className="muted">Atendimentos</span><div className="v">{d.atendimentos}</div></div>
-        <div className="card stat"><span className="muted">Faturamento</span><div className="v">{money(d.faturamento)}</div></div>
-        <div className="card stat"><span className="muted">Ticket médio</span><div className="v">{money(ticket)}</div></div>
+        {agenda && <div className="card stat"><span className="muted">Atendimentos</span><div className="v">{d.atendimentos}</div></div>}
+        {agenda && <div className="card stat"><span className="muted">Faturamento</span><div className="v">{money(d.faturamento)}</div></div>}
+        {agenda && <div className="card stat"><span className="muted">Ticket médio</span><div className="v">{money(ticket)}</div></div>}
+        {pedidos && <div className="card stat"><span className="muted">Pedidos de música</span><div className="v">{d.pedidos.total}</div><span className="muted">{d.pedidos.atendidos} atendido(s)</span></div>}
+        {financeiro && <div className="card stat"><span className="muted">Recebido</span><div className="v">{money(d.recebido.total)}</div><span className="muted">{d.recebido.aceitos} pagamento(s)</span></div>}
+        {shows && <div className="card stat"><span className="muted">Ingressos vendidos</span><div className="v">{d.ingressos.pessoas}</div><span className="muted">{d.ingressos.vendas} venda(s)</span></div>}
+        {shows && <div className="card stat"><span className="muted">Receita de ingressos</span><div className="v">{money(d.ingressos.total)}</div></div>}
         <div className="card stat"><span className="muted">Clientes / Leads</span><div className="v">{cli.client || 0} / {cli.lead || 0}</div></div>
       </div>
       <div className="grid cols-2">
-        <Chart title="Dias mais movimentados" data={week} x="dia" />
-        <Chart title="Serviços mais procurados" data={d.servicos} x="service" layout="vertical" />
-        <Chart title="Profissionais mais requisitados" data={d.profissionais} x="professional" layout="vertical" />
+        {agenda && <Chart title="Dias mais movimentados" data={week} x="dia" />}
+        {agenda && <Chart title="Serviços mais procurados" data={d.servicos} x="service" layout="vertical" />}
+        {agenda && <Chart title="Profissionais mais requisitados" data={d.profissionais} x="professional" layout="vertical" />}
+        {pedidos && <Chart title="Músicas mais pedidas" data={d.musicas} x="song" layout="vertical" nome="Pedidos" vazio="Sem pedidos no período." />}
       </div>
     </>
   );
