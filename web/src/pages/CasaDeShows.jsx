@@ -60,6 +60,7 @@ function Reservas() {
   const [novaExtra, setNovaExtra] = useState(null);
   const [cond, setCond] = useState(null);
   const [pix, setPix] = useState(null);
+  const [lotes, setLotes] = useState([]);
   const [chavesEmpresa, setChavesEmpresa] = useState([]);
   const [codigos, setCodigos] = useState([]);
   const [novoCod, setNovoCod] = useState({ word: '', kind: 'percent', value: '', max_uses: '', note: '' });
@@ -132,7 +133,8 @@ function Reservas() {
   async function abrirCond() {
     setErr('');
     try {
-      const [c, k, px, ch] = await Promise.all([api(`/casa-de-shows/events/${oc}/conditions`), api(`/casa-de-shows/events/${oc}/codes`), api(`/casa-de-shows/events/${oc}/pix`), api('/finance/keys')]);
+      const [c, k, px, ch, lt] = await Promise.all([api(`/casa-de-shows/events/${oc}/conditions`), api(`/casa-de-shows/events/${oc}/codes`), api(`/casa-de-shows/events/${oc}/pix`), api('/finance/keys'), api(`/casa-de-shows/events/${oc}/lots`)]);
+      setLotes(lt.lots.length ? lt.lots.map((l) => ({ id: l.id, name: l.name, price: vir(l.price), valid_until: paraInput(l.valid_until), max_qty: l.max_qty ? String(l.max_qty) : '', sold: l.sold })) : (c.price !== null ? [{ name: 'Lote 1', price: vir(c.price), valid_until: paraInput(c.price_until) }] : []));
       setChavesEmpresa(ch.filter((x) => x.active));
       setPix({ keys: px.keys.map((x) => ({ key_id: String(x.key_id), limit: x.limit_amount === null ? '' : String(x.limit_amount).replace('.', ','), received: x.received })), configured: px.configured, current: px.current, all_full: px.all_full });
       setCond({ price: vir(c.price), door_price: vir(c.door_price), price_until: paraInput(c.price_until), instructions: c.instructions || '' });
@@ -143,7 +145,9 @@ function Reservas() {
   async function salvarCond(e) {
     e.preventDefault(); setErr('');
     try {
-      await api(`/casa-de-shows/events/${oc}/conditions`, { method: 'PUT', body: { price: cond.price, door_price: cond.door_price, price_until: cond.price_until ? new Date(cond.price_until).toISOString() : null, instructions: cond.instructions } });
+      const ls = lotes.map((l, i) => ({ id: l.id, name: l.name || `Lote ${i + 1}`, price: l.price, max_qty: l.max_qty || null, valid_until: l.valid_until ? new Date(l.valid_until).toISOString() : null }));
+      await api(`/casa-de-shows/events/${oc}/lots`, { method: 'PUT', body: { lots: ls } });
+      await api(`/casa-de-shows/events/${oc}/conditions`, { method: 'PUT', body: { price: ls[0]?.price ?? null, door_price: cond.door_price, price_until: ls[0]?.valid_until ?? null, instructions: cond.instructions } });
       setCond(null); load();
     } catch (e2) { setErr(e2.message); }
   }
@@ -355,11 +359,30 @@ function Reservas() {
           <form className="modal" style={{ maxWidth: 560 }} onClick={(e) => e.stopPropagation()} onSubmit={salvarCond}>
             <h2>Condições do evento</h2>
             {err && <div className="error">{err}</div>}
-            <div className="row">
-              <div className="field"><label>Ingresso por pessoa (R$)</label><input value={cond.price} onChange={(e) => setCond({ ...cond, price: e.target.value })} /></div>
-              <div className="field"><label>Na portaria (R$)</label><input value={cond.door_price} onChange={(e) => setCond({ ...cond, door_price: e.target.value })} /></div>
+            <h3 style={{ margin: '4px 0' }}>Ingresso por pessoa</h3>
+            <p className="muted">Cada lote fecha na data indicada ou quando acabam os ingressos, o que vier primeiro, e aí passa para o seguinte. Um lote sem prazo e sem quantidade vale até o começo do evento.</p>
+            {lotes.length > 0 && (
+              <div className="muted" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 84px 84px 215px auto', gap: 8, fontSize: 13 }}>
+                <span>Lote</span><span>Valor (R$)</span><span>Ingressos</span><span>Vale até</span><span />
+              </div>
+            )}
+            {lotes.map((l, i) => {
+              const mud = (k) => (e) => setLotes(lotes.map((y, j) => (j === i ? { ...y, [k]: e.target.value } : y)));
+              return (
+                <div key={i} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 84px 84px 215px auto', gap: 8, alignItems: 'center', marginTop: 6 }}>
+                  <input value={l.name} maxLength="60" placeholder={`Lote ${i + 1}`} onChange={mud('name')} />
+                  <input value={l.price} onChange={mud('price')} />
+                  <input type="number" min="1" value={l.max_qty} placeholder="Sem limite" onChange={mud('max_qty')} />
+                  <input type="datetime-local" value={l.valid_until} onChange={mud('valid_until')} />
+                  <button type="button" className="btn sm" onClick={() => setLotes(lotes.filter((_, j) => j !== i))}>Tirar</button>
+                  {l.sold > 0 && <div className="muted" style={{ gridColumn: '1 / -1', fontSize: 13 }}>{l.sold} vendido(s){l.max_qty ? ` de ${l.max_qty}` : ''}</div>}
+                </div>
+              );
+            })}
+            <div className="row" style={{ marginTop: 8 }}>
+              <button type="button" className="btn" onClick={() => setLotes([...lotes, { name: `Lote ${lotes.length + 1}`, price: '', valid_until: '', max_qty: '' }])} disabled={lotes.length >= 12}>+ Adicionar lote</button>
             </div>
-            <div className="field"><label>O preço normal vale até</label><input type="datetime-local" value={cond.price_until} onChange={(e) => setCond({ ...cond, price_until: e.target.value })} /></div>
+            <div className="field" style={{ marginTop: 10 }}><label>Na portaria (R$) — vale depois do último lote</label><input value={cond.door_price} onChange={(e) => setCond({ ...cond, door_price: e.target.value })} style={{ maxWidth: 200 }} /></div>
             <div className="field"><label>Instrução para o atendente (descontos excepcionais, avisos…)</label>
               <textarea rows="3" maxLength="2000" value={cond.instructions} onChange={(e) => setCond({ ...cond, instructions: e.target.value })} placeholder="Ex.: quem disser que é amigo da Rafa paga R$ 25." /></div>
             <div className="row"><button className="btn primary">Salvar</button><button type="button" className="btn" onClick={() => setCond(null)}>Fechar</button></div>

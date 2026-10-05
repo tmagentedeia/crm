@@ -893,10 +893,33 @@ export function registerCasaDeShowsRoutes(r, wrap) {
   // (ex.: o do programa de benefícios). Descontos não se somam: vale o que sair mais barato.
   async function precoPara(run, eventId, palavra, outroPct, excluirReserva) {
     const c = (await run('SELECT price::float AS price, door_price::float AS door_price, price_until FROM shows_event_conditions WHERE event_id=$1', [eventId])).rows[0];
-    if (!c || c.price === null) return { unit_price: null, base_price: null, code_valid: !palavra, reason: palavra ? 'Este evento não tem preço cadastrado' : undefined };
-    const portaria = c.price_until && c.door_price !== null && new Date() > new Date(c.price_until);
-    const base = portaria ? c.door_price : c.price;
-    const out = { base_price: base, tier: portaria ? 'portaria' : 'normal', unit_price: base, applied: null, code_valid: true };
+    const lotes = (await run('SELECT id, name, price::float AS price, valid_until, max_qty FROM shows_event_lots WHERE event_id=$1 ORDER BY position', [eventId])).rows;
+    if (!lotes.length && (!c || c.price === null)) return { unit_price: null, base_price: null, code_valid: !palavra, reason: palavra ? 'Este evento não tem preço cadastrado' : undefined };
+    let base, tier = 'normal', lote = null, proximo = null, ate = null, loteId = null, restam = null, qtd = null;
+    if (lotes.length) {
+      const agora = new Date();
+      // lote sem prazo vale até o começo do evento, quando entra o preço da portaria (se houver)
+      if (c?.door_price != null) { const ini = (await run('SELECT starts_at FROM events WHERE id=$1', [eventId])).rows[0]?.starts_at; for (const l of lotes) if (!l.valid_until && !l.max_qty) l.valid_until = ini; }
+      const vendidos = {};
+      for (const x of (await run(`SELECT lot_id, COALESCE(SUM(people),0)::int AS n FROM shows_reservations WHERE event_id=$1 AND lot_id IS NOT NULL AND status = ANY($2)${excluirReserva ? ' AND id <> ' + Number(excluirReserva) : ''} GROUP BY lot_id`, [eventId, OCUPAM])).rows) vendidos[x.lot_id] = x.n;
+      for (const l of lotes) l.restam = l.max_qty ? Math.max(0, l.max_qty - (vendidos[l.id] || 0)) : null;
+      const aberto = (l) => (!l.valid_until || agora <= new Date(l.valid_until)) && (l.restam === null || l.restam > 0);
+      const i = lotes.findIndex(aberto);
+      const mostra = (l) => ({ lote: l.name, ate: l.valid_until, loteId: l.id, restam: l.restam, qtd: l.max_qty });
+      if (i >= 0) {
+        ({ lote, ate, loteId, restam, qtd } = mostra(lotes[i])); base = lotes[i].price; tier = 'lote';
+        const n = lotes.slice(i + 1).find(aberto) || lotes[i + 1];
+        if (n) proximo = { name: n.name, price: n.price, valid_until: n.valid_until };
+        else if (c?.door_price != null && (ate || restam !== null)) proximo = { name: 'Portaria', price: c.door_price, valid_until: null };
+      } else if (c?.door_price != null) { base = c.door_price; tier = 'portaria'; }
+      else { const u = lotes[lotes.length - 1]; base = u.price; ({ lote, ate, loteId, restam, qtd } = mostra(u)); tier = 'lote'; }
+    } else {
+      const portaria = c.price_until && c.door_price !== null && new Date() > new Date(c.price_until);
+      base = portaria ? c.door_price : c.price;
+      tier = portaria ? 'portaria' : 'normal';
+    }
+    const out = { base_price: base, tier, unit_price: base, applied: null, code_valid: true };
+    if (lote) { out.lot = lote; out.lot_until = ate; out.lot_id = loteId; out.lot_qty = qtd; out.lot_remaining = restam; out.next_lot = proximo; }
     if (outroPct) {
       const v = r2(base * (1 - outroPct / 100));
       if (v < out.unit_price) { out.unit_price = v; out.applied = 'other'; }
@@ -948,7 +971,8 @@ export function registerCasaDeShowsRoutes(r, wrap) {
       if (t === null) return res.status(400).json({ error: 'Instruções inválidas (até 2000 letras)' });
       n.instructions = t || null;
     }
-    if (n.price === null && (n.door_price !== null || n.price_until)) return res.status(400).json({ error: 'Informe o preço do ingresso' });
+    const temLotes = Number((await q('SELECT COUNT(*) AS n FROM shows_event_lots WHERE event_id=$1', [ev.id])).rows[0].n) > 0;
+    if (n.price === null && !temLotes && (n.door_price !== null || n.price_until)) return res.status(400).json({ error: 'Informe o preço do ingresso' });
     await q(`INSERT INTO shows_event_conditions (event_id, price, door_price, price_until, instructions) VALUES ($1,$2,$3,$4,$5)
              ON CONFLICT (event_id) DO UPDATE SET price=EXCLUDED.price, door_price=EXCLUDED.door_price, price_until=EXCLUDED.price_until, instructions=EXCLUDED.instructions`,
       [ev.id, n.price, n.door_price, n.price_until, n.instructions]);
@@ -1038,6 +1062,58 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     res.json({ event: { id: ev.id, title: ev.title }, ...pr, code_id: undefined, people, total: people && pr.unit_price !== null ? r2(people * pr.unit_price) : null, instructions: ins, pix_key: chaveOut(pix.current), pix_all_full: pix.all_full });
   }));
 
+  // ---------- lotes de ingresso ----------
+  const LOTES = `SELECT l.id, l.position, l.name, l.price::float AS price, l.valid_until, l.max_qty,
+                        (SELECT COALESCE(SUM(v.people),0)::int FROM shows_reservations v WHERE v.lot_id = l.id AND v.status = ANY($2)) AS sold
+                 FROM shows_event_lots l WHERE l.event_id=$1 ORDER BY l.position`;
+  const lotesOut = async (ev) => {
+    const pr = await precoPara(q, ev.id, '', 0, null);
+    return { event_id: ev.id, lots: (await q(LOTES, [ev.id, OCUPAM])).rows, current: pr.lot ? { name: pr.lot, price: pr.base_price, remaining: pr.lot_remaining } : null, tier: pr.tier || null };
+  };
+  r.get('/casa-de-shows/events/:id/lots', wrap(async (req, res) => {
+    const ev = await eventoDe(req.params.id);
+    if (!ev) return res.status(404).json({ error: 'Evento não encontrado' });
+    res.json(await lotesOut(ev));
+  }));
+  // Corpo: { lots: [{ id?, name, price, valid_until?, max_qty? }, ...] } na ordem dos lotes ; { lots: [] } apaga todos (volta ao preço único)
+  // O lote fecha pelo prazo OU ao esgotar a quantidade (o que vier primeiro). Mandar o id mantém o histórico de vendas do lote.
+  r.put('/casa-de-shows/events/:id/lots', wrap(async (req, res) => {
+    if ((req.baseUrl || '').includes('n8n')) return res.status(403).json({ error: 'Só pelo painel' });
+    const ev = await eventoDe(req.params.id);
+    if (!ev) return res.status(404).json({ error: 'Evento não encontrado' });
+    const ls = req.body?.lots;
+    if (!Array.isArray(ls) || ls.length > 12) return res.status(400).json({ error: 'Informe a lista de lotes (até 12)' });
+    const existentes = new Set((await q('SELECT id FROM shows_event_lots WHERE event_id=$1', [ev.id])).rows.map((x) => String(x.id)));
+    const novos = [];
+    let anterior = null;
+    for (const [i, l] of ls.entries()) {
+      const nome = txt(l?.name || `Lote ${i + 1}`, 60);
+      if (!nome) return res.status(400).json({ error: 'Nome do lote inválido' });
+      const preco = dinheiro(l?.price);
+      if (l?.price === undefined || l?.price === null || l?.price === '' || preco === null) return res.status(400).json({ error: `Informe o valor do ${nome}` });
+      let ate = null;
+      if (l.valid_until) { const d = new Date(l.valid_until); if (isNaN(d)) return res.status(400).json({ error: `Prazo do ${nome} inválido` }); ate = d.toISOString(); }
+      let qtd = null;
+      if (l.max_qty !== undefined && l.max_qty !== null && l.max_qty !== '') { qtd = inteiro(l.max_qty, 1, 100000); if (!qtd) return res.status(400).json({ error: `Quantidade do ${nome} inválida` }); }
+      if (!ate && !qtd && i < ls.length - 1) return res.status(400).json({ error: `Informe até quando vale ou quantos ingressos tem o ${nome}` });
+      if (ate && anterior && new Date(ate) <= new Date(anterior)) return res.status(400).json({ error: `O prazo do ${nome} precisa ser depois do lote anterior` });
+      if (ate) anterior = ate;
+      const id = idOk(l.id);
+      if (id && !existentes.has(id)) return res.status(400).json({ error: `O ${nome} não pertence a este evento` });
+      novos.push({ id, pos: i + 1, nome, preco, ate, qtd });
+    }
+    await tx(currentCompany(), async (t) => {
+      const manter = novos.filter((n) => n.id).map((n) => n.id);
+      await t('DELETE FROM shows_event_lots WHERE event_id=$1 AND NOT (id = ANY($2::bigint[]))', [ev.id, manter]);
+      await t('UPDATE shows_event_lots SET position = position + 1000 WHERE event_id=$1', [ev.id]);
+      for (const n of novos) {
+        if (n.id) await t('UPDATE shows_event_lots SET position=$2, name=$3, price=$4, valid_until=$5, max_qty=$6 WHERE id=$1', [n.id, n.pos, n.nome, n.preco, n.ate, n.qtd]);
+        else await t('INSERT INTO shows_event_lots (event_id, position, name, price, valid_until, max_qty) VALUES ($1,$2,$3,$4,$5,$6)', [ev.id, n.pos, n.nome, n.preco, n.ate, n.qtd]);
+      }
+    });
+    res.json(await lotesOut(ev));
+  }));
+
   // ---------- chaves Pix do evento (com rodízio por valor) ----------
   // Lista as chaves do evento em ordem, com quanto cada uma já recebeu NESTE evento (Pix lançado nas reservas, sem as canceladas).
   // A chave da vez é a primeira ativa que ainda não chegou ao limite; se todas chegaram, fica a última e vem all_full = true.
@@ -1114,6 +1190,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
       await t('INSERT INTO shows_event_sectors (event_id, sector_id, space) SELECT $2, sector_id, space FROM shows_event_sectors WHERE event_id=$1', [orig.id, e.id]);
       await t('INSERT INTO shows_event_setup (event_id, venue_id, layout_id) SELECT $2, venue_id, layout_id FROM shows_event_setup WHERE event_id=$1', [orig.id, e.id]);
       await t('INSERT INTO shows_event_pix (event_id, key_id, position, limit_amount) SELECT $2, key_id, position, limit_amount FROM shows_event_pix WHERE event_id=$1', [orig.id, e.id]);
+      for (const l of (await t('SELECT * FROM shows_event_lots WHERE event_id=$1 ORDER BY position', [orig.id])).rows) await t('INSERT INTO shows_event_lots (event_id, position, name, price, valid_until, max_qty) VALUES ($1,$2,$3,$4,$5,$6)', [e.id, l.position, l.name, l.price, mover(l.valid_until), l.max_qty]);
       const c = (await t('SELECT * FROM shows_event_conditions WHERE event_id=$1', [orig.id])).rows[0];
       if (c) await t('INSERT INTO shows_event_conditions (event_id, price, door_price, price_until, instructions) VALUES ($1,$2,$3,$4,$5)', [e.id, c.price, c.door_price, mover(c.price_until), c.instructions]);
       const ks = (await t('SELECT * FROM shows_event_codes WHERE event_id=$1 ORDER BY id', [orig.id])).rows;
@@ -1292,13 +1369,13 @@ export function registerCasaDeShowsRoutes(r, wrap) {
         await t(`UPDATE shows_reservations SET event_id=$2, occasion_date=$3, sector_id=$4, customer_id=$5, name=$6, phone=$7, people=$8, table_type_id=$9,
                    table_name=$10, seats_each=$11, space_each=$12, tables=$13, status=$14, note=NULLIF($15,''), guests=NULLIF($16,''),
                    unit_price = CASE WHEN $17::boolean THEN $18::numeric ELSE unit_price END, code_id = CASE WHEN $17::boolean THEN $19::bigint ELSE code_id END,
-                   code_word = CASE WHEN $17::boolean THEN $20 ELSE code_word END, updated_at=now() WHERE id=$1`,
-          [id, ...params.slice(0, 13), params[13] || '', params[14] || '', preco !== undefined, preco?.unit_price ?? null, preco?.code_id ?? null, preco?.code_word ?? null]);
+                   code_word = CASE WHEN $17::boolean THEN $20 ELSE code_word END, lot_id = CASE WHEN $17::boolean THEN $21::bigint ELSE lot_id END, updated_at=now() WHERE id=$1`,
+          [id, ...params.slice(0, 13), params[13] || '', params[14] || '', preco !== undefined, preco?.unit_price ?? null, preco?.code_id ?? null, preco?.code_word ?? null, preco?.lot_id ?? null]);
         return comprou(id);
       }
-      return comprou((await t(`INSERT INTO shows_reservations (event_id, occasion_date, sector_id, customer_id, name, phone, people, table_type_id, table_name, seats_each, space_each, tables, status, note, guests, unit_price, code_id, code_word)
-                       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NULLIF($14,''),NULLIF($15,''),$16,$17,$18) RETURNING id`,
-        [...params, preco?.unit_price ?? null, preco?.code_id ?? null, preco?.code_word ?? null])).rows[0].id);
+      return comprou((await t(`INSERT INTO shows_reservations (event_id, occasion_date, sector_id, customer_id, name, phone, people, table_type_id, table_name, seats_each, space_each, tables, status, note, guests, unit_price, code_id, code_word, lot_id)
+                       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NULLIF($14,''),NULLIF($15,''),$16,$17,$18,$19) RETURNING id`,
+        [...params, preco?.unit_price ?? null, preco?.code_id ?? null, preco?.code_word ?? null, preco?.lot_id ?? null])).rows[0].id);
     });
   }
 
@@ -1398,14 +1475,14 @@ export function registerCasaDeShowsRoutes(r, wrap) {
       if (tem('unit_price') && b.unit_price !== null && b.unit_price !== '') {
         const v = dinheiro(b.unit_price);
         if (v === null) return { erro: 'Valor inválido' };
-        preco = { unit_price: v, code_id: null, code_word: null };
+        preco = { unit_price: v, code_id: null, code_word: null, lot_id: null };
       } else if (tem('unit_price')) {
-        preco = { unit_price: null, code_id: null, code_word: null };
+        preco = { unit_price: null, code_id: null, code_word: null, lot_id: null };
       } else if (oc.event_id) {
         const pr = await precoPara(q, oc.event_id, palavra, 0, atual?.id);
         if (palavra && !pr.code_valid) return { erro: pr.reason };
-        if (pr.unit_price !== null) preco = { unit_price: pr.unit_price, code_id: pr.code_id || null, code_word: pr.code_id ? pr.code_word : null };
-        else if (atual) preco = { unit_price: null, code_id: null, code_word: null };
+        if (pr.unit_price !== null) preco = { unit_price: pr.unit_price, code_id: pr.code_id || null, code_word: pr.code_id ? pr.code_word : null, lot_id: pr.tier === 'lote' ? pr.lot_id || null : null };
+        else if (atual) preco = { unit_price: null, code_id: null, code_word: null, lot_id: null };
       }
     }
     return { v: { oc, setor, tipo, tables, people, status, nome, phone, cid, note, guests, confereMesa, preco, aniversario } };
@@ -1542,6 +1619,21 @@ export const SHOWS_PIX_EVENTO_SQL = `
     limit_amount NUMERIC(12,2) CHECK (limit_amount > 0),        -- vazio = sem limite
     PRIMARY KEY (event_id, key_id)
   );
+`;
+
+// Lotes de ingresso do evento: cada lote tem nome, preço e até quando vale; depois do último vale o preço da portaria
+export const SHOWS_LOTES_SQL = `
+  CREATE TABLE IF NOT EXISTS shows_event_lots (
+    id          BIGSERIAL PRIMARY KEY,
+    event_id    BIGINT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    position    INT NOT NULL,
+    name        TEXT NOT NULL,
+    price       NUMERIC(10,2) NOT NULL CHECK (price >= 0),
+    valid_until TIMESTAMPTZ,                                   -- vazio = sem prazo (normalmente só o último)
+    UNIQUE (event_id, position)
+  );
+  ALTER TABLE shows_event_lots ADD COLUMN IF NOT EXISTS max_qty INT CHECK (max_qty > 0);   -- ingressos (pessoas) do lote; vazio = só vale o prazo
+  ALTER TABLE shows_reservations ADD COLUMN IF NOT EXISTS lot_id BIGINT REFERENCES shows_event_lots(id) ON DELETE SET NULL;   -- lote em que a reserva foi vendida
 `;
 
 export const SHOWS_LOCAL_PADRAO_SQL = `
