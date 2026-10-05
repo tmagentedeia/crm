@@ -36,6 +36,14 @@ export const DOCUMENTOS_SQL = `
     vars JSONB NOT NULL DEFAULT '{}'
   );`;
 
+// Ingresso de uma pessoa: guarda a venda e o evento para reaproveitar o arquivo pronto e apagá-lo quando o evento acabar
+export const DOC_FILES_VENDA_SQL = `
+  ALTER TABLE doc_files ADD COLUMN IF NOT EXISTS sale_id BIGINT;
+  ALTER TABLE doc_files ADD COLUMN IF NOT EXISTS seq INT;
+  ALTER TABLE doc_files ADD COLUMN IF NOT EXISTS event_id BIGINT;
+  CREATE INDEX IF NOT EXISTS idx_doc_files_sale ON doc_files (sale_id, seq) WHERE sale_id IS NOT NULL;
+  CREATE INDEX IF NOT EXISTS idx_doc_files_event ON doc_files (event_id) WHERE event_id IS NOT NULL;`;
+
 const TIPOS = ['ingresso', 'contrato', 'proposta', 'outro'];
 const HTML_MAX = 3 * 1024 * 1024;
 const TZ = 'America/Sao_Paulo';
@@ -265,11 +273,11 @@ export function registerDocumentRoutes(r, wrap) {
     if (nome === null) return { status: 400, body: { error: 'Nome inválido' } };
     const phone = b.number || b.phone ? normPhone(b.number || b.phone) : '';
     if ((b.number || b.phone) && (phone.length < 10 || phone.length > 15)) return { status: 400, body: { error: 'Telefone inválido (use DDD + número)' } };
-    let extras = {}, nomeFinal = nome;
+    let extras = {}, nomeFinal = nome, eventoId = null;
     if (b.sale_id !== undefined && b.sale_id !== null && b.sale_id !== '') {
       const ing = await variaveisDoIngresso(b.sale_id, b.seq);
       if (ing.erro) return { status: ing.erro[0], body: { error: ing.erro[1] } };
-      extras = ing.vars; nomeFinal = nome || ing.nome;
+      extras = ing.vars; nomeFinal = nome || ing.nome; eventoId = ing.event_id || null;
     }
     const texto = String(b.text ?? '');
     if (texto.length > 20000) return { status: 400, body: { error: 'Texto grande demais' } };
@@ -298,8 +306,9 @@ export function registerDocumentRoutes(r, wrap) {
     }
     const token = `${currentCompany()}-${crypto.randomBytes(24).toString('hex')}`;
     const titulo = `${t.name}${nomeFinal ? ' — ' + nomeFinal : ''}`.slice(0, 160);
-    const f = (await q(`INSERT INTO doc_files (template_id, kind, title, number, customer_id, token, pdf, vars) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb) RETURNING id`,
-      [t.id, t.kind, titulo, vars.numero, customerId, token, pdf, JSON.stringify({ ...lerVars(b.fields), nome: nomeFinal, telefone: phone })])).rows[0];
+    const f = (await q(`INSERT INTO doc_files (template_id, kind, title, number, customer_id, token, pdf, vars, sale_id, seq, event_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11) RETURNING id`,
+      [t.id, t.kind, titulo, vars.numero, customerId, token, pdf, JSON.stringify({ ...lerVars(b.fields), nome: nomeFinal, telefone: phone }),
+       extras.qrcode && /^\d+$/.test(String(b.sale_id ?? '')) ? b.sale_id : null, extras.qrcode ? Number(b.seq ?? 1) : null, eventoId])).rows[0];
     const base = process.env.PUBLIC_URL || `${req.headers['x-forwarded-proto'] || req.protocol}://${req.headers['x-forwarded-host'] || req.get('host')}`;
     return { status: 201, body: { id: String(f.id), kind: t.kind, number: vars.numero, filename: `${t.kind}${vars.numero}.pdf`, url: `${base.replace(/\/+$/, '')}/d/${token}.pdf` } };
   }
@@ -341,4 +350,25 @@ export function registerDocumentoPublico(app) {
       res.set({ 'content-type': 'application/pdf', 'content-disposition': `inline; filename="${f.kind}${f.number || ''}.pdf"`, 'cache-control': 'private, max-age=300' }).send(f.pdf);
     } catch (e) { console.error('documentos:', e.message); res.status(404).end(); }
   });
+}
+
+
+// Quando o evento termina, os ingressos em PDF dele deixam de ser guardados (contratos e propostas ficam). O QR não depende do arquivo.
+export async function limparIngressosEncerrados() {
+  const empresas = (await qg('SELECT id FROM companies')).rows;
+  let total = 0;
+  for (const e of empresas) {
+    try {
+      total += await runAs(e.id, async () => {
+        const r = await q(`DELETE FROM doc_files WHERE kind = 'ingresso' AND event_id IN (SELECT id FROM events WHERE COALESCE(ends_at, starts_at + interval '3 hours') < now())`);
+        return r.rowCount;
+      });
+    } catch (x) { if (!/does not exist|doc_files|event_id/.test(x.message)) console.error('limpeza de ingressos:', x.message); }
+  }
+  return total;
+}
+export function startLimpezaIngressos() {
+  const passo = () => limparIngressosEncerrados().catch((x) => console.error('limpeza de ingressos:', x.message));
+  setInterval(passo, 60 * 60 * 1000).unref();
+  setTimeout(passo, 60000).unref();
 }

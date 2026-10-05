@@ -1,0 +1,101 @@
+// Venda feita pelo atendente numa chamada só, envio dos ingressos em PDF (um por pessoa) e limpeza depois do evento.
+// Uso: BASE=http://localhost:3999 DATABASE_URL=... node test/shows_venda_ia.mjs   (precisa do Gotenberg de mentira: FAKE_GOTENBERG_PORT=53000 node test/fake_gotenberg.mjs)
+import { execSync } from 'child_process';
+import http from 'http';
+const BASE = process.env.BASE || 'http://localhost:3999';
+let ok = 0, fail = 0;
+const check = (name, cond, extra = '') => { cond ? ok++ : (fail++, console.log('FALHOU:', name, extra)); };
+const call = async (method, path, { token, body, headers: h } = {}) => {
+  const headers = { 'content-type': 'application/json', ...(h || {}) };
+  if (token) headers.authorization = 'Bearer ' + token;
+  const r = await fetch(BASE + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  let j = null; try { j = await r.json(); } catch {}
+  return { status: r.status, body: j };
+};
+const psql = (sql) => execSync(`psql "${process.env.DATABASE_URL}" -tAc "${sql}"`).toString().trim();
+const recebidos = [];
+let falhar = false;
+const fake = http.createServer((req, res) => {
+  let d = ''; req.on('data', (c) => (d += c)); req.on('end', () => { recebidos.push({ url: req.url, body: JSON.parse(d || '{}') }); res.writeHead(falhar ? 500 : 200, { 'content-type': 'application/json' }); res.end('{}'); });
+}).listen(0);
+const porta = fake.address().port;
+
+const A = (await call('POST', '/api/auth/login', { body: { email: 'demo@demo.com', password: 'demo1234' } })).body;
+const api = (m, p, body) => call(m, '/api' + p, { token: A.token, body });
+const ia = (m, p, body) => call(m, '/n8n' + p, { body, headers: { 'x-api-key': 'k', 'x-company-id': String(A.company.id) } });
+const marca = Date.now() % 100000;
+psql(`update public.companies set wa_api_url='http://127.0.0.1:${porta}', wa_api_token='tok-teste' where id=1`);
+psql("delete from company_1.events where title like 'Show IA %'");
+
+const ev = (await api('POST', '/events', { title: 'Show IA ' + marca, starts_at: new Date(Date.now() + 10 * 864e5).toISOString() })).body;
+const setor = (await api('POST', '/casa-de-shows/sectors', { name: 'Setor IA ' + marca, space: 8 })).body;
+const mesa = (await api('POST', '/casa-de-shows/table-types', { name: 'Mesa IA ' + marca, seats: 4, space: 4 })).body;
+await api('PUT', `/casa-de-shows/events/${ev.id}/conditions`, { price: 100 });
+const fone = '5532988' + String(marca).padStart(6, '0').slice(-6);
+
+let r = await ia('POST', '/casa-de-shows/sales/register', { event: ev.title, sector: setor.name, phone: fone, amount: 200 });
+check('sem nomes pede os nomes', r.status === 200 && r.body.ok === false && /nomes/.test(r.body.message), JSON.stringify(r.body));
+r = await ia('POST', '/casa-de-shows/sales/register', { event: 'evento que nao existe zzz', sector: setor.name, names: ['Ana Souza'], phone: fone });
+check('evento que não existe lista os eventos', r.body.ok === false && /Não achei esse evento/.test(r.body.message), JSON.stringify(r.body));
+r = await ia('POST', '/casa-de-shows/sales/register', { event: ev.title, sector: 'setor que nao existe zzz', names: ['Ana Souza'], phone: fone });
+check('setor que não existe lista os setores', r.body.ok === false && /Setores:/.test(r.body.message), JSON.stringify(r.body));
+
+r = await ia('POST', '/casa-de-shows/sales/register', { event: ev.title, sector: setor.name, names: ['Ana Souza', 'Bia Souza', 'Caio Souza'], phone: fone, amount: 200, method: 'Pix' });
+check('registra a venda', r.status === 201 && r.body.ok === true && r.body.people === 3, JSON.stringify(r.body));
+check('a mensagem diz que o nome basta', /portaria dá presença pelo nome/.test(r.body.message || ''), r.body.message);
+const sid = r.body.sale_id;
+await api('POST', '/documents/templates/examples', {});
+const lista = (await api('GET', `/event-list?event_id=${ev.id}`)).body;
+check('os três nomes estão na lista', lista.rows.length === 3 && lista.rows[0].name === 'Ana Souza' && lista.rows[2].name === 'Caio Souza', JSON.stringify(lista.rows?.map((x) => x.name)));
+const pags = (await api('GET', `/casa-de-shows/sales/${sid}/payments`)).body;
+const pl = pags.payments || [];
+check('pagamento registrado em Pix', pl.length === 1 && pl[0].method === 'pix' && Number(pl[0].amount) === 200, JSON.stringify(pags));
+
+r = await ia('POST', '/casa-de-shows/sales/register', { event: ev.title, sector: setor.name, names: ['Ana Souza', 'Bia Souza', 'Caio Souza'], phone: fone, amount: 200, method: 'Pix' });
+check('pedido repetido não duplica', r.body.ok === true && r.body.duplicate === true && String(r.body.sale_id) === String(sid), JSON.stringify(r.body));
+r = await ia('POST', '/casa-de-shows/sales/register', { event: ev.title, sector: setor.name, names: ['Dani X', 'Edu X', 'Fabi X', 'Gil X', 'Hugo X', 'Iva X'], phone: '5532977' + String(marca).padStart(6, '0').slice(-6) });
+check('sem espaço explica e manda ofertar outro setor', r.body.ok === false && /Sem espaço|não comportam|Disponibilidade/.test(r.body.message), JSON.stringify(r.body));
+
+r = await ia('GET', `/casa-de-shows/sales/by-phone?phone=${fone}`);
+check('consulta pelo telefone', r.body.ok === true && r.body.sales.length === 1 && r.body.sales[0].names.length === 3 && /Ana Souza/.test(r.body.message), JSON.stringify(r.body));
+
+// ---- ingressos ----
+r = await ia('POST', '/casa-de-shows/sales/send-tickets', { number: fone + '@s.whatsapp.net', phone: fone, event: ev.title });
+check('envia um ingresso por pessoa', r.body.ok === true && r.body.sent === 3, JSON.stringify(r.body));
+const docs = recebidos.filter((x) => x.url === '/send/media');
+check('o nome do dono está no nome do arquivo', docs.length === 3 && docs[0].body.docName === 'Ingresso - Ana Souza.pdf' && docs[1].body.docName === 'Ingresso - Bia Souza.pdf' && docs[2].body.docName === 'Ingresso - Caio Souza.pdf', JSON.stringify(docs.map((d) => d.body.docName)));
+check('enviados como documento', docs.every((d) => d.body.type === 'document' && /\/d\/.+\.pdf$/.test(d.body.file)));
+check('um arquivo guardado por pessoa', psql(`select count(*) from company_1.doc_files where sale_id=${sid} and event_id=${ev.id}`) === '3');
+recebidos.length = 0;
+r = await ia('POST', '/casa-de-shows/sales/send-tickets', { number: fone + '@s.whatsapp.net', phone: fone, event: ev.title });
+check('reenvio reaproveita os arquivos', r.body.sent === 3 && psql(`select count(*) from company_1.doc_files where sale_id=${sid}`) === '3', JSON.stringify(r.body));
+
+// nome trocado: o ingresso novo sai com o nome novo
+await api('PUT', `/event-list/${sid}/2`, { name: 'Beatriz Souza' });
+recebidos.length = 0;
+r = await ia('POST', '/casa-de-shows/sales/send-tickets', { number: fone + '@s.whatsapp.net', phone: fone, event: ev.title });
+check('nome trocado gera ingresso novo com o nome novo', recebidos.some((x) => x.body.docName === 'Ingresso - Beatriz Souza.pdf'), JSON.stringify(recebidos.map((d) => d.body.docName)));
+
+// falha no WhatsApp: o nome continua salvo e a mensagem tranquiliza
+falhar = true; recebidos.length = 0;
+r = await ia('POST', '/casa-de-shows/sales/send-tickets', { number: fone + '@s.whatsapp.net', phone: fone, event: ev.title });
+check('falha ao enviar não derruba e tranquiliza', r.status === 200 && r.body.ok === false && /nome já está salvo/.test(r.body.message) && /portaria/.test(r.body.message), JSON.stringify(r.body));
+falhar = false;
+r = await ia('POST', '/casa-de-shows/sales/send-tickets', { number: '5532900000000@s.whatsapp.net', phone: '5532900000000', event: ev.title });
+check('sem venda explica', r.body.ok === false && /Não achei venda/.test(r.body.message), JSON.stringify(r.body));
+
+// ---- limpeza depois do evento ----
+const { limparIngressosEncerrados } = await import('../src/documentos.js');
+await limparIngressosEncerrados();
+check('evento em andamento: ingressos ficam', Number(psql(`select count(*) from company_1.doc_files where event_id=${ev.id}`)) >= 3);
+psql(`update company_1.events set starts_at = now() - interval '2 days', ends_at = now() - interval '1 day' where id=${ev.id}`);
+psql(`insert into company_1.doc_files (kind, title, token, pdf) values ('contrato','Contrato fica','tok-contrato-${marca}','\\\\x00')`);
+await limparIngressosEncerrados();
+check('evento encerrado: ingressos apagados', psql(`select count(*) from company_1.doc_files where event_id=${ev.id}`) === '0');
+check('contratos não são apagados', psql(`select count(*) from company_1.doc_files where token='tok-contrato-${marca}'`) === '1');
+psql(`delete from company_1.doc_files where token='tok-contrato-${marca}'`);
+
+psql("update public.companies set wa_api_url=null, wa_api_token=null where id=1");
+fake.close();
+console.log(`shows_venda_ia: ${ok} ok, ${fail} falhas`);
+process.exit(fail ? 1 : 0);

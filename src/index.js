@@ -16,6 +16,7 @@ import { requireUser, requireN8n, requireAdmin, isAdmin, signToken, signImperson
 import { buildRouter } from './routes.js';
 import { startCampaignScheduler } from './campaigns.js';
 import { startListaScheduler } from './lista_evento.js';
+import { startLimpezaIngressos } from './documentos.js';
 import { birthdayTickAll } from './aniversario.js';
 import { registerDocumentoPublico } from './documentos.js';
 import { registerIndicacoesAdmin, sincronizarTodas, usarCodigo, acharPorCodigo } from './indicacoes.js';
@@ -471,6 +472,7 @@ app.get('*', (req, res, next) => {
 app.listen(process.env.PORT || 3000, () => console.log('CRM rodando na porta', process.env.PORT || 3000));
 startCampaignScheduler();
 startListaScheduler();
+startLimpezaIngressos();
 // aniversariantes: confere de hora em hora (a fila de cada empresa é montada no máximo uma vez por dia)
 setTimeout(birthdayTickAll, 20000).unref();
 setTimeout(sincronizarTodas, 30000).unref();

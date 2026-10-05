@@ -31,7 +31,7 @@ export async function variaveisDoIngresso(saleId, seq) {
   if (!/^\d+$/.test(String(saleId ?? ''))) return { erro: [400, 'Venda inválida'] };
   const n = Number(seq ?? 1);
   const s = (await q(
-    `SELECT s.id, s.name, s.people, s.guests, s.status, s.table_name, s.tables, s.host_sale_id, sec.name AS sector,
+    `SELECT s.id, s.event_id, s.name, s.people, s.guests, s.status, s.table_name, s.tables, s.host_sale_id, sec.name AS sector,
             (SELECT h.name FROM shows_sales h WHERE h.id = s.host_sale_id) AS host_name,
             e.title, e.starts_at, e.doors_at, e.place
      FROM shows_sales s JOIN shows_sectors sec ON sec.id = s.sector_id LEFT JOIN events e ON e.id = s.event_id WHERE s.id = $1`, [saleId])).rows[0];
@@ -44,7 +44,7 @@ export async function variaveisDoIngresso(saleId, seq) {
   const tz = (await qg('SELECT timezone FROM companies WHERE id=$1', [currentCompany()])).rows[0]?.timezone || 'America/Sao_Paulo';
   const codigo = codigoIngresso(currentCompany(), s.id, n);
   return {
-    nome,
+    nome, event_id: s.event_id || null,
     vars: {
       qrcode: await qrHtml(codigo), codigo, evento: s.title || '', evento_data: dataBr(s.starts_at, tz), abertura: dataBr(s.doors_at, tz), local: s.place || '',
       setor: s.sector, mesa: s.host_sale_id ? `Mesa de ${s.host_name}` : `${s.tables} × ${s.table_name}`, pessoa: `${n} de ${s.people}`,

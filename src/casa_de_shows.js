@@ -11,6 +11,7 @@ import { normPhone } from './phone.js';
 import { parseBirthday } from './ficha.js';
 import { beneficiosDeParceiros } from './parcerias.js';
 import { conexaoWhats, postarWhats, pausa } from './lista_evento.js';
+import { gerarRef } from './documentos.js';
 
 export const CASA_DE_SHOWS_SQL = `
   ALTER TABLE customers ADD COLUMN IF NOT EXISTS client_kinds TEXT[] NOT NULL DEFAULT '{}';   -- perfis do cliente: buyer (comprador), hirer (contratante)
@@ -315,6 +316,27 @@ export function registerCasaDeShowsRoutes(r, wrap) {
   // O atendente pede "mande o mapa" ou "mande as fotos do setor X": o painel envia pelo WhatsApp da empresa, sem depender de nada fora dele.
   // Corpo: { number: telefone/conversa do cliente, what: 'map' | 'sector' (ou só 'sector': nome/número do setor), event: nome, data (dd ou dd/mm) ou id (opcional) }
   const semAcento = (t) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+  // Evento dito em palavras (nome, id, "10" ou "10/10"): devolve { id, title } ou { erro } com a lista dos eventos abertos
+  async function eventoPorTexto(texto) {
+    const tz = await fuso();
+    const evs = (await q(`SELECT id, title, to_char(starts_at AT TIME ZONE $1, 'DD/MM') AS dd FROM events WHERE COALESCE(ends_at, starts_at + interval '3 hours') > now() ORDER BY starts_at, id LIMIT 20`, [tz])).rows;
+    const t = semAcento(texto);
+    const lista = () => evs.map((x) => `${x.title} (${x.dd})`).join(', ') || 'nenhum';
+    if (!t) return evs.length === 1 ? evs[0] : { erro: evs.length ? `Há mais de um evento aberto: ${lista()}. Pergunte ao cliente qual.` : 'Não há evento aberto para venda no momento.' };
+    const m = t.match(/^(?:dia\s*)?(\d{1,2})(?:\s*[\/\-]\s*(\d{1,2}))?$/);
+    const porData = m ? evs.filter((e) => Number(e.dd.slice(0, 2)) === Number(m[1]) && (!m[2] || Number(e.dd.slice(3)) === Number(m[2]))) : [];
+    const e = porData.length === 1 ? porData[0] : (evs.find((x) => String(x.id) === t) || evs.find((x) => semAcento(x.title) === t) || evs.find((x) => semAcento(x.title).includes(t) || t.includes(semAcento(x.title))));
+    return e || { erro: `Não achei esse evento. Eventos: ${lista()}. Pergunte ao cliente qual.` };
+  }
+  // Setor dito em palavras (nome ou número) dentro do local: devolve { id, name } ou { erro }
+  async function setorPorTexto(venueId, texto) {
+    const setores = (await q('SELECT id, name FROM shows_sectors WHERE active AND venue_id=$1 ORDER BY position, id', [venueId])).rows;
+    const t = semAcento(texto);
+    const num = (t.match(/\d+/) || [])[0];
+    const dig = (x) => (semAcento(x).match(/\d+/) || [])[0];
+    const s = t && (setores.find((x) => semAcento(x.name) === t) || setores.find((x) => num && dig(x.name) === num) || setores.find((x) => semAcento(x.name).includes(t) || t.includes(semAcento(x.name))));
+    return s || { erro: `Não achei esse setor. Setores: ${setores.map((x) => x.name).join(', ')}. Pergunte ao cliente qual.` };
+  }
   r.post('/casa-de-shows/media/send', comTratamento(async (req, res) => {
     const b = req.body || {};
     // resultado esperado (sem mapa, sem foto...) volta como resposta normal com a explicação: o atendente só enxerga o texto em respostas de sucesso
@@ -325,14 +347,9 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     if (!con) return nao('Não consegui enviar a imagem: o WhatsApp desta empresa ainda não foi ligado ao painel. Siga sem a imagem e avise o ADM com a tool Aviso.');
     // evento (opcional): vale o local dele
     let origem = {};
-    const evTxt = semAcento(b.event);
-    if (evTxt) {
-      const tz = await fuso();
-      const evs = (await q(`SELECT id, title, to_char(starts_at AT TIME ZONE $1, 'DD/MM') AS dd FROM events WHERE COALESCE(ends_at, starts_at + interval '3 hours') > now() ORDER BY starts_at, id LIMIT 20`, [tz])).rows;
-      const m = evTxt.match(/^(?:dia\s*)?(\d{1,2})(?:\s*[\/\-]\s*(\d{1,2}))?$/);
-      const porData = m ? evs.filter((e) => Number(e.dd.slice(0, 2)) === Number(m[1]) && (!m[2] || Number(e.dd.slice(3)) === Number(m[2]))) : [];
-      const e = porData.length === 1 ? porData[0] : (evs.find((x) => String(x.id) === evTxt) || evs.find((x) => semAcento(x.title) === evTxt) || evs.find((x) => semAcento(x.title).includes(evTxt) || evTxt.includes(semAcento(x.title))));
-      if (!e) return nao(`Não achei esse evento. Eventos: ${evs.map((x) => `${x.title} (${x.dd})`).join(', ') || 'nenhum'}. Pergunte ao cliente qual.`);
+    if (semAcento(b.event)) {
+      const e = await eventoPorTexto(b.event);
+      if (e.erro) return nao(e.erro);
       origem = { event_id: e.id };
     }
     const lv = await venueDe(origem);
@@ -347,11 +364,8 @@ export function registerCasaDeShowsRoutes(r, wrap) {
       if (!mapa) return nao('Não há mapa cadastrado. Siga sem o mapa, descrevendo os setores com o que a tool Disponibilidade devolveu.');
       envios = [{ file: midiaOut(req, mapa).url, text: mapa.caption || 'Mapa dos setores' }]; o_que = 'o mapa';
     } else {
-      const setores = (await q('SELECT id, name FROM shows_sectors WHERE active AND venue_id=$1 ORDER BY position, id', [lv.venue_id])).rows;
-      const num = (pedido.match(/\d+/) || [])[0];
-      const dig = (t) => (semAcento(t).match(/\d+/) || [])[0];
-      const s = setores.find((x) => semAcento(x.name) === pedido) || setores.find((x) => num && dig(x.name) === num) || setores.find((x) => semAcento(x.name).includes(pedido) || pedido.includes(semAcento(x.name)));
-      if (!s) return nao(`Não achei esse setor. Setores: ${setores.map((x) => x.name).join(', ')}. Pergunte ao cliente qual.`);
+      const s = await setorPorTexto(lv.venue_id, pedido);
+      if (s.erro) return nao(s.erro);
       const fotos = midias.filter((m) => m.kind === 'photo' && String(m.sector_id) === String(s.id));
       if (!fotos.length) return nao(`O ${s.name} não tem fotos cadastradas. Diga ao cliente que não tem foto à mão e descreva o setor com a visão e o som que a tool Disponibilidade devolveu.`);
       envios = fotos.map((f) => ({ file: midiaOut(req, f).url, text: f.caption || s.name })); o_que = `as fotos do ${s.name}`;
@@ -363,6 +377,121 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     }
     if (!enviados) return nao('Não consegui enviar a imagem pelo WhatsApp agora. Avise o cliente e siga sem ela.');
     res.json({ ok: true, sent: enviados, of: envios.length, what: o_que, message: `Enviei ${o_que} ao cliente. Não envie de novo e não descreva a imagem como se a visse; só diga que mandou.` });
+  }));
+
+  // ---------- venda feita pelo atendente (uma chamada só, no fim da conversa) ----------
+  // Corpo: { event, sector, names: ["Comprador Sobrenome", "Acompanhante Sobrenome", ...] (um por lugar, o primeiro é quem compra), phone, amount (total pago),
+  //          method: pix | mercado pago | dinheiro..., payment_id (comprovante já aceito em Recebimentos, opcional), code (palavra-chave de desconto), note }
+  // O painel escolhe a mesa que cabe, grava a venda com os nomes na lista e registra o pagamento. Resultados esperados voltam como resposta normal (ok: false + explicação).
+  const FORMA_ALIAS = [[/mercado\s*pago|link/, 'outro'], [/pix/, 'pix'], [/dinheiro/, 'dinheiro'], [/cart/, 'cartao'], [/cortesia/, 'cortesia']];
+  const dinheiroBr = (n) => 'R$ ' + Number(n).toFixed(2).replace('.', ',');
+  const nomesDe = (v) => (Array.isArray(v) ? v : String(v ?? '').split('\n')).map((n) => String(n).trim().replace(/\s+/g, ' ')).filter(Boolean);
+  r.post('/casa-de-shows/sales/register', comTratamento(async (req, res) => {
+    const b = req.body || {};
+    const nao = (message) => res.json({ ok: false, message });
+    const nomes = nomesDe(b.names);
+    if (!nomes.length) return nao('Faltam os nomes: peça o nome e sobrenome de cada pessoa antes de cadastrar.');
+    if (nomes.length > 50 || nomes.some((n) => txt(n, 120) === null)) return nao('Algum nome está inválido. Peça de novo os nomes, um por linha.');
+    const phone = b.phone ? normPhone(b.phone) : null;
+    if (b.phone && !/^\d{8,15}$/.test(phone)) return nao('O telefone do cliente é inválido.');
+    const ev = await eventoPorTexto(b.event);
+    if (ev.erro) return nao(ev.erro);
+    const lv = await venueDe({ event_id: ev.id });
+    if (lv.erro) return nao(lv.erro);
+    const setor = await setorPorTexto(lv.venue_id, b.sector);
+    if (setor.erro) return nao(setor.erro);
+    const people = nomes.length;
+    // o mesmo pedido repetido (ex.: a tool foi chamada duas vezes) não vira duas vendas
+    if (phone) {
+      const igual = (await q(`${VENDA} WHERE v.event_id=$1 AND v.phone=$2 AND v.sector_id=$3 AND v.people=$4 AND v.status = ANY($5) AND v.guests = $6 AND v.created_at > now() - interval '12 hours' ORDER BY v.id DESC LIMIT 1`,
+        [ev.id, phone, setor.id, people, OCUPAM, nomes.join('\n')])).rows[0];
+      if (igual) return res.json({ ok: true, duplicate: true, sale_id: igual.id, message: `Essa venda já estava registrada (${igual.sector_name}, ${igual.people} pessoa(s)). Não cadastre de novo; siga com a confirmação ao cliente.` });
+    }
+    const corpo = { event_id: ev.id, sector_id: setor.id, name: nomes[0], people, guests: nomes.join('\n'), note: b.note ? String(b.note).slice(0, 300) : undefined };
+    if (phone) corpo.phone = phone;
+    if (b.code) corpo.code = String(b.code);
+    const p = await preparar(corpo, null, quem(req));
+    if (p.erro) return nao(p.status === 409 ? `${p.erro} Avise o cliente e ofereça outro setor (consulte a Disponibilidade).` : p.erro);
+    let id;
+    try { id = await gravar({ ...p.v }); }
+    catch (e) { if (e.status) return nao(`${e.message} Avise o cliente e ofereça outro setor (consulte a Disponibilidade).`); throw e; }
+    // pagamento: o valor total que o cliente pagou
+    let pagto = '';
+    const valor = b.amount === undefined || b.amount === null || b.amount === '' ? null : dinheiro(b.amount);
+    if (valor && valor > 0) {
+      const texto = semAcento(b.method || 'pix');
+      const forma = (FORMA_ALIAS.find(([re]) => re.test(texto)) || [null, 'pix'])[1];
+      const nota = /mercado\s*pago|link/.test(texto) ? 'Mercado Pago' : null;
+      let payId = b.payment_id && idOk(b.payment_id) ? idOk(b.payment_id) : null;
+      if (payId && forma === 'pix') {
+        const c = (await q('SELECT status FROM payments WHERE id=$1', [payId])).rows[0];
+        if (!c || c.status !== 'accepted' || (await q('SELECT 1 FROM shows_sale_payments WHERE payment_id=$1', [payId])).rowCount) payId = null;
+      } else payId = null;
+      await q('INSERT INTO shows_sale_payments (sale_id, method, amount, payment_id, note) VALUES ($1,$2,$3,$4,$5)', [id, forma, valor, payId, nota]);
+      pagto = ` Pagamento de ${dinheiroBr(valor)} registrado.`;
+    }
+    const v = (await q(`${VENDA} WHERE v.id=$1`, [id])).rows[0];
+    res.status(201).json({
+      ok: true, sale_id: v.id, event: ev.title, sector: v.sector_name, people: v.people, tables: v.tables, table: v.table_name, seats_each: v.seats_each, unit_price: v.unit_price, paid: v.paid,
+      message: `Venda registrada: ${ev.title}, ${v.sector_name}, ${v.people} pessoa(s) em ${v.tables} mesa(s) de ${v.seats_each} lugares.${pagto} Os ${v.people} nome(s) já estão na lista, e é isso que vale para entrar: a portaria dá presença pelo nome. O ingresso em PDF é só uma comodidade; para enviá-lo, use a tool Enviar Ingressos.`,
+    });
+  }));
+
+  // Ingressos em PDF de uma venda, um por pessoa, enviados pelo WhatsApp. O ingresso é uma comodidade: se falhar, o nome continua na lista.
+  // Corpo: { number: conversa do cliente, phone: telefone do comprador (acha a venda), event, sale_id (opcional) }
+  const SEM_PDF = 'Não consegui emitir o ingresso agora, mas o nome já está salvo na lista e isso basta: na portaria a presença é dada pelo nome. Avise o cliente sem alarme: ele pode pedir o ingresso de novo outro dia, ou nem precisar dele.';
+  r.post('/casa-de-shows/sales/send-tickets', comTratamento(async (req, res) => {
+    const b = req.body || {};
+    const nao = (message) => res.json({ ok: false, sent: 0, message });
+    const numero = String(b.number || '').trim();
+    if (!numero || numero.length > 80) return res.status(400).json({ error: 'Informe o número do cliente' });
+    const phone = b.phone ? normPhone(b.phone) : normPhone(numero.replace(/@.*/, ''));
+    let venda;
+    if (b.sale_id && idOk(b.sale_id)) venda = (await q(`${VENDA} WHERE v.id=$1 AND v.status = ANY($2)`, [idOk(b.sale_id), OCUPAM])).rows[0];
+    else {
+      let eventoId = null;
+      if (semAcento(b.event)) { const e = await eventoPorTexto(b.event); if (e.erro) return nao(e.erro); eventoId = e.id; }
+      const a = [phone, OCUPAM]; let w = 'v.phone = $1 AND v.status = ANY($2)';
+      if (eventoId) { a.push(eventoId); w += ` AND v.event_id = $${a.length}`; }
+      venda = (await q(`${VENDA} WHERE ${w} ORDER BY v.id DESC LIMIT 1`, a)).rows[0];
+    }
+    if (!venda) return nao('Não achei venda confirmada para este cliente. Confira o evento e o telefone; o ingresso só sai depois de a venda ser cadastrada.');
+    const con = await conexaoWhats(currentCompany());
+    if (!con || !gerarRef.fn) return nao(SEM_PDF);
+    const nomesVenda = nomesDe(venda.guests);
+    const nomeDe = async (n) => (await q('SELECT name FROM shows_attendees WHERE sale_id=$1 AND seq=$2', [venda.id, n])).rows[0]?.name || nomesVenda[n - 1] || (n === 1 ? venda.name : `Acompanhante de ${venda.name}`);
+    const base = process.env.PUBLIC_URL || `${req.headers['x-forwarded-proto'] || req.protocol}://${req.headers['x-forwarded-host'] || req.get('host')}`;
+    let enviados = 0; const falharam = [];
+    for (let n = 1; n <= venda.people; n++) {
+      const nome = await nomeDe(n);
+      try {
+        // reaproveita o PDF já emitido para este nome; se o nome mudou, emite outro
+        let f = (await q(`SELECT token FROM doc_files WHERE kind='ingresso' AND sale_id=$1 AND seq=$2 AND vars->>'nome' = $3 ORDER BY id DESC LIMIT 1`, [venda.id, n, nome])).rows[0];
+        let url;
+        if (f) url = `${base.replace(/\/+$/, '')}/d/${f.token}.pdf`;
+        else {
+          const o = await gerarRef.fn(req, { template: 'ingresso', sale_id: venda.id, seq: n, name: nome, phone });
+          if (o.status >= 400) throw new Error(o.body.error || 'falha ao gerar');
+          url = o.body.url;
+        }
+        if (enviados) await pausa(2000);
+        await postarWhats(con, '/send/media', { number: numero, type: 'document', file: url, docName: `Ingresso - ${nome}.pdf`, readchat: true });
+        enviados++;
+      } catch (e) { console.error('ingresso:', e.message); falharam.push(nome); }
+    }
+    if (!enviados) return nao(SEM_PDF);
+    res.json({ ok: true, sent: enviados, of: venda.people, failed: falharam,
+      message: `Enviei ${enviados} ingresso(s) em PDF ao cliente, um para cada pessoa, com o nome no arquivo.` + (falharam.length ? ` Não consegui emitir o de ${falharam.join(', ')}: o nome está na lista e isso basta; ele pode pedir de novo outro dia.` : '') + ' O ingresso é só uma comodidade, a entrada é confirmada pelo nome.' });
+  }));
+
+  // O que o cliente já comprou (pelo telefone): serve para o atendente conferir uma compra ou ver os nomes da lista
+  r.get('/casa-de-shows/sales/by-phone', comTratamento(async (req, res) => {
+    const phone = normPhone(String(req.query.phone || '').replace(/@.*/, ''));
+    if (!/^\d{8,15}$/.test(phone)) return res.json({ ok: false, message: 'Telefone inválido.' });
+    const vs = (await q(`${VENDA} WHERE v.phone=$1 AND v.status = ANY($2) AND (v.event_id IS NULL OR COALESCE(e.ends_at, e.starts_at + interval '3 hours') > now()) ORDER BY v.id DESC LIMIT 5`, [phone, OCUPAM])).rows;
+    if (!vs.length) return res.json({ ok: true, sales: [], message: 'Este cliente não tem ingresso comprado para os próximos eventos.' });
+    const linhas = vs.map((v) => `- ${v.event_title || v.date}, ${v.sector_name}: ${v.people} pessoa(s) em ${v.tables} mesa(s) de ${v.seats_each} lugares. Nomes na lista: ${nomesDe(v.guests).join(', ') || v.name}. Pago: ${dinheiroBr(v.paid)}.`);
+    res.json({ ok: true, sales: vs.map((v) => ({ sale_id: v.id, event: v.event_title, sector: v.sector_name, people: v.people, names: nomesDe(v.guests), paid: v.paid })), message: 'Compras deste cliente:\n' + linhas.join('\n') });
   }));
 
   // Envio: { kind: 'map' | 'photo', sector_id (fotos), caption, data: "data:image/jpeg;base64,..." }
