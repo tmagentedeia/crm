@@ -33,13 +33,11 @@ export default function Equipe({ menu = [], rotulos = {} }) {
 
 function Telas({ valor, onChange, disponiveis, rotulo }) {
   const alterna = (t) => onChange(valor.includes(t) ? valor.filter((x) => x !== t) : [...valor, t]);
-  // telas que a função já tem, mas cujo módulo está desligado na empresa, continuam aparecendo para poderem ser desmarcadas
-  const todas = [...disponiveis, ...valor.filter((t) => !disponiveis.includes(t))];
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px' }}>
-      {todas.map((t) => (
+      {disponiveis.map((t) => (
         <label key={t} style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 400 }}>
-          <input type="checkbox" style={{ width: 'auto' }} checked={valor.includes(t)} onChange={() => alterna(t)} /> {rotulo(t)}{disponiveis.includes(t) ? '' : ' (desligada na empresa)'}
+          <input type="checkbox" style={{ width: 'auto' }} checked={valor.includes(t)} onChange={() => alterna(t)} /> {rotulo(t)}
         </label>
       ))}
     </div>
@@ -141,7 +139,7 @@ function Funcoes({ d, recarregar, setErro, disponiveis, rotulo }) {
           <label style={{ marginTop: 10 }}>Tela que abre ao entrar
             <select value={f.inicio || ''} onChange={(e) => setF({ ...f, inicio: e.target.value })}>
               <option value="">A primeira da lista</option>
-              {f.telas.map((t) => <option key={t} value={t}>{rotulo(t)}</option>)}
+              {f.telas.filter((t) => disponiveis.includes(t)).map((t) => <option key={t} value={t}>{rotulo(t)}</option>)}
             </select>
           </label>
           <button className="btn primary" style={{ marginTop: 10 }} onClick={salvar}>Salvar função</button>
@@ -152,7 +150,7 @@ function Funcoes({ d, recarregar, setErro, disponiveis, rotulo }) {
           <div key={x.id} className="row" style={{ justifyContent: 'space-between', gap: 8, padding: '10px 0', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
             <div>
               <strong>{x.name}</strong>
-              <div className="muted" style={{ fontSize: 13 }}>{x.telas.length ? x.telas.map(rotulo).join(', ') : 'Nenhuma tela'}</div>
+              <div className="muted" style={{ fontSize: 13 }}>{x.telas.some((t) => disponiveis.includes(t)) ? x.telas.filter((t) => disponiveis.includes(t)).map(rotulo).join(', ') : 'Nenhuma tela'}</div>
             </div>
             <div className="row" style={{ gap: 6 }}>
               <button className="btn sm" onClick={() => setF({ ...x })}>Editar</button>
