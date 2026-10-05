@@ -180,7 +180,7 @@ export default function App() {
       <main className="main">
         {modoAdmin && (
           <div className="admin-banner">
-            <span>Você está vendo o painel de <strong>{company.name}</strong> como administrador.</span>
+            <span>Você está vendo o painel de <strong>{company.name}</strong> (empresa nº {company.id}) como administrador.</span>
             <button className="btn sm" onClick={voltarAdmin}>Voltar à administração</button>
           </div>
         )}

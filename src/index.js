@@ -219,6 +219,8 @@ app.get('/api/admin/diagnostico', requireUser, requireAdmin, async (req, res) =>
       item.donos = (await qg("SELECT email, role FROM users WHERE company_id=$1 ORDER BY (role = 'owner') DESC, id LIMIT 5", [c.id])).rows;
       const s = schemaOf(c.id);
       item.manual_publicado_em = (await qg(`SELECT max(published_at) AS t FROM ${s}.agent_manual_versions`)).rows[0]?.t || null;
+      item.clientes = (await qg(`SELECT count(*)::int AS n FROM ${s}.customers`)).rows[0].n;
+      item.eventos = (await qg(`SELECT count(*)::int AS n FROM ${s}.events`).catch(() => ({ rows: [{ n: null }] }))).rows[0].n;
       const m = (await qg(`SELECT content FROM ${s}.agent_manual_versions WHERE published_at IS NOT NULL ORDER BY published_at DESC, id DESC LIMIT 1`)).rows[0];
       item.manual_inicio = m ? String(m.content).replace(/\s+/g, ' ').slice(0, 80) : null;
     } catch (e) { item.erro = e.message.slice(0, 120); }

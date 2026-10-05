@@ -213,13 +213,14 @@ export default function Admin() {
         <div className="card table-wrap" style={{ marginTop: 12 }}>
           <div className="row" style={{ justifyContent: 'space-between' }}><h2>Conferência das empresas</h2><button className="btn sm" onClick={() => setDiag(null)}>Fechar</button></div>
           <table>
-            <thead><tr><th>Código</th><th>Empresa</th><th>Login do responsável</th><th>Agente</th><th>Manual publicado</th></tr></thead>
+            <thead><tr><th>Código</th><th>Empresa</th><th>Login do responsável</th><th>Agente</th><th>Clientes / eventos</th><th>Manual publicado</th></tr></thead>
             <tbody>
               {diag.map((d) => (
                 <tr key={d.id}>
                   <td>{d.id}</td><td><strong>{d.name}</strong><div className="muted" style={{ fontSize: 12 }}>criada em {new Date(d.created_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</div></td>
                   <td>{d.donos.map((u) => <div key={u.email}>{u.email}</div>)}</td>
                   <td>{d.agente || '—'}{d.adm ? ` · ${d.adm}` : ''}</td>
+                  <td>{d.clientes ?? '—'} / {d.eventos ?? '—'}</td>
                   <td>{d.erro ? <span className="muted">{d.erro}</span> : d.manual_publicado_em ? <>{new Date(d.manual_publicado_em).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}<div className="muted" style={{ fontSize: 12 }}>{d.manual_inicio}</div></> : '—'}</td>
                 </tr>
               ))}
