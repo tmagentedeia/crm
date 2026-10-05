@@ -186,7 +186,7 @@ function Modelos() {
           <button className="btn primary" onClick={() => { setPrev(''); setMsg(''); setM({ name: '', kind: 'contrato', html: '<!DOCTYPE html>\n<html lang="pt-BR"><head><meta charset="UTF-8"></head>\n<body>\n<h1>Título</h1>\n<p>Cliente: {{nome}}</p>\n<div>{{{text}}}</div>\n</body></html>', is_default: false }); }}>Novo modelo</button>
           <button className="btn" onClick={exemplos}>Adicionar modelos de exemplo</button>
           <button className="btn" onClick={testar}>Testar serviço de PDF</button>
-          {saude && <span className={saude.ok ? '' : 'error'}>{saude.ok ? 'Serviço de PDF funcionando' : saude.motivo}</span>}
+          {saude && <span className={saude.ok ? '' : 'error'}>{saude.ok ? 'Serviço de PDF funcionando' : saude.motivo}{!saude.ok && saude.detalhe && <span className="muted" style={{ display: 'block', fontSize: 12 }}>{saude.detalhe}</span>}</span>}
         </div>
         {lista.length > 0 && (
           <table style={{ marginTop: 10 }}><tbody>{lista.map((t) => (

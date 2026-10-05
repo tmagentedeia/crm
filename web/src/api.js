@@ -1,21 +1,42 @@
 const KEY = 'crm_token';
 export const ADMIN_KEY = 'crm_admin_token'; // guarda o acesso do administrador enquanto ele vê o painel de uma empresa
-// "Abrir painel" da Administração vale só para a ABA em que foi aberto (sessionStorage): outras abas continuam na sua própria empresa.
-// Antes o acesso ficava no localStorage, compartilhado por todas as abas, e duas abas de empresas diferentes se misturavam.
-const KEY_ABA = 'crm_token_aba', EMPRESA_ABA = 'crm_company_aba';
+// Cada ABA fica presa à conta com que foi aberta (sessionStorage). O localStorage guarda só o último login, para abas novas.
+// Antes todas as abas usavam o mesmo token do localStorage: entrar em outra empresa numa aba trocava a empresa de todas as outras,
+// e uma aba mostrava a tela de uma empresa com dados de outra. O "Abrir painel" da Administração também vale só para a aba.
+const PIN = 'crm_token_aba', VISITA = 'crm_visita_aba', EMPRESA_ABA = 'crm_company_aba';
 const sess = (f) => { try { return f(); } catch { return null; } };
-export const emVisita = () => !!sess(() => sessionStorage.getItem(KEY_ABA));
-export const getToken = () => sess(() => sessionStorage.getItem(KEY_ABA)) || localStorage.getItem(KEY);
-export const setToken = (t) => {
-  if (!t) sair();
-  else if (emVisita()) sess(() => sessionStorage.setItem(KEY_ABA, t));
-  else localStorage.setItem(KEY, t);
+const ss = { get: (k) => sess(() => sessionStorage.getItem(k)), set: (k, v) => sess(() => sessionStorage.setItem(k, v)), del: (k) => sess(() => sessionStorage.removeItem(k)) };
+const dono = (t) => { try { const p = JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))); return `${p.companyId}:${p.id}`; } catch { return null; } };
+export const emVisita = () => ss.get(VISITA) === '1';
+export const getToken = () => {
+  const fixo = ss.get(PIN);
+  if (fixo) return fixo;
+  const geral = localStorage.getItem(KEY);
+  if (geral) ss.set(PIN, geral);   // aba nova: fica presa ao último login
+  return geral;
 };
-function sair() { localStorage.removeItem(KEY); sess(() => { sessionStorage.removeItem(KEY_ABA); sessionStorage.removeItem(EMPRESA_ABA); }); }
-export const entrarComoEmpresa = (token, company) => sess(() => { sessionStorage.setItem(KEY_ABA, token); sessionStorage.setItem(EMPRESA_ABA, JSON.stringify(company)); });
-export const sairDaEmpresa = () => sess(() => { sessionStorage.removeItem(KEY_ABA); sessionStorage.removeItem(EMPRESA_ABA); });
-export const lerEmpresa = () => { try { return JSON.parse((emVisita() ? sessionStorage.getItem(EMPRESA_ABA) : localStorage.getItem('crm_company')) || '{}'); } catch { return {}; } };
-export const guardarEmpresa = (c) => { try { emVisita() ? sessionStorage.setItem(EMPRESA_ABA, JSON.stringify(c)) : localStorage.setItem('crm_company', JSON.stringify(c)); } catch { /* sem armazenamento */ } };
+export const setToken = (t) => {
+  if (!t) { sair(); return; }
+  const antes = ss.get(PIN);
+  ss.set(PIN, t);
+  if (emVisita()) return;
+  // renovação do token desta aba só mexe no "último login" se ele for da mesma conta
+  const geral = localStorage.getItem(KEY);
+  if (!antes || !geral || dono(geral) === dono(antes) || dono(geral) === dono(t)) localStorage.setItem(KEY, t);
+};
+function sair() { localStorage.removeItem(KEY); ss.del(PIN); ss.del(VISITA); ss.del(EMPRESA_ABA); }
+export const entrarComoEmpresa = (token, company) => { ss.set(PIN, token); ss.set(VISITA, '1'); ss.set(EMPRESA_ABA, JSON.stringify(company)); };
+export const sairDaEmpresa = () => { ss.del(PIN); ss.del(VISITA); ss.del(EMPRESA_ABA); };
+export const lerEmpresa = () => {
+  try {
+    const t = getToken();
+    const daAba = ss.get(EMPRESA_ABA);
+    if (daAba) return JSON.parse(daAba);
+    const geral = JSON.parse(localStorage.getItem('crm_company') || '{}');
+    return t && geral.id && String(dono(t)).split(':')[0] === String(geral.id) ? geral : {};   // dados de outra empresa nunca valem
+  } catch { return {}; }
+};
+export const guardarEmpresa = (c) => { ss.set(EMPRESA_ABA, JSON.stringify(c)); if (!emVisita()) sess(() => localStorage.setItem('crm_company', JSON.stringify(c))); };
 
 export async function api(path, { method = 'GET', body } = {}) {
   const res = await fetch('/api' + path, {

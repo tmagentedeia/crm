@@ -82,13 +82,15 @@ export async function htmlParaPdf(html) {
   if (!r.ok) throw new Error(`O serviço de PDF respondeu ${r.status}`);
   return Buffer.from(await r.arrayBuffer());
 }
+// só o endereço (sem usuário nem senha), para o administrador conferir o que o servidor está usando
+const enderecoGotenberg = () => String(process.env.GOTENBERG_URL || '').replace(/\/\/[^/@]*@/, '//').replace(/\/+$/, '');
 export async function testarGotenberg() {
   if (!gotenbergLigado()) return { ok: false, motivo: 'O serviço de PDF ainda não foi configurado neste servidor.' };
   try {
     const r = await gotenbergFetch('/health', { timeout: 8000 });
-    return r.ok ? { ok: true } : { ok: false, motivo: `O serviço de PDF respondeu ${r.status}.` };
+    return r.ok ? { ok: true } : { ok: false, motivo: `O serviço de PDF respondeu ${r.status}.`, detalhe: `endereço ${enderecoGotenberg()} · resposta ${r.status}` };
   } catch (e) {
-    return { ok: false, motivo: 'Não foi possível alcançar o serviço de PDF.' };
+    return { ok: false, motivo: 'Não foi possível alcançar o serviço de PDF.', detalhe: `endereço ${enderecoGotenberg()} · ${e.cause?.code || e.name}: ${e.cause?.message || e.message}` };
   }
 }
 
@@ -264,7 +266,7 @@ export function registerDocumentRoutes(r, wrap) {
     const html = renderizar(t.html, vars);
     let pdf;
     try { pdf = await htmlParaPdf(html); }
-    catch (e) { console.error('documentos:', e.message); return res.status(502).json({ error: 'Não foi possível gerar o PDF agora. Tente de novo em instantes.' }); }
+    catch (e) { console.error('documentos:', e.message, e.cause?.code || '', e.cause?.message || '', enderecoGotenberg()); return res.status(502).json({ error: 'Não foi possível gerar o PDF agora. Tente de novo em instantes.' }); }
 
     let customerId = null;
     if (phone) {
