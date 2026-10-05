@@ -3,7 +3,7 @@ import { api } from '../api.js';
 
 const TIPOS = { ingresso: 'Ingresso', contrato: 'Contrato', proposta: 'Proposta', outro: 'Outro' };
 const quando = (iso) => new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
-const BASE = ['numero', 'numero_curto', 'data', 'hora', 'empresa', 'nome', 'telefone', 'text'];
+const BASE = ['numero', 'numero_curto', 'data', 'hora', 'empresa', 'nome', 'telefone', 'text', 'qrcode', 'codigo', 'evento', 'evento_data', 'abertura', 'local', 'setor', 'mesa', 'pessoa'];
 
 export default function Documentos() {
   const [st, setSt] = useState(null);

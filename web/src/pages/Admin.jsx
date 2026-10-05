@@ -412,7 +412,7 @@ export default function Admin() {
                 <Campo rotulo="WhatsApp para avisos do painel (endereço e chave)">
                   <input placeholder="https://…" style={{ width: 240 }} value={wa[s.id]?.u ?? s.wa_api_url ?? ''}
                     onChange={(e) => setWa({ ...wa, [s.id]: { u: e.target.value, t: wa[s.id]?.t ?? '' } })} />
-                  <input type="password" autoComplete="new-password" placeholder={s.wa_api_set ? 'chave guardada (deixe em branco para manter)' : 'chave'} style={{ width: 210 }} value={wa[s.id]?.t ?? ''}
+                  <input type="password" autoComplete="new-password" placeholder={s.wa_api_set ? `chave guardada ••••${s.wa_api_fim || ''} (em branco mantém)` : 'chave'} style={{ width: 210 }} value={wa[s.id]?.t ?? ''}
                     onChange={(e) => setWa({ ...wa, [s.id]: { u: wa[s.id]?.u ?? s.wa_api_url ?? '', t: e.target.value } })} />
                   {s.id in wa && <button className="btn sm primary" onClick={() => salvarWa(s)}>Salvar</button>}
                 </Campo>

@@ -116,6 +116,7 @@ BASE=http://localhost:3999 node test/lista_evento_envio.mjs || R=1
 BASE=http://localhost:3999 node test/contratacoes.mjs || R=1
 BASE=http://localhost:3999 node test/indicacoes.mjs || R=1
 BASE=http://localhost:3999 node test/documentos.mjs || R=1
+BASE=http://localhost:3999 node test/ingresso_qr.mjs || R=1
 BASE=http://localhost:3999 node test/delivery.mjs || R=1
 BASE=http://localhost:3999 node test/equipe.mjs || R=1
 BASE=http://localhost:3999 node test/restaurante.mjs || R=1

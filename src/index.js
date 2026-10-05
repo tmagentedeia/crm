@@ -178,7 +178,7 @@ app.put('/api/admin/companies/:id/whatsapp', requireUser, requireAdmin, async (r
   if (token.length > 200 || /\s/.test(token)) return res.status(400).json({ error: 'Chave inválida' });
   // sem endereço = desliga; chave em branco = mantém a atual
   const { rows } = await qg(
-    `UPDATE companies SET wa_api_url = NULLIF($2,''), wa_api_token = CASE WHEN $2 = '' THEN NULL WHEN $3 <> '' THEN $3 ELSE wa_api_token END WHERE id=$1 RETURNING id, wa_api_url, (wa_api_token IS NOT NULL) AS wa_api_set`, [id, url, token]);
+    `UPDATE companies SET wa_api_url = NULLIF($2,''), wa_api_token = CASE WHEN $2 = '' THEN NULL WHEN $3 <> '' THEN $3 ELSE wa_api_token END WHERE id=$1 RETURNING id, wa_api_url, (wa_api_token IS NOT NULL) AS wa_api_set, right(wa_api_token, 4) AS wa_api_fim`, [id, url, token]);
   rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Empresa não encontrada' });
 });
 
@@ -210,7 +210,7 @@ registerIndicacoesAdmin(app, requireUser, requireAdmin);
 registerEquipeRoutes(app, requireUser);
 app.get('/api/admin/companies', requireUser, requireAdmin, async (req, res) => {
   const { rows } = await qg(
-    `SELECT c.id, c.name, c.max_professionals, c.billing_due_day, c.billing_exempt, (SELECT count(*) FROM partner_referrals pr WHERE pr.company_id=c.id)::int AS referrals_total, c.created_at, c.modules, c.locked_modules, c.module_labels, c.whatsapp_instance, c.redis_prefix, c.campaign_webhook_url, c.wa_api_url, (c.wa_api_token IS NOT NULL) AS wa_api_set, c.booking_mode, c.api_key_hint, c.api_key_created_at,
+    `SELECT c.id, c.name, c.max_professionals, c.billing_due_day, c.billing_exempt, (SELECT count(*) FROM partner_referrals pr WHERE pr.company_id=c.id)::int AS referrals_total, c.created_at, c.modules, c.locked_modules, c.module_labels, c.whatsapp_instance, c.redis_prefix, c.campaign_webhook_url, c.wa_api_url, (c.wa_api_token IS NOT NULL) AS wa_api_set, right(c.wa_api_token, 4) AS wa_api_fim, c.booking_mode, c.api_key_hint, c.api_key_created_at,
             (SELECT u.email FROM users u WHERE u.company_id = c.id ORDER BY (u.role = 'owner') DESC, u.id LIMIT 1) AS owner_email
      FROM companies c ORDER BY c.id`);
   // profissionais ativos: contados dentro do schema de cada empresa

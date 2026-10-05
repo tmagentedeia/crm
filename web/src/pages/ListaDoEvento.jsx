@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { api, getToken, fmtPhone } from '../api.js';
+import LeitorQr from './LeitorQr.jsx';
 
 const PAGTO = { paid: 'Pago', partial: 'Parcial', pending: 'Pendente', courtesy: 'Cortesia', no_price: '—' };
 const ACAO = { entrada: 'marcou entrada', entrada_desfeita: 'desfez a entrada', comentario: 'comentou', edicao: 'editou' };
@@ -22,6 +23,8 @@ export default function ListaDoEvento({ eventoId = null, onVoltar = null }) {
   const [busca, setBusca] = useState('');
   const [filtro, setFiltro] = useState('todos');
   const [edit, setEdit] = useState(null);
+  const [leitor, setLeitor] = useState(false);
+  const [ingresso, setIngresso] = useState('');
   const [nota, setNota] = useState(null);
   const [registro, setRegistro] = useState(null);
   const [offline, setOffline] = useState(null);   // hora da cópia salva, quando a lista não carregou
@@ -142,6 +145,14 @@ export default function ListaDoEvento({ eventoId = null, onVoltar = null }) {
     setAviso(''); setErro('');
     try { await api('/event-list/send-now', { method: 'POST', body: { event_id: ev } }); setAviso('Lista enviada.'); } catch (e) { setErro(e.message); }
   };
+  const gerarIngresso = async (r) => {   // PDF do ingresso desta pessoa, com QR Code
+    setIngresso('');
+    const aba = window.open('', '_blank');
+    try {
+      const x = await api(`/event-list/${r.sale_id}/${r.seq}/ticket`, { method: 'POST' });
+      if (aba) aba.location.href = x.url; else setIngresso(x.url);
+    } catch (e) { aba?.close(); setErro(e.message); }
+  };
   const podeMarcar = nivel === 'editor' || nivel === 'comentarista';
   return (
     <>
@@ -155,6 +166,7 @@ export default function ListaDoEvento({ eventoId = null, onVoltar = null }) {
         </p>
       </div>
       {erro && <p className="error">{erro}</p>}
+      {ingresso && <p><a href={ingresso} target="_blank" rel="noreferrer">Abrir o ingresso</a></p>}
       {offline && <p className="error">Sem conexão. Mostrando a lista salva neste aparelho às {hora(offline)}. Você pode continuar marcando as entradas: elas sobem sozinhas quando a internet voltar.</p>}
       {fila.length > 0 && <p className="muted">{fila.length} marcação(ões) aguardando para enviar.</p>}
       <div className="row" style={{ marginBottom: 12, gap: 8, flexWrap: 'wrap' }}>
@@ -166,6 +178,7 @@ export default function ListaDoEvento({ eventoId = null, onVoltar = null }) {
           </select>
         )}
         <input placeholder="Buscar por nome, mesa ou telefone" value={busca} onChange={(e) => setBusca(e.target.value)} style={{ flex: '2 1 220px' }} />
+        {nivel && nivel !== 'leitor' && <button className="btn primary" onClick={() => setLeitor(true)} disabled={!ev}>Ler QR Code</button>}
         <button className="btn" onClick={baixar} disabled={!ev}>Baixar planilha</button>
         <button className="btn" onClick={abrirRegistro} disabled={!ev}>Quem mexeu</button>
       </div>
@@ -222,6 +235,7 @@ export default function ListaDoEvento({ eventoId = null, onVoltar = null }) {
                     {nivel !== 'leitor' && (
                       <td style={{ whiteSpace: 'nowrap' }}>
                         {nivel === 'editor' && <button className="btn sm" onClick={() => setEdit({ ...r })}>Editar</button>}{' '}
+                        {nivel === 'editor' && <button className="btn sm" onClick={() => gerarIngresso(r)}>Ingresso</button>}{' '}
                         <button className="btn sm" onClick={() => setNota({ ...r })}>Comentar</button>
                       </td>
                     )}
@@ -233,6 +247,7 @@ export default function ListaDoEvento({ eventoId = null, onVoltar = null }) {
           </div>
         </>
       )}
+      {leitor && <LeitorQr eventoId={ev} onFechar={() => setLeitor(false)} onMarcou={carregar} />}
       {edit && (
         <div className="modal-bg" onClick={() => setEdit(null)}>
           <form className="modal" style={{ maxWidth: 460 }} onClick={(e) => e.stopPropagation()} onSubmit={salvarEdicao}>

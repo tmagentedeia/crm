@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import { q, qg, runAs, currentCompany } from './db.js';
 import { normPhone } from './phone.js';
 import { isAdmin } from './auth.js';
+import { variaveisDoIngresso, qrHtml } from './ingresso_qr.js';
 
 export const DOCUMENTOS_SQL = `
   CREATE TABLE IF NOT EXISTS doc_templates (
@@ -240,48 +241,64 @@ export function registerDocumentRoutes(r, wrap) {
   r.post('/documents/preview', soAdmin(async (req, res) => {
     const html = typeof req.body?.html === 'string' ? req.body.html : '';
     if (!html || html.length > HTML_MAX) return res.status(400).json({ error: 'Modelo inválido' });
-    const vars = { ...variaveisBase(), nome: 'Maria da Silva', telefone: '5532999990000', empresa: 'Sua empresa', text: '<ul><li>Item de exemplo: valor</li><li>Outro item: valor</li></ul>', ...(await varsFixas()), ...lerVars(req.body?.vars) };
+    const vars = { ...variaveisBase(), nome: 'Maria da Silva', telefone: '5532999990000', empresa: 'Sua empresa', qrcode: await qrHtml('TMI-0-0-0-000000000000', 120), codigo: 'TMI-0-0-0-000000000000', evento: 'Show de exemplo', evento_data: '10/10/2026 21:00', abertura: '10/10/2026 19:00', local: 'Casa de exemplo', setor: 'Pista', mesa: '1 × Mesa 4 lugares', pessoa: '1 de 4', text: '<ul><li>Item de exemplo: valor</li><li>Outro item: valor</li></ul>', ...(await varsFixas()), ...lerVars(req.body?.vars) };
     const usadas = variaveisDe(html);
     const vazias = usadas.filter((k) => !(k in vars));
     res.json({ html: renderizar(html, vars), missing: vazias });
   }));
 
   // Gera o PDF: template = 'ingresso' | 'contrato' | 'proposta' | 'outro' (usa o modelo padrão do tipo) ou o id de um modelo
-  r.post('/documents/generate', wrap(async (req, res) => {
-    if (!gotenbergLigado()) return res.status(503).json({ error: 'A geração de PDF ainda não está ligada neste servidor' });
-    const b = req.body || {};
+  // Gera o PDF: template = 'ingresso' | 'contrato' | 'proposta' | 'outro' (usa o modelo padrão do tipo) ou o id de um modelo.
+  // Com sale_id (+ seq) é o ingresso de uma pessoa da lista do evento, com QR Code.
+  async function gerarDocumento(req, b) {
+    if (!gotenbergLigado()) return { status: 503, body: { error: 'A geração de PDF ainda não está ligada neste servidor' } };
     const alvo = String(b.template ?? '').trim();
     let t;
     if (TIPOS.includes(alvo)) t = (await q('SELECT * FROM doc_templates WHERE kind=$1 AND is_default', [alvo])).rows[0];
     else if (idOk(alvo)) t = (await q('SELECT * FROM doc_templates WHERE id=$1', [alvo])).rows[0];
-    if (!t) return res.status(404).json({ error: 'Modelo de documento não encontrado' });
+    if (!t) return { status: 404, body: { error: 'Modelo de documento não encontrado' } };
     const nome = txt(b.name, 120);
-    if (nome === null) return res.status(400).json({ error: 'Nome inválido' });
+    if (nome === null) return { status: 400, body: { error: 'Nome inválido' } };
     const phone = b.number || b.phone ? normPhone(b.number || b.phone) : '';
-    if ((b.number || b.phone) && (phone.length < 10 || phone.length > 15)) return res.status(400).json({ error: 'Telefone inválido (use DDD + número)' });
+    if ((b.number || b.phone) && (phone.length < 10 || phone.length > 15)) return { status: 400, body: { error: 'Telefone inválido (use DDD + número)' } };
+    let extras = {}, nomeFinal = nome;
+    if (b.sale_id !== undefined && b.sale_id !== null && b.sale_id !== '') {
+      const ing = await variaveisDoIngresso(b.sale_id, b.seq);
+      if (ing.erro) return { status: ing.erro[0], body: { error: ing.erro[1] } };
+      extras = ing.vars; nomeFinal = nome || ing.nome;
+    }
     const texto = String(b.text ?? '');
-    if (texto.length > 20000) return res.status(400).json({ error: 'Texto grande demais' });
+    if (texto.length > 20000) return { status: 400, body: { error: 'Texto grande demais' } };
     const empresa = (await qg('SELECT name FROM companies WHERE id=$1', [currentCompany()])).rows[0]?.name || '';
-    const vars = { ...variaveisBase(), empresa, ...(await varsFixas()), ...lerVars(b.fields), nome, telefone: phone || '', text: texto };
-    const html = renderizar(t.html, vars);
+    const vars = { ...variaveisBase(), empresa, ...(await varsFixas()), ...extras, ...lerVars(b.fields), nome: nomeFinal, telefone: phone || '', text: texto };
+    let modelo = t.html;
+    // o ingresso de uma pessoa sempre leva o QR Code: se o modelo não reservou o espaço, ele entra no fim da página
+    if (extras.qrcode && !/\{\{\{?\s*qrcode\s*\}?\}\}/.test(modelo)) modelo = modelo.replace(/<\/body>/i, '<div style="text-align:center;margin:18px 0">{{{qrcode}}}<div style="font-size:11px;color:#666;margin-top:4px">{{codigo}}</div></div></body>');
+    const html = renderizar(modelo, vars);
     let pdf;
     try { pdf = await htmlParaPdf(html); }
-    catch (e) { console.error('documentos:', e.message, e.cause?.code || '', e.cause?.message || '', enderecoGotenberg()); return res.status(502).json({ error: 'Não foi possível gerar o PDF agora. Tente de novo em instantes.' }); }
+    catch (e) { console.error('documentos:', e.message, e.cause?.code || '', e.cause?.message || '', enderecoGotenberg()); return { status: 502, body: { error: 'Não foi possível gerar o PDF agora. Tente de novo em instantes.' } }; }
 
     let customerId = null;
     if (phone) {
       customerId = (await q(`INSERT INTO customers (name, phone, source, status) VALUES (NULLIF($1,''),$2,$3,'lead')
                              ON CONFLICT (phone) DO UPDATE SET name=COALESCE(customers.name, EXCLUDED.name) RETURNING id`,
-        [nome, phone, (req.baseUrl || '').includes('n8n') ? 'ia' : 'manual'])).rows[0].id;
+        [nomeFinal, phone, (req.baseUrl || '').includes('n8n') ? 'ia' : 'manual'])).rows[0].id;
       const perfil = t.kind === 'contrato' ? 'hirer' : t.kind === 'ingresso' ? 'buyer' : null;
       if (perfil) await q(`UPDATE customers SET client_kinds = CASE WHEN $2 = ANY(client_kinds) THEN client_kinds ELSE array_append(client_kinds, $2) END, status='client' WHERE id=$1`, [customerId, perfil]);
     }
     const token = `${currentCompany()}-${crypto.randomBytes(24).toString('hex')}`;
-    const titulo = `${t.name}${nome ? ' — ' + nome : ''}`.slice(0, 160);
+    const titulo = `${t.name}${nomeFinal ? ' — ' + nomeFinal : ''}`.slice(0, 160);
     const f = (await q(`INSERT INTO doc_files (template_id, kind, title, number, customer_id, token, pdf, vars) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb) RETURNING id`,
-      [t.id, t.kind, titulo, vars.numero, customerId, token, pdf, JSON.stringify({ ...lerVars(b.fields), nome, telefone: phone })])).rows[0];
+      [t.id, t.kind, titulo, vars.numero, customerId, token, pdf, JSON.stringify({ ...lerVars(b.fields), nome: nomeFinal, telefone: phone })])).rows[0];
     const base = process.env.PUBLIC_URL || `${req.headers['x-forwarded-proto'] || req.protocol}://${req.headers['x-forwarded-host'] || req.get('host')}`;
-    res.status(201).json({ id: String(f.id), kind: t.kind, number: vars.numero, filename: `${t.kind}${vars.numero}.pdf`, url: `${base.replace(/\/+$/, '')}/d/${token}.pdf` });
+    return { status: 201, body: { id: String(f.id), kind: t.kind, number: vars.numero, filename: `${t.kind}${vars.numero}.pdf`, url: `${base.replace(/\/+$/, '')}/d/${token}.pdf` } };
+  }
+  gerarRef.fn = gerarDocumento;
+
+  r.post('/documents/generate', wrap(async (req, res) => {
+    const o = await gerarDocumento(req, req.body || {});
+    res.status(o.status).json(o.body);
   }));
 
   r.get('/documents', wrap(async (req, res) => {
@@ -303,6 +320,8 @@ export function registerDocumentRoutes(r, wrap) {
 }
 
 // Link público do PDF: o código tem 192 bits aleatórios, então só quem recebeu o link consegue abrir
+export const gerarRef = { fn: null };   // preenchido ao registrar as rotas: outros módulos geram PDF pelo mesmo caminho
+
 export function registerDocumentoPublico(app) {
   app.get('/d/:token.pdf', async (req, res) => {
     const m = String(req.params.token || '').match(/^(\d+)-([0-9a-f]{48})$/);

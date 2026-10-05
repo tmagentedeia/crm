@@ -3,6 +3,8 @@
 // Acessos (telas da equipe): lista_evento = só consulta · lista_evento_comentarista = marca entrada e comenta · lista_evento_editor = edita tudo.
 import { q, qg, runAs, currentCompany } from './db.js';
 import { normPhone } from './phone.js';
+import { gerarRef } from './documentos.js';
+import { lerCodigo } from './ingresso_qr.js';
 
 export const SHOWS_LISTA_SQL = `
   CREATE TABLE IF NOT EXISTS shows_attendees (
@@ -194,6 +196,25 @@ export function registerListaEventoRoutes(r, wrap) {
     res.json({ ok: true });
   }));
 
+  // ---- ingresso com QR Code de cada pessoa (editor) ----
+  const ingressoDe = async (req, sale, seq) => {
+    if (!gerarRef.fn) throw erro(503, 'A geração de PDF não está disponível');
+    const o = await gerarRef.fn(req, { template: 'ingresso', sale_id: sale, seq });
+    if (o.status >= 400) throw erro(o.status, o.body.error);
+    return { seq, url: o.body.url, id: o.body.id };
+  };
+  r.post('/event-list/:sale/:seq/ticket', tratar(async (req, res) => {
+    const p = await pessoa(q, req.params.sale, req.params.seq);
+    res.status(201).json({ ...(await ingressoDe(req, p.s.id, p.seq)), name: p.nome });
+  }));
+  // todos os ingressos de uma venda, um PDF por pessoa
+  r.post('/event-list/:sale/tickets', tratar(async (req, res) => {
+    const p = await pessoa(q, req.params.sale, 1);
+    const out = [];
+    for (let n = 1; n <= p.s.people; n++) out.push({ ...(await ingressoDe(req, p.s.id, n)), name: (await pessoa(q, p.s.id, n)).nome });
+    res.status(201).json({ tickets: out });
+  }));
+
   // ---- portaria: marcar entrada e anotar ----
   // Corpo: { entered: true|false, at?: hora em que a pessoa entrou (marcada sem internet e enviada depois; até 24 h atrás) }
   r.put('/event-list-comment/:sale/:seq/entry', tratar(async (req, res) => {
@@ -219,6 +240,31 @@ export function registerListaEventoRoutes(r, wrap) {
       await registrar(p.s.event_id, p.s.id, n, pn.nome, por, req.body.entered ? 'entrada' : 'entrada_desfeita', 'venda inteira');
     }
     res.json({ ok: true });
+  }));
+  // Leitura do QR Code na portaria. Corpo: { code, event_id? }. Sempre responde 200 com { result }:
+  // ok (entrada marcada agora) · ja_entrou · outro_evento · cancelado · invalido
+  r.post('/event-list-comment/scan', tratar(async (req, res) => {
+    const c = lerCodigo(req.body?.code);
+    if (!c) return res.json({ result: 'invalido', message: 'QR Code não reconhecido' });
+    if (c.company !== currentCompany()) return res.json({ result: 'invalido', message: 'Ingresso de outra empresa' });
+    let p;
+    try { p = await pessoa(q, c.sale, c.seq); }
+    catch (e) {
+      if (e.status === 409) return res.json({ result: 'cancelado', message: 'Ingresso cancelado' });
+      if (e.status === 404) return res.json({ result: 'invalido', message: 'Ingresso não encontrado' });
+      throw e;
+    }
+    const ev = (await q('SELECT id, title FROM events WHERE id=$1', [p.s.event_id])).rows[0];
+    if (req.body?.event_id && String(p.s.event_id) !== String(req.body.event_id))
+      return res.json({ result: 'outro_evento', message: `Ingresso de outro evento: ${ev?.title || ''}`, name: p.nome, event: ev?.title || null });
+    const linha = (await linhas(p.s.event_id)).find((x) => String(x.sale_id) === String(p.s.id) && x.seq === p.seq) || {};
+    const dados = { name: p.nome, sector: linha.sector, table: linha.table, payment: linha.payment, payment_label: linha.payment_label, note: linha.note || '', door_note: linha.door_note || '' };
+    if (p.a.entered_at) return res.json({ result: 'ja_entrou', message: 'Esta pessoa já entrou', entered_at: p.a.entered_at, entered_by: p.a.entered_by, ...dados });
+    const por = await ator(req);
+    await garantir(p);
+    await q('UPDATE shows_attendees SET entered_at = now(), entered_by = $3 WHERE sale_id=$1 AND seq=$2', [p.s.id, p.seq, por]);
+    await registrar(p.s.event_id, p.s.id, p.seq, p.nome, por, 'entrada', 'QR Code');
+    res.json({ result: 'ok', message: 'Entrada marcada', ...dados });
   }));
   // Corpo: { note }
   r.put('/event-list-comment/:sale/:seq/note', tratar(async (req, res) => {
