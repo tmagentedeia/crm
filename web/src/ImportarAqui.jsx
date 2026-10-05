@@ -26,6 +26,14 @@ const TIPOS = {
       { Categoria: 'Bebidas', Item: 'Refrigerante lata', Descrição: '', Preço: 7, 'Local de preparo': 'Bar', Esgotado: '' },
     ],
   },
+  shows_sectors: {
+    nome: 'setores', arquivo: 'modelo-setores.xlsx', chave: 'sectors', aviso: 'Informe a capacidade em pessoas, ou então quantas mesas e quantos lugares por mesa (a capacidade sai da conta). O setor aceita todas as mesas.',
+    exemplo: [{ Setor: 'Setor 1', Capacidade: 24, Observações: '' }, { Setor: 'Setor 2', Mesas: 6, 'Lugares por mesa': 4, Observações: 'Perto do palco' }],
+  },
+  shows_tables: {
+    nome: 'mesas', arquivo: 'modelo-mesas.xlsx', chave: 'tables', aviso: 'Cada lugar ocupa um ponto do setor. A coluna Pontos é opcional: vazia, vale o número de lugares.',
+    exemplo: [{ Mesa: 'Mesa de 2', Lugares: 2, Pontos: '' }, { Mesa: 'Mesa de 4', Lugares: 4, Pontos: '' }, { Mesa: 'Mesa de 10', Lugares: 10, Pontos: '' }],
+  },
 };
 const toRows = (ws) => XLSX.utils.sheet_to_json(ws, { defval: '', raw: false });
 
@@ -67,7 +75,9 @@ export default function ImportarAqui({ tipo, onFeito }) {
   async function rodar(dry) {
     setBusy(true); setErr('');
     try {
-      const r = tipo === 'menu'
+      const r = T.chave
+        ? await api('/casa-de-shows/import', { method: 'POST', body: { [T.chave]: rows, dry_run: dry } })
+        : tipo === 'menu'
         ? await api('/delivery/import', { method: 'POST', body: { rows, dry_run: dry } })
         : await api('/import', { method: 'POST', body: { [tipo]: rows, dry_run: dry } });
       setRep(r);
@@ -75,7 +85,9 @@ export default function ImportarAqui({ tipo, onFeito }) {
     } catch (e2) { setErr(e2.message); }
     setBusy(false);
   }
-  const resumo = rep && (tipo === 'menu'
+  const resumo = rep && (T.chave
+    ? `${rep[T.chave].created} novos, ${rep[T.chave].updated} atualizados`
+    : tipo === 'menu'
     ? `${rep.items.created} novos, ${rep.items.updated} atualizados${rep.categories.created ? ` · ${rep.categories.created} categorias novas` : ''}`
     : `${rep[tipo].created} novos, ${rep[tipo].updated} atualizados${tipo === 'services' && rep.categories?.created ? ` · ${rep.categories.created} categorias novas` : ''}`);
 

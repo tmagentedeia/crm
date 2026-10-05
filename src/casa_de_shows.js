@@ -483,6 +483,63 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     rowCount ? res.json({ ok: true }) : res.status(404).json({ error: 'Mesa não encontrada' });
   }));
 
+  // ---------- importar setores e mesas por planilha ----------
+  // Corpo: { tables: [{ Mesa, Lugares, Pontos? }], sectors: [{ Setor, 'Capacidade'? | Mesas + 'Lugares por mesa', Observações? }], dry_run }
+  // As mesas entram primeiro (o setor aceita todas, como no cadastro manual). Reimportar atualiza pelo nome, sem duplicar.
+  r.post('/casa-de-shows/import', wrap(async (req, res) => {
+    const cap = (a) => (Array.isArray(a) ? a.slice(0, 500) : []);
+    const mesas = cap(req.body?.tables), setores = cap(req.body?.sectors), dry = !!req.body?.dry_run;
+    const pega = (row, ...nomes) => {
+      const m = {};
+      for (const [k, v] of Object.entries(row || {})) m[norma(String(k).replace(/\(.*?\)/g, ''))] = v;
+      for (const n of nomes.map(norma)) if (m[n] !== undefined && String(m[n]).trim() !== '') return m[n];
+      return '';
+    };
+    const rep = { tables: { created: 0, updated: 0 }, sectors: { created: 0, updated: 0 }, errors: [], warnings: [], dry_run: dry };
+    class Desfazer extends Error {}
+    try {
+      await tx(currentCompany(), async (t) => {
+        for (const [i, row] of mesas.entries()) {
+          const nome = txt(pega(row, 'mesa', 'nome', 'tipo'), 60);
+          const linha = `Mesas, linha ${i + 2}${nome ? ` (${nome})` : ''}`;
+          if (!nome) { if (Object.values(row || {}).some((v) => String(v).trim())) rep.errors.push(`${linha}: falta o nome da mesa`); continue; }
+          const lugares = inteiro(pega(row, 'lugares', 'pessoas', 'cadeiras'), 1, 200);
+          if (lugares === null) { rep.errors.push(`${linha}: informe os lugares (1 a 200)`); continue; }
+          const bruto = pega(row, 'pontos', 'pontos que ocupa', 'espaco');
+          const pontos = bruto === '' ? lugares : espaco(bruto, 0.01);   // sem pontos, um por lugar
+          if (pontos === null) { rep.errors.push(`${linha}: pontos inválidos`); continue; }
+          const ex = (await t('SELECT id FROM shows_table_types WHERE lower(name) = lower($1)', [nome])).rows[0];
+          if (ex) { await t('UPDATE shows_table_types SET seats=$2, space=$3, active=true WHERE id=$1', [ex.id, lugares, pontos]); rep.tables.updated++; }
+          else { await t('INSERT INTO shows_table_types (name, seats, space) VALUES ($1,$2,$3)', [nome, lugares, pontos]); rep.tables.created++; }
+        }
+        const local = setores.length ? await primeiroLocal(t) : null;
+        if (setores.length && !local) rep.errors.push('Setores: cadastre um local antes de importar');
+        else for (const [i, row] of setores.entries()) {
+          const nome = txt(pega(row, 'setor', 'nome'), 60);
+          const linha = `Setores, linha ${i + 2}${nome ? ` (${nome})` : ''}`;
+          if (!nome) { if (Object.values(row || {}).some((v) => String(v).trim())) rep.errors.push(`${linha}: falta o nome do setor`); continue; }
+          let cap = pega(row, 'capacidade', 'capacidade pontos', 'espaco', 'espaco total');
+          if (cap === '') {   // sem capacidade: mesas x lugares por mesa
+            const n = inteiro(pega(row, 'mesas', 'qtd mesas', 'quantidade de mesas'), 1, 1000), l = inteiro(pega(row, 'lugares por mesa', 'lugares'), 1, 200);
+            if (n !== null && l !== null) cap = n * l;
+          }
+          const capacidade = cap === '' ? null : espaco(cap, 0.01);
+          const obs = txt(pega(row, 'observacoes', 'obs', 'notas'), 400) ?? '';
+          if (capacidade === null) { rep.errors.push(`${linha}: informe a capacidade (ou mesas e lugares por mesa)`); continue; }
+          const ex = (await t('SELECT id FROM shows_sectors WHERE venue_id=$1 AND lower(name) = lower($2)', [local.id, nome])).rows[0];
+          if (ex) { await t(`UPDATE shows_sectors SET space=$2, notes=COALESCE(NULLIF($3,''), notes), active=true WHERE id=$1`, [ex.id, capacidade, obs]); rep.sectors.updated++; }
+          else {
+            const pos = (await t('SELECT COALESCE(MAX(position), 0) + 1 AS p FROM shows_sectors WHERE venue_id=$1', [local.id])).rows[0].p;
+            await t(`INSERT INTO shows_sectors (venue_id, name, space, notes, position) VALUES ($1,$2,$3,NULLIF($4,''),$5)`, [local.id, nome, capacidade, obs, pos]);
+            rep.sectors.created++;
+          }
+        }
+        if (dry) throw new Desfazer();
+      });
+    } catch (e) { if (!(e instanceof Desfazer)) throw e; }
+    res.json(rep);
+  }));
+
   // ---------- ocasião (evento ou data) ----------
   // Devolve { event, event_id, date } ou { erro }
   async function ocasiao(src) {

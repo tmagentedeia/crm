@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api, fmtPhone } from '../api.js';
+import ImportarAqui from '../ImportarAqui.jsx';
 
 const SITUACAO = { confirmed: 'Confirmada', attended: 'Compareceu', cancelled: 'Cancelada', no_show: 'Não veio' };
 const BADGE = { confirmed: 'pending', attended: 'attended', cancelled: 'cancelled', no_show: 'no_show' };
@@ -1005,7 +1006,7 @@ function Setores() {
     <>
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: 12 }}>
         <p className="muted" style={{ margin: 0 }}>A capacidade é em pontos: um ponto por pessoa sentada. Mesas pequenas desperdiçam mais espaço, então você pode fazer uma mesa de 2 ocupar mais de 2 pontos. Em cada setor você também define quais mesas ele aceita e quantas de cada tipo cabem.</p>
-        <button className="btn primary" onClick={() => abrir(null)}>+ Novo setor</button>
+        <div className="row" style={{ gap: 8 }}><ImportarAqui tipo="shows_sectors" onFeito={load} /><button className="btn primary" onClick={() => abrir(null)}>+ Novo setor</button></div>
       </div>
       {err && !edit && <div className="error">{err}</div>}
       {locais.length > 1 && (
@@ -1095,7 +1096,7 @@ function Mesas() {
     <>
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: 12 }}>
         <p className="muted" style={{ margin: 0 }}>Cada tipo de mesa tem os seus lugares e os pontos que ocupa da capacidade do setor (por padrão, um por lugar). Mudar aqui não altera vendas já feitas.</p>
-        <button className="btn primary" onClick={() => { setErr(''); setEdit({ name: '', seats: '', space: '', active: true, espacoAuto: true }); }}>+ Nova mesa</button>
+        <div className="row" style={{ gap: 8 }}><ImportarAqui tipo="shows_tables" onFeito={load} /><button className="btn primary" onClick={() => { setErr(''); setEdit({ name: '', seats: '', space: '', active: true, espacoAuto: true }); }}>+ Nova mesa</button></div>
       </div>
       {err && !edit && <div className="error">{err}</div>}
       <div className="card table-wrap">
