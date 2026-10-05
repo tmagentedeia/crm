@@ -66,7 +66,7 @@ export const LEITURAS_DA_TELA = {
   eventos: ['customers', 'professionals'],
   comissoes: ['professionals', 'services', 'categories'],
   delivery: ['customers'],
-  casa_de_shows: ['customers'],
+  casa_de_shows: ['customers', 'finance', 'payments'],
   campanhas: ['customers', 'services', 'club'],
   financeiro: ['customers'],
 };

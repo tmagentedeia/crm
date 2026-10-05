@@ -10,6 +10,17 @@ const paraInput = (d) => { if (!d) return ''; const x = new Date(d); x.setMinute
 const vir = (v) => (v === null || v === undefined ? '' : String(v).replace('.', ','));
 const hoje = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
 
+const FORMAS = { pix: 'Pix', dinheiro: 'Dinheiro', cartao: 'Cartão', parceiro: 'Parceiro', cortesia: 'Cortesia', outro: 'Outro' };
+const dinheiroBR = (v) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+// Resumo curto do pagamento de uma reserva para a lista
+const situacaoPagto = (v) => {
+  if (v.courtesy) return 'Cortesia';
+  if (v.total === null || v.total === undefined) return v.paid > 0 ? dinheiroBR(v.paid) : 'Lançar';
+  if (v.paid >= v.total && v.total > 0) return 'Paga';
+  if (v.paid > 0) return `Falta ${dinheiroBR(v.total - v.paid)}`;
+  return v.total > 0 ? 'Pendente' : 'Lançar';
+};
+
 export default function CasaDeShows() {
   const [aba, setAba] = useState('reservas');
   return (
@@ -51,6 +62,8 @@ function Reservas() {
   const [codigos, setCodigos] = useState([]);
   const [novoCod, setNovoCod] = useState({ word: '', kind: 'percent', value: '', max_uses: '', note: '' });
   const [dup, setDup] = useState(null);
+  const [pagto, setPagto] = useState(null);
+  const [resumo, setResumo] = useState(null);
   const [err, setErr] = useState('');
 
   useEffect(() => {
@@ -71,6 +84,7 @@ function Reservas() {
     api('/casa-de-shows/availability?' + filtro).then(setDisp).catch((e) => setErr(e.message));
     api('/casa-de-shows/reservations?' + filtro).then(setLista).catch((e) => setErr(e.message));
     api('/casa-de-shows/extras?' + filtro).then(setExtras).catch(() => {});
+    api('/casa-de-shows/payments/summary?' + filtro).then(setResumo).catch(() => {});
   };
   useEffect(() => { load(); }, [oc, data]);
 
@@ -222,6 +236,26 @@ function Reservas() {
         {disp && !disp.sectors.length && <p className="muted">Nenhum setor ativo.</p>}
       </div>
 
+      {resumo && resumo.reservations > 0 && (
+        <div className="card" style={{ padding: 12, marginBottom: 14 }}>
+          <div className="row" style={{ justifyContent: 'space-between' }}>
+            <strong>Pagamentos</strong>
+            <span className="muted">{resumo.paid} paga(s) · {resumo.partial} parcial(is) · {resumo.pending} pendente(s) · {resumo.courtesy} cortesia(s)</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10, margin: '8px 0' }}>
+            <div><div className="muted">Previsto</div><strong>{dinheiroBR(resumo.expected)}</strong></div>
+            <div><div className="muted">Recebido</div><strong>{dinheiroBR(resumo.received)}</strong></div>
+            <div><div className="muted">Em aberto</div><strong>{dinheiroBR(resumo.open_amount)}</strong></div>
+          </div>
+          {(resumo.by_method.length > 0 || resumo.by_pix_key.length > 0) && (
+            <div className="muted" style={{ fontSize: 13 }}>
+              {resumo.by_method.filter((m) => m.method !== 'cortesia').map((m) => `${FORMAS[m.method]}: ${dinheiroBR(m.total)}`).join(' · ')}
+              {resumo.by_pix_key.length > 0 && <div>Por chave Pix: {resumo.by_pix_key.map((k) => `${k.beneficiary || k.pix_key || 'sem chave'}: ${dinheiroBR(k.total)}`).join(' · ')}</div>}
+            </div>
+          )}
+        </div>
+      )}
+
       {extras.length > 0 && (
         <div className="card" style={{ padding: 12, marginBottom: 14 }}>
           <strong>Mesas extras abertas</strong>
@@ -235,7 +269,7 @@ function Reservas() {
       )}
       <div className="card table-wrap">
         <table>
-          <thead><tr><th>Setor</th><th>Nome</th><th>Telefone</th><th>Pessoas</th><th>Mesa</th><th>Valor</th><th>Situação</th><th></th></tr></thead>
+          <thead><tr><th>Setor</th><th>Nome</th><th>Telefone</th><th>Pessoas</th><th>Mesa</th><th>Valor</th><th>Pagamento</th><th>Situação</th><th></th></tr></thead>
           <tbody>
             {lista.map((v) => (
               <tr key={v.id}>
@@ -245,6 +279,7 @@ function Reservas() {
                 <td>{v.people}</td>
                 <td>{v.tables} × {v.table_name}</td>
                 <td>{v.total !== null ? n1(v.total) : <span className="muted">—</span>}{v.code_word && <div className="muted" style={{ fontSize: 12 }}>{v.code_word}</div>}</td>
+                <td><button className="btn sm" onClick={() => setPagto(v)} title="Pagamentos desta reserva">{situacaoPagto(v)}</button></td>
                 <td><span className={'badge ' + BADGE[v.status]}>{SITUACAO[v.status]}</span></td>
                 <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                   {v.status === 'confirmed' && <button className="btn sm" onClick={() => mudar(v, 'attended')}>Compareceu</button>}{' '}
@@ -254,7 +289,7 @@ function Reservas() {
                 </td>
               </tr>
             ))}
-            {!lista.length && <tr><td colSpan="8" className="muted">Nenhuma reserva {oc === 'data' ? `em ${dia(data)}` : 'neste evento'}.</td></tr>}
+            {!lista.length && <tr><td colSpan="9" className="muted">Nenhuma reserva {oc === 'data' ? `em ${dia(data)}` : 'neste evento'}.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -371,6 +406,7 @@ function Reservas() {
         </div>
       )}
 
+      {pagto && <Pagamentos reserva={pagto} onClose={() => setPagto(null)} onChange={load} />}
       {setup && (
         <div className="modal-bg" onClick={() => setSetup(null)}>
           <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={salvarSetup}>
@@ -479,6 +515,88 @@ function FotosDoSetor({ setorId }) {
         ))}
       </div>
       <label className="btn sm" style={{ cursor: 'pointer' }}>{busy ? 'Enviando…' : '+ Adicionar fotos'}<input type="file" accept="image/*" multiple onChange={enviar} style={{ display: 'none' }} disabled={busy || (fotos || []).length >= 8} /></label>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- pagamentos de uma reserva
+function Pagamentos({ reserva, onClose, onChange }) {
+  const [dados, setDados] = useState(null);
+  const [chaves, setChaves] = useState([]);
+  const [comprovantes, setComprovantes] = useState([]);
+  const [f, setF] = useState({ method: 'pix', amount: '', pix_key_id: '', payment_id: '', note: '' });
+  const [err, setErr] = useState('');
+  const load = () => api(`/casa-de-shows/reservations/${reserva.id}/payments`).then(setDados).catch((e) => setErr(e.message));
+  useEffect(() => {
+    load();
+    api('/finance/keys').then((l) => setChaves(l.filter((k) => k.active))).catch(() => {});
+    api('/payments?status=accepted').then((l) => setComprovantes(l.slice(0, 100))).catch(() => {});
+  }, []);
+  async function lancar(e) {
+    e.preventDefault(); setErr('');
+    const body = { method: f.method, note: f.note || undefined };
+    if (f.method !== 'cortesia') body.amount = f.amount;
+    if (f.method === 'pix' && f.pix_key_id) body.pix_key_id = f.pix_key_id;
+    if (f.method === 'pix' && f.payment_id) body.payment_id = f.payment_id;
+    try {
+      await api(`/casa-de-shows/reservations/${reserva.id}/payments`, { method: 'POST', body });
+      setF({ method: 'pix', amount: '', pix_key_id: '', payment_id: '', note: '' });
+      await load(); onChange();
+    } catch (e2) { setErr(e2.message); }
+  }
+  const tirar = async (p) => {
+    if (!confirm('Apagar este lançamento?')) return;
+    try { await api('/casa-de-shows/payments/' + p.id, { method: 'DELETE' }); await load(); onChange(); } catch (e) { setErr(e.message); }
+  };
+  const escolherComprovante = (id) => {
+    const c = comprovantes.find((x) => String(x.id) === String(id));
+    setF({ ...f, payment_id: id, amount: c ? String(c.amount).replace('.', ',') : f.amount, pix_key_id: c?.pix_key_id ? String(c.pix_key_id) : f.pix_key_id });
+  };
+  return (
+    <div className="modal-bg" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h2>Pagamentos · {reserva.name}</h2>
+        {dados && (
+          <p className="muted">
+            {dados.total !== null ? <>Valor da reserva: <strong>{dinheiroBR(dados.total)}</strong> · </> : 'Reserva sem valor definido · '}
+            Pago: <strong>{dinheiroBR(dados.paid)}</strong>
+            {dados.total !== null && dados.paid < dados.total && !dados.courtesy && <> · Falta: <strong>{dinheiroBR(dados.total - dados.paid)}</strong></>}
+            {dados.courtesy && ' · Cortesia'}
+          </p>
+        )}
+        {err && <div className="error">{err}</div>}
+        {(dados?.payments || []).map((p) => (
+          <div className="row" key={p.id} style={{ justifyContent: 'space-between', padding: '6px 0', borderTop: '1px solid var(--line)' }}>
+            <span>{FORMAS[p.method]}{p.method !== 'cortesia' && <> · {dinheiroBR(p.amount)}</>}{(p.beneficiary || p.pix_key) && <span className="muted"> · {p.beneficiary || p.pix_key}</span>}{p.payment_id && <span className="muted"> · com comprovante</span>}{p.note && <span className="muted"> · {p.note}</span>}</span>
+            <button className="btn sm" onClick={() => tirar(p)}>Apagar</button>
+          </div>
+        ))}
+        {dados && !dados.payments.length && <p className="muted">Nenhum pagamento lançado.</p>}
+        <form onSubmit={lancar} style={{ marginTop: 12, borderTop: '1px solid var(--line)', paddingTop: 12 }}>
+          <strong>Novo lançamento</strong>
+          <div className="field"><label>Forma de pagamento</label>
+            <select value={f.method} onChange={(e) => setF({ ...f, method: e.target.value, payment_id: '', pix_key_id: '' })}>
+              {Object.entries(FORMAS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select></div>
+          {f.method === 'pix' && (
+            <>
+              <div className="field"><label>Comprovante já validado em Recebimentos (opcional)</label>
+                <select value={f.payment_id} onChange={(e) => escolherComprovante(e.target.value)}>
+                  <option value="">Sem comprovante</option>
+                  {comprovantes.map((c) => <option key={c.id} value={c.id}>{dinheiroBR(c.amount)} · {c.payer_name || 'sem nome'} · {c.paid_at ? new Date(c.paid_at).toLocaleDateString('pt-BR') : ''}</option>)}
+                </select></div>
+              <div className="field"><label>Chave Pix que recebeu</label>
+                <select value={f.pix_key_id} onChange={(e) => setF({ ...f, pix_key_id: e.target.value })}>
+                  <option value="">Não informar</option>
+                  {chaves.map((k) => <option key={k.id} value={k.id}>{k.beneficiary || k.key}{k.beneficiary ? ` · ${k.key}` : ''}</option>)}
+                </select></div>
+            </>
+          )}
+          {f.method !== 'cortesia' && <div className="field"><label>Valor *</label><input value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} required /></div>}
+          <div className="field"><label>Observação</label><input value={f.note} maxLength={300} onChange={(e) => setF({ ...f, note: e.target.value })} /></div>
+          <div className="row"><button className="btn primary">Lançar</button><button type="button" className="btn" onClick={onClose}>Fechar</button></div>
+        </form>
+      </div>
     </div>
   );
 }
