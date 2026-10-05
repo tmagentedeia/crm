@@ -891,6 +891,13 @@ export function registerCasaDeShowsRoutes(r, wrap) {
   // ---------- preço e palavras-chave do evento ----------
   // Preço por pessoa valendo agora, já considerando a palavra-chave (se vier) e, opcionalmente, outro desconto em % já reconhecido
   // (ex.: o do programa de benefícios). Descontos não se somam: vale o que sair mais barato.
+  // Lugares que ainda dá para vender numa mesa reservada: lugares da mesa - pessoas do dono - convidados confirmados
+  async function lugaresLivres(run, hostId) {
+    const h = (await run('SELECT seats_each, tables, people, status FROM shows_sales WHERE id=$1', [hostId])).rows[0];
+    if (!h || !OCUPAM.includes(h.status)) return 0;
+    const vend = Number((await run('SELECT COALESCE(SUM(people),0) AS n FROM shows_sales WHERE host_sale_id=$1 AND status = ANY($2)', [hostId, OCUPAM])).rows[0].n);
+    return Math.max(0, h.seats_each * h.tables - h.people - vend);
+  }
   async function precoPara(run, eventId, palavra, outroPct, excluirVenda) {
     const c = (await run('SELECT price::float AS price, door_price::float AS door_price, price_until FROM shows_event_conditions WHERE event_id=$1', [eventId])).rows[0];
     const lotes = (await run('SELECT id, name, price::float AS price, valid_until, max_qty FROM shows_event_lots WHERE event_id=$1 ORDER BY position', [eventId])).rows;
@@ -931,6 +938,11 @@ export function registerCasaDeShowsRoutes(r, wrap) {
       if (k.max_uses) {
         const usos = Number((await run(`SELECT COUNT(*) AS n FROM shows_sales WHERE code_id=$1 AND status = ANY($2)${excluirVenda ? ' AND id <> ' + Number(excluirVenda) : ''}`, [k.id, OCUPAM])).rows[0].n);
         if (usos >= k.max_uses) return { ...out, code_valid: false, reason: 'Essa palavra-chave já atingiu o limite de usos' };
+      }
+      if (k.host_sale_id) {   // palavra de mesa reservada: só vale se ainda há lugar
+        const livres = await lugaresLivres(run, k.host_sale_id);
+        out.held = { sale_id: k.host_sale_id, free_seats: livres };
+        if (livres < 1) return { ...out, code_valid: false, reason: 'Os lugares dessa mesa já foram todos vendidos' };
       }
       const v = k.kind === 'percent' ? r2(base * (1 - Number(k.value) / 100)) : r2(Number(k.value));
       if (v <= out.unit_price) { out.unit_price = v; out.applied = 'code'; }
@@ -985,7 +997,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
   r.get('/casa-de-shows/events/:id/codes', wrap(async (req, res) => {
     const ev = await eventoDe(req.params.id);
     if (!ev) return res.status(404).json({ error: 'Evento não encontrado' });
-    res.json((await q(`${CODIGO} WHERE k.event_id=$1 ORDER BY k.id`, [ev.id])).rows);
+    res.json((await q(`${CODIGO} WHERE k.event_id=$1 AND k.host_sale_id IS NULL ORDER BY k.id`, [ev.id])).rows);
   }));
   function lerCodigo(b, parcial, atual) {
     const o = {};
@@ -1030,6 +1042,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
   r.put('/casa-de-shows/codes/:id', wrap(async (req, res) => {
     const atual = (await q(`${CODIGO} WHERE k.id=$1`, [req.params.id])).rows[0];
     if (!atual) return res.status(404).json({ error: 'Palavra-chave não encontrada' });
+    if ((await q('SELECT host_sale_id FROM shows_event_codes WHERE id=$1', [atual.id])).rows[0].host_sale_id) return res.status(409).json({ error: 'Essa palavra é de uma mesa reservada. Altere pela própria mesa.' });
     const { o, erro } = lerCodigo(req.body || {}, true, atual);
     if (erro) return res.status(400).json({ error: erro });
     const n = { ...atual, ...o, word_norm: o.word_norm || norma(atual.word) };
@@ -1043,6 +1056,8 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     res.json((await q(`${CODIGO} WHERE k.id=$1`, [req.params.id])).rows[0]);
   }));
   r.delete('/casa-de-shows/codes/:id', wrap(async (req, res) => {
+    const k = (await q('SELECT host_sale_id FROM shows_event_codes WHERE id=$1', [req.params.id])).rows[0];
+    if (k?.host_sale_id) return res.status(409).json({ error: 'Essa palavra é de uma mesa reservada. Desative a mesa reservada na própria venda.' });
     const { rowCount } = await q('DELETE FROM shows_event_codes WHERE id=$1', [req.params.id]);
     rowCount ? res.json({ ok: true }) : res.status(404).json({ error: 'Palavra-chave não encontrada' });
   }));
@@ -1193,7 +1208,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
       for (const l of (await t('SELECT * FROM shows_event_lots WHERE event_id=$1 ORDER BY position', [orig.id])).rows) await t('INSERT INTO shows_event_lots (event_id, position, name, price, valid_until, max_qty) VALUES ($1,$2,$3,$4,$5,$6)', [e.id, l.position, l.name, l.price, mover(l.valid_until), l.max_qty]);
       const c = (await t('SELECT * FROM shows_event_conditions WHERE event_id=$1', [orig.id])).rows[0];
       if (c) await t('INSERT INTO shows_event_conditions (event_id, price, door_price, price_until, instructions) VALUES ($1,$2,$3,$4,$5)', [e.id, c.price, c.door_price, mover(c.price_until), c.instructions]);
-      const ks = (await t('SELECT * FROM shows_event_codes WHERE event_id=$1 ORDER BY id', [orig.id])).rows;
+      const ks = (await t('SELECT * FROM shows_event_codes WHERE event_id=$1 AND host_sale_id IS NULL ORDER BY id', [orig.id])).rows;
       for (const k of ks) await t('INSERT INTO shows_event_codes (event_id, word, word_norm, kind, value, max_uses, valid_until, note) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)', [e.id, k.word, k.word_norm, k.kind, k.value, k.max_uses, mover(k.valid_until), k.note]);
       return { event: e, codes: ks.length, has_conditions: !!c };
     });
@@ -1294,7 +1309,10 @@ export function registerCasaDeShowsRoutes(r, wrap) {
   // ---------- vendas ----------
   const VENDA = `SELECT v.id, v.event_id, e.title AS event_title, v.occasion_date::text AS date, v.sector_id, s.name AS sector_name,
                           v.customer_id, v.name, v.phone, v.people, v.table_type_id, v.table_name, v.seats_each, v.space_each::float AS space_each,
-                          v.tables, (v.tables * v.space_each)::float AS space, (v.tables * v.seats_each) AS seats, v.status, v.note, v.guests, v.unit_price::float AS unit_price, (v.people * v.unit_price)::float AS total, v.code_word, v.created_at,
+                          v.tables, (v.tables * v.space_each)::float AS space, (v.tables * v.seats_each) AS seats, v.status, v.note, v.guests, v.unit_price::float AS unit_price, (v.people * v.unit_price)::float AS total, v.code_word, v.created_at, v.held, v.host_sale_id,
+                          (SELECT h.name FROM shows_sales h WHERE h.id = v.host_sale_id) AS host_name,
+                          CASE WHEN v.held THEN GREATEST(0, v.seats_each * v.tables - v.people) END AS held_seats,
+                          CASE WHEN v.held THEN COALESCE((SELECT SUM(g.people) FROM shows_sales g WHERE g.host_sale_id = v.id AND g.status IN ('confirmed','attended')), 0)::int END AS held_sold,
                           COALESCE((SELECT SUM(p.amount) FROM shows_sale_payments p WHERE p.sale_id = v.id AND p.method <> 'cortesia'), 0)::float AS paid,
                           EXISTS (SELECT 1 FROM shows_sale_payments p WHERE p.sale_id = v.id AND p.method = 'cortesia') AS courtesy
                    FROM shows_sales v JOIN shows_sectors s ON s.id = v.sector_id LEFT JOIN events e ON e.id = v.event_id`;
@@ -1310,7 +1328,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
       const tz = await fuso();
       a.push(tz); w.push(`v.occasion_date >= (now() AT TIME ZONE $${a.length})::date`);
     }
-    res.json((await q(`${VENDA} ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY v.occasion_date, s.position, v.id LIMIT 1000`, a)).rows);
+    res.json((await q(`${VENDA} ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY v.occasion_date, s.position, COALESCE(v.host_sale_id, v.id), (v.host_sale_id IS NOT NULL), v.id LIMIT 1000`, a)).rows);
   }));
 
   // O setor aceita esse tipo de mesa nessa ocasião? E até quantas (null = sem limite)? Mesas extras abertas à mão contam.
@@ -1489,7 +1507,154 @@ export function registerCasaDeShowsRoutes(r, wrap) {
   }
 
 
+  // ---------- mesa reservada e convidados ----------
+  // O dono compra a mesa; os lugares que sobram são vendidos a convidados, que ficam ligados à mesa:
+  // cada convidado ocupa lugares dela (não espaço novo do setor) e paga o valor vigente com o desconto da mesa (percentual ou valor fixo).
+  const erroHttp = (status, msg) => { const e = new Error(msg); e.status = status; return e; };
+  const mesaDe = async (run, id) => (await run('SELECT *, occasion_date::text AS occasion_date FROM shows_sales WHERE id=$1', [id])).rows[0];
+  const mesaOut = async (h) => {
+    const cod = (await q(`${CODIGO} WHERE k.host_sale_id=$1`, [h.id])).rows[0] || null;
+    const total = h.seats_each * h.tables;
+    const livres = h.held ? await lugaresLivres(q, h.id) : 0;
+    const convidados = (await q(`${VENDA} WHERE v.host_sale_id=$1 ORDER BY v.id`, [h.id])).rows;
+    const vendidos = convidados.filter((c) => OCUPAM.includes(c.status)).reduce((a, c) => a + c.people, 0);
+    return {
+      sale_id: h.id, held: h.held, seats_total: total, owner_people: h.people, sold: vendidos, free: livres,
+      code: cod && { id: cod.id, word: cod.word, kind: cod.kind, value: cod.value, valid_until: cod.valid_until, closed: !!cod.valid_until && new Date(cod.valid_until) < new Date() },
+      guests: convidados,
+    };
+  };
+  r.get('/casa-de-shows/sales/:id/held', wrap(async (req, res) => {
+    const h = await mesaDe(q, idOk(req.params.id) || 0);
+    if (!h) return res.status(404).json({ error: 'Venda não encontrada' });
+    if (h.host_sale_id) return res.status(409).json({ error: 'Essa venda é de um convidado' });
+    res.json(await mesaOut(h));
+  }));
+  // Corpo: { enabled: true, word, kind: 'percent'|'price', value } liga/ajusta ; { enabled: false } desliga (sem convidados) ; { closed: true|false } encerra/reabre a venda pela palavra
+  r.put('/casa-de-shows/sales/:id/held', comTratamento(async (req, res) => {
+    if ((req.baseUrl || '').includes('n8n')) return res.status(403).json({ error: 'Só pelo painel' });
+    const h = await mesaDe(q, idOk(req.params.id) || 0);
+    if (!h) return res.status(404).json({ error: 'Venda não encontrada' });
+    if (h.host_sale_id) throw erroHttp(409, 'Essa venda é de um convidado');
+    const b = req.body || {};
+    const cod = (await q('SELECT id FROM shows_event_codes WHERE host_sale_id=$1', [h.id])).rows[0];
+    if (b.enabled === false) {
+      const ativos = Number((await q('SELECT COUNT(*) AS n FROM shows_sales WHERE host_sale_id=$1 AND status = ANY($2)', [h.id, OCUPAM])).rows[0].n);
+      if (ativos) throw erroHttp(409, 'Essa mesa já tem convidados. Cancele ou apague os convidados antes.');
+      await tx(currentCompany(), async (t) => { await t('DELETE FROM shows_event_codes WHERE host_sale_id=$1', [h.id]); await t('UPDATE shows_sales SET held=false WHERE id=$1', [h.id]); });
+      return res.json(await mesaOut(await mesaDe(q, h.id)));
+    }
+    if (b.closed !== undefined && b.enabled === undefined) {
+      if (!cod) throw erroHttp(409, 'Essa venda ainda não é uma mesa reservada');
+      await q('UPDATE shows_event_codes SET valid_until = $2 WHERE id=$1', [cod.id, b.closed ? new Date().toISOString() : null]);
+      return res.json(await mesaOut(await mesaDe(q, h.id)));
+    }
+    if (b.enabled !== true) return res.status(400).json({ error: 'Informe se a mesa reservada fica ligada' });
+    if (!h.event_id) throw erroHttp(409, 'A mesa reservada precisa estar numa venda de um evento');
+    if (!OCUPAM.includes(h.status)) throw erroHttp(409, 'Essa venda está cancelada');
+    if (h.seats_each * h.tables - h.people < 1) throw erroHttp(409, 'Não sobram lugares nessa mesa para vender a convidados');
+    const { o, erro } = lerCodigo({ word: b.word, kind: b.kind, value: b.value, valid_until: b.valid_until, note: b.note }, !!cod, cod && (await q(`${CODIGO} WHERE k.id=$1`, [cod.id])).rows[0]);
+    if (erro) throw erroHttp(400, erro);
+    try {
+      await tx(currentCompany(), async (t) => {
+        if (cod) {
+          const a = (await t(`${CODIGO} WHERE k.id=$1`, [cod.id])).rows[0];
+          const n = { ...a, ...o, word_norm: o.word_norm || norma(a.word) };
+          await t('UPDATE shows_event_codes SET word=$2, word_norm=$3, kind=$4, value=$5, valid_until=$6, note=NULLIF($7,\'\') WHERE id=$1', [cod.id, n.word, n.word_norm, n.kind, n.value, n.valid_until ?? null, n.note || '']);
+        } else {
+          await t('INSERT INTO shows_event_codes (event_id, word, word_norm, kind, value, max_uses, valid_until, note, host_sale_id) VALUES ($1,$2,$3,$4,$5,NULL,$6,NULLIF($7,\'\'),$8)', [h.event_id, o.word, o.word_norm, o.kind, o.value, o.valid_until ?? null, o.note || '', h.id]);
+        }
+        await t('UPDATE shows_sales SET held=true WHERE id=$1', [h.id]);
+      });
+    } catch (e) {
+      if (e.code === '23505') throw erroHttp(409, 'Já existe essa palavra-chave neste evento');
+      throw e;
+    }
+    res.json(await mesaOut(await mesaDe(q, h.id)));
+  }));
+
+  // Grava um convidado na mesa. modo: 'mesa' (valor vigente com o desconto da mesa) | 'normal' (valor vigente, sem desconto) | 'manual' (valor informado)
+  // via = 'palavra' quando vem do atendente (respeita o encerramento da venda pela palavra); 'painel' quando a equipe adiciona à mão.
+  async function criarConvidado(hostId, b, { modo, via, quemCriou }) {
+    const nome = txt(b.name, 120);
+    if (!nome) throw erroHttp(400, 'Informe o nome de quem compra');
+    let phone = null;
+    if (b.phone !== undefined && b.phone !== null && b.phone !== '') { phone = normPhone(b.phone); if (!/^\d{8,15}$/.test(phone)) throw erroHttp(400, 'Telefone inválido'); }
+    const people = b.people === undefined ? 1 : inteiro(b.people, 1, 1000);
+    if (!people) throw erroHttp(400, 'Informe quantas pessoas');
+    const note = b.note ? txt(b.note, 300) : '';
+    if (note === null) throw erroHttp(400, 'Anotação inválida (até 300 letras)');
+    let manual = null;
+    if (modo === 'manual') { manual = b.unit_price === undefined || b.unit_price === null || b.unit_price === '' ? null : dinheiro(b.unit_price); if (manual === null) throw erroHttp(400, 'Informe o valor por pessoa'); }
+    return tx(currentCompany(), async (t) => {
+      await t('SELECT pg_advisory_xact_lock(hashtext($1))', [`shows:${currentCompany()}:mesa:${hostId}`]);
+      const h = await mesaDe(t, hostId);
+      if (!h || !h.held) throw erroHttp(404, 'Mesa reservada não encontrada');
+      if (!OCUPAM.includes(h.status)) throw erroHttp(409, 'Essa mesa está cancelada');
+      const livres = await lugaresLivres(t, h.id);
+      if (people > livres) throw erroHttp(409, livres ? `Essa mesa tem só ${livres} lugar(es) livre(s)` : 'Os lugares dessa mesa já foram todos vendidos');
+      const k = (await t('SELECT * FROM shows_event_codes WHERE host_sale_id=$1', [h.id])).rows[0];
+      let preco = null, codeId = null, codeWord = null, lotId = null;
+      if (modo === 'manual') preco = manual;
+      else if (modo === 'mesa' && via === 'palavra') {
+        const pr = await precoPara(t, h.event_id, k.word, 0, null);
+        if (!pr.code_valid) throw erroHttp(409, pr.reason || 'Essa palavra não vale mais');
+        preco = pr.unit_price; codeId = pr.code_id || null; codeWord = pr.code_id ? pr.code_word : null; lotId = pr.tier === 'lote' ? pr.lot_id || null : null;
+      } else {
+        const pr = await precoPara(t, h.event_id, '', 0, null);
+        preco = pr.unit_price; lotId = pr.tier === 'lote' ? pr.lot_id || null : null;
+        if (modo === 'mesa' && preco !== null && k) {
+          const v = k.kind === 'percent' ? r2(preco * (1 - Number(k.value) / 100)) : r2(Number(k.value));
+          if (v <= preco) { preco = v; codeId = k.id; codeWord = k.word; }
+        }
+      }
+      let cid = null;
+      if (phone) cid = (await t(`INSERT INTO customers (name, phone, status, source) VALUES ($1,$2,'lead',$3) ON CONFLICT (phone) DO UPDATE SET name = COALESCE(customers.name, EXCLUDED.name) RETURNING id`, [nome, phone, quemCriou])).rows[0].id;
+      const id = (await t(`INSERT INTO shows_sales (event_id, occasion_date, sector_id, customer_id, name, phone, people, table_type_id, table_name, seats_each, space_each, tables, status, note, unit_price, code_id, code_word, lot_id, host_sale_id)
+                           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,0,0,'confirmed',NULLIF($11,''),$12,$13,$14,$15,$16) RETURNING id`,
+        [h.event_id, h.occasion_date, h.sector_id, cid, nome, phone, people, h.table_type_id, h.table_name, h.seats_each, note || '', preco, codeId, codeWord, lotId, h.id])).rows[0].id;
+      await t(`UPDATE customers SET status = 'client', client_kinds = CASE WHEN 'buyer' = ANY(client_kinds) THEN client_kinds ELSE array_append(client_kinds, 'buyer') END
+               WHERE id = (SELECT customer_id FROM shows_sales WHERE id=$1 AND unit_price > 0) AND (status <> 'client' OR NOT 'buyer' = ANY(client_kinds))`, [id]);
+      return id;
+    });
+  }
+  // Corpo: { name, phone?, people?, note?, price_mode?: 'mesa'(padrão) | 'normal' | 'manual', unit_price? (com 'manual') }
+  r.post('/casa-de-shows/sales/:id/guests', comTratamento(async (req, res) => {
+    const b = req.body || {};
+    const modo = ['mesa', 'normal', 'manual'].includes(b.price_mode) ? b.price_mode : 'mesa';
+    const id = await criarConvidado(idOk(req.params.id) || 0, b, { modo, via: (req.baseUrl || '').includes('n8n') ? 'palavra' : 'painel', quemCriou: quem(req) });
+    res.status(201).json((await q(`${VENDA} WHERE v.id=$1`, [id])).rows[0]);
+  }));
+  // Edita um convidado: nome, telefone, pessoas (dentro dos lugares livres), situação, anotação e valor por pessoa
+  async function editarConvidado(g, b, res) {
+    const n = { name: g.name, phone: g.phone, people: g.people, status: g.status, note: g.note, unit_price: g.unit_price };
+    if (b.name !== undefined) { n.name = txt(b.name, 120); if (!n.name) throw erroHttp(400, 'Informe o nome de quem compra'); }
+    if (b.phone !== undefined) { if (b.phone === null || b.phone === '') n.phone = null; else { n.phone = normPhone(b.phone); if (!/^\d{8,15}$/.test(n.phone)) throw erroHttp(400, 'Telefone inválido'); } }
+    if (b.people !== undefined) { n.people = inteiro(b.people, 1, 1000); if (!n.people) throw erroHttp(400, 'Informe quantas pessoas'); }
+    if (b.status !== undefined) { if (!STATUS.includes(b.status)) throw erroHttp(400, 'Situação inválida'); n.status = b.status; }
+    if (b.note !== undefined) { n.note = b.note ? txt(b.note, 300) : null; if (n.note === null && b.note) throw erroHttp(400, 'Anotação inválida (até 300 letras)'); }
+    if (b.unit_price !== undefined) { if (b.unit_price === null || b.unit_price === '') n.unit_price = null; else { n.unit_price = dinheiro(b.unit_price); if (n.unit_price === null) throw erroHttp(400, 'Valor inválido'); } }
+    await tx(currentCompany(), async (t) => {
+      await t('SELECT pg_advisory_xact_lock(hashtext($1))', [`shows:${currentCompany()}:mesa:${g.host_sale_id}`]);
+      if (OCUPAM.includes(n.status)) {
+        const livres = await lugaresLivres(t, g.host_sale_id);
+        const eraContado = OCUPAM.includes(g.status) ? g.people : 0;
+        if (n.people - eraContado > livres) throw erroHttp(409, livres + eraContado ? `Essa mesa tem só ${livres + eraContado} lugar(es) para este convidado` : 'Os lugares dessa mesa já foram todos vendidos');
+      }
+      await t('UPDATE shows_sales SET name=$2, phone=$3, people=$4, status=$5, note=$6, unit_price=$7, updated_at=now() WHERE id=$1', [g.id, n.name, n.phone, n.people, n.status, n.note, n.unit_price]);
+    });
+    res.json((await q(`${VENDA} WHERE v.id=$1`, [g.id])).rows[0]);
+  }
+
   r.post('/casa-de-shows/sales', comTratamento(async (req, res) => {
+    const b0 = req.body || {};
+    if (b0.code && idOk(b0.event_id)) {   // a palavra de uma mesa reservada coloca a pessoa na mesa e tira um lugar dela
+      const k = (await q('SELECT host_sale_id FROM shows_event_codes WHERE event_id=$1 AND word_norm=$2 AND host_sale_id IS NOT NULL', [idOk(b0.event_id), norma(b0.code)])).rows[0];
+      if (k) {
+        const id = await criarConvidado(k.host_sale_id, b0, { modo: 'mesa', via: 'palavra', quemCriou: quem(req) });
+        return res.status(201).json((await q(`${VENDA} WHERE v.id=$1`, [id])).rows[0]);
+      }
+    }
     const p = await preparar(req.body || {}, null, quem(req));
     if (p.erro) return res.status(p.status || 400).json({ error: p.erro });
     const id = await gravar({ ...p.v });
@@ -1499,8 +1664,14 @@ export function registerCasaDeShowsRoutes(r, wrap) {
   r.put('/casa-de-shows/sales/:id', comTratamento(async (req, res) => {
     const atual = (await q('SELECT *, occasion_date::text AS occasion_date FROM shows_sales WHERE id=$1', [req.params.id])).rows[0];
     if (!atual) return res.status(404).json({ error: 'Venda não encontrada' });
+    if (atual.host_sale_id) return editarConvidado(atual, req.body || {}, res);
     const p = await preparar(req.body || {}, atual, quem(req));
     if (p.erro) return res.status(p.status || 400).json({ error: p.erro });
+    if (atual.held) {   // mesa reservada: não pode perder lugares já vendidos nem ser cancelada com convidados
+      const vend = Number((await q('SELECT COALESCE(SUM(people),0) AS n FROM shows_sales WHERE host_sale_id=$1 AND status = ANY($2)', [atual.id, OCUPAM])).rows[0].n);
+      if (!OCUPAM.includes(p.v.status) && vend) return res.status(409).json({ error: 'Essa mesa tem convidados. Cancele ou apague os convidados antes.' });
+      if (OCUPAM.includes(p.v.status) && p.v.tipo.seats * p.v.tables - p.v.people < vend) return res.status(409).json({ error: `Já foram vendidos ${vend} lugar(es) para convidados; a mesa precisa ter lugar para eles.` });
+    }
     await gravar({ ...p.v, id: atual.id });
     res.json((await q(`${VENDA} WHERE v.id=$1`, [atual.id])).rows[0]);
   }));
@@ -1586,7 +1757,11 @@ export function registerCasaDeShowsRoutes(r, wrap) {
   }));
 
   r.delete('/casa-de-shows/sales/:id', wrap(async (req, res) => {
-    const { rowCount } = await q('DELETE FROM shows_sales WHERE id=$1', [req.params.id]);
+    let rowCount;
+    try { ({ rowCount } = await q('DELETE FROM shows_sales WHERE id=$1', [req.params.id])); } catch (e) {
+      if (e.code === '23503') return res.status(409).json({ error: 'Essa mesa tem convidados. Apague os convidados antes.' });
+      throw e;
+    }
     rowCount ? res.json({ ok: true }) : res.status(404).json({ error: 'Venda não encontrada' });
   }));
 }
@@ -1639,6 +1814,20 @@ export const SHOWS_VENDAS_SQL = `
                      replace(replace(x.conname, 'shows_reservations_', 'shows_sales_'), 'shows_res_payments_', 'shows_sale_payments_'));
     END LOOP;
   END $v$;
+`;
+
+// Mesa reservada: uma venda cujo dono compra a mesa e os lugares que sobram são vendidos a convidados (com uma palavra e um desconto próprios).
+// O convidado é uma venda ligada à mesa (host_sale_id): ocupa um lugar dela e nenhum espaço novo do setor (tables = 0, space_each = 0).
+export const SHOWS_MESA_RESERVADA_SQL = `
+  ALTER TABLE shows_sales DROP CONSTRAINT IF EXISTS shows_sales_tables_check;
+  ALTER TABLE shows_sales ADD CONSTRAINT shows_sales_tables_check CHECK (tables BETWEEN 0 AND 100);
+  ALTER TABLE shows_sales DROP CONSTRAINT IF EXISTS shows_sales_space_each_check;
+  ALTER TABLE shows_sales ADD CONSTRAINT shows_sales_space_each_check CHECK (space_each >= 0);
+  ALTER TABLE shows_sales ADD COLUMN IF NOT EXISTS held BOOLEAN NOT NULL DEFAULT false;              -- esta venda é uma mesa reservada
+  ALTER TABLE shows_sales ADD COLUMN IF NOT EXISTS host_sale_id BIGINT REFERENCES shows_sales(id) ON DELETE RESTRICT;   -- convidado: mesa reservada a que pertence
+  ALTER TABLE shows_event_codes ADD COLUMN IF NOT EXISTS host_sale_id BIGINT REFERENCES shows_sales(id) ON DELETE CASCADE;   -- palavra da mesa reservada
+  CREATE INDEX IF NOT EXISTS idx_shows_sales_host ON shows_sales (host_sale_id) WHERE host_sale_id IS NOT NULL;
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_shows_codes_host ON shows_event_codes (host_sale_id) WHERE host_sale_id IS NOT NULL;
 `;
 
 // Passo 34: o local criado na migração se chama "Padrão" (não existe necessariamente um local principal)

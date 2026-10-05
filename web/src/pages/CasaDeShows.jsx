@@ -66,6 +66,7 @@ function Vendas() {
   const [novoCod, setNovoCod] = useState({ word: '', kind: 'percent', value: '', max_uses: '', note: '' });
   const [dup, setDup] = useState(null);
   const [pagto, setPagto] = useState(null);
+  const [mesa, setMesa] = useState(null);
   const [resumo, setResumo] = useState(null);
   const [err, setErr] = useState('');
 
@@ -294,17 +295,22 @@ function Vendas() {
             {lista.map((v) => (
               <tr key={v.id}>
                 <td>{v.sector_name}</td>
-                <td>{v.name}{v.guests && <div className="muted" style={{ whiteSpace: 'pre-line', fontSize: 12 }}>{v.guests}</div>}</td>
+                <td>
+                  {v.host_sale_id ? <><span className="muted">↳ </span>{v.name}<div className="muted" style={{ fontSize: 12 }}>Convidado da mesa de {v.host_name}</div></> : v.name}
+                  {v.held && <div className="muted" style={{ fontSize: 12 }}>Mesa reservada · {v.held_sold} de {v.held_seats} lugares vendidos</div>}
+                  {v.guests && <div className="muted" style={{ whiteSpace: 'pre-line', fontSize: 12 }}>{v.guests}</div>}
+                </td>
                 <td>{v.phone ? fmtPhone(v.phone) : <span className="muted">—</span>}</td>
                 <td>{v.people}</td>
-                <td>{v.tables} × {v.table_name}</td>
+                <td>{v.host_sale_id ? <span className="muted">Lugar na mesa</span> : <>{v.tables} × {v.table_name}</>}</td>
                 <td>{v.total !== null ? n1(v.total) : <span className="muted">—</span>}{v.code_word && <div className="muted" style={{ fontSize: 12 }}>{v.code_word}</div>}</td>
                 <td><button className="btn sm" onClick={() => setPagto(v)} title="Pagamentos desta venda">{situacaoPagto(v)}</button></td>
                 <td><span className={'badge ' + BADGE[v.status]}>{SITUACAO[v.status]}</span></td>
                 <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                   {v.status === 'confirmed' && <button className="btn sm" onClick={() => mudar(v, 'attended')}>Compareceu</button>}{' '}
                   {v.status === 'confirmed' && <button className="btn sm" onClick={() => mudar(v, 'cancelled')}>Cancelar</button>}{' '}
-                  <button className="btn sm" onClick={() => editar(v)}>Editar</button>{' '}
+                  {!v.host_sale_id && v.event_id && v.status !== 'cancelled' && <><button className="btn sm" onClick={() => setMesa(v)}>{v.held ? 'Convidados' : 'Mesa reservada'}</button>{' '}</>}
+                  {!v.host_sale_id && <><button className="btn sm" onClick={() => editar(v)}>Editar</button>{' '}</>}
                   <button className="btn sm" onClick={() => apagar(v)}>Apagar</button>
                 </td>
               </tr>
@@ -483,6 +489,7 @@ function Vendas() {
       )}
 
       {pagto && <Pagamentos venda={pagto} onClose={() => setPagto(null)} onChange={load} />}
+      {mesa && <MesaReservada venda={mesa} onClose={() => { setMesa(null); load(); }} />}
       {setup && (
         <div className="modal-bg" onClick={() => setSetup(null)}>
           <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={salvarSetup}>
@@ -591,6 +598,106 @@ function FotosDoSetor({ setorId }) {
         ))}
       </div>
       <label className="btn sm" style={{ cursor: 'pointer' }}>{busy ? 'Enviando…' : '+ Adicionar fotos'}<input type="file" accept="image/*" multiple onChange={enviar} style={{ display: 'none' }} disabled={busy || (fotos || []).length >= 8} /></label>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- mesa reservada
+// O dono compra a mesa; os lugares que sobram são vendidos a convidados, com uma palavra e um desconto da mesa.
+function MesaReservada({ venda, onClose }) {
+  const [d, setD] = useState(null);
+  const [err, setErr] = useState('');
+  const [cfg, setCfg] = useState({ word: '', kind: 'percent', value: '' });
+  const [novo, setNovo] = useState({ name: '', phone: '', people: '1', price_mode: 'mesa', unit_price: '' });
+  const base = `/casa-de-shows/sales/${venda.id}`;
+  const carregar = (r) => {
+    setD(r);
+    if (r.code) setCfg({ word: r.code.word, kind: r.code.kind, value: String(r.code.value).replace('.', ',') });
+  };
+  useEffect(() => { api(base + '/held').then(carregar).catch((e) => setErr(e.message)); }, []);
+  const fazer = async (fn) => { setErr(''); try { await fn(); } catch (e) { setErr(e.message); } };
+  const ligar = (e) => { e.preventDefault(); return fazer(async () => carregar(await api(base + '/held', { method: 'PUT', body: { enabled: true, word: cfg.word, kind: cfg.kind, value: cfg.value } }))); };
+  const desligar = () => fazer(async () => { if (!confirm('Desativar a mesa reservada? A palavra deixa de valer.')) return; carregar(await api(base + '/held', { method: 'PUT', body: { enabled: false } })); setCfg({ word: '', kind: 'percent', value: '' }); });
+  const encerrar = (closed) => fazer(async () => carregar(await api(base + '/held', { method: 'PUT', body: { closed } })));
+  const addConvidado = (e) => {
+    e.preventDefault();
+    return fazer(async () => {
+      await api(base + '/guests', { method: 'POST', body: { name: novo.name, phone: novo.phone || undefined, people: Number(novo.people) || 1, price_mode: novo.price_mode, unit_price: novo.price_mode === 'manual' ? novo.unit_price : undefined } });
+      setNovo({ name: '', phone: '', people: '1', price_mode: 'mesa', unit_price: '' });
+      carregar(await api(base + '/held'));
+    });
+  };
+  const mudar = (g, status) => fazer(async () => { await api('/casa-de-shows/sales/' + g.id, { method: 'PUT', body: { status } }); carregar(await api(base + '/held')); });
+  const apagar = (g) => fazer(async () => { if (!confirm(`Apagar o convidado ${g.name}?`)) return; await api('/casa-de-shows/sales/' + g.id, { method: 'DELETE' }); carregar(await api(base + '/held')); });
+  const textoDesconto = (c) => (c.kind === 'percent' ? `${n1(c.value)}% de desconto` : `valor fixo de ${dinheiroBR(c.value)}`);
+  return (
+    <div className="modal-bg" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 640 }} onClick={(e) => e.stopPropagation()}>
+        <h2>Mesa reservada · {venda.name}</h2>
+        {err && <div className="error">{err}</div>}
+        {!d && !err && <p className="muted">Carregando…</p>}
+        {d && (
+          <>
+            <p className="muted" style={{ marginTop: 0 }}>A mesa tem {d.seats_total} lugares, {d.owner_people} do dono. Os outros {Math.max(0, d.seats_total - d.owner_people)} podem ser vendidos a convidados, que entram nesta mesa sem ocupar espaço novo do setor.</p>
+            <form onSubmit={ligar}>
+              <div className="row" style={{ alignItems: 'flex-end' }}>
+                <div className="field" style={{ flex: 2 }}><label>Palavra que o cliente diz *</label><input value={cfg.word} maxLength="40" onChange={(e) => setCfg({ ...cfg, word: e.target.value })} required /></div>
+                <div className="field"><label>Desconto</label>
+                  <select value={cfg.kind} onChange={(e) => setCfg({ ...cfg, kind: e.target.value })}><option value="percent">Percentual (%)</option><option value="price">Valor fixo (R$)</option></select></div>
+                <div className="field"><label>{cfg.kind === 'percent' ? '%' : 'R$'}</label><input value={cfg.value} onChange={(e) => setCfg({ ...cfg, value: e.target.value })} required style={{ maxWidth: 100 }} /></div>
+              </div>
+              <div className="row"><button className="btn primary">{d.held ? 'Salvar palavra e desconto' : 'Ligar mesa reservada'}</button>
+                {d.held && <button type="button" className="btn" onClick={desligar}>Desativar</button>}</div>
+            </form>
+            {d.held && d.code && (
+              <>
+                <div className="card" style={{ padding: 12, margin: '14px 0' }}>
+                  <div className="row" style={{ justifyContent: 'space-between' }}>
+                    <span><strong>{d.sold}</strong> de <strong>{Math.max(0, d.seats_total - d.owner_people)}</strong> lugares vendidos · <strong>{d.free}</strong> livres</span>
+                    <span className="muted">{textoDesconto(d.code)} sobre o valor vigente</span>
+                  </div>
+                  <div className="row" style={{ marginTop: 8 }}>
+                    {d.code.closed
+                      ? <><span className="muted">A venda pela palavra está encerrada.</span><button type="button" className="btn sm" onClick={() => encerrar(false)}>Reabrir</button></>
+                      : <button type="button" className="btn sm" onClick={() => encerrar(true)}>Encerrar venda pela palavra</button>}
+                  </div>
+                </div>
+                <h3 style={{ margin: '4px 0' }}>Convidados</h3>
+                {d.guests.map((g) => (
+                  <div className="row" key={g.id} style={{ justifyContent: 'space-between', marginTop: 4 }}>
+                    <span>{g.name} · {g.people} pessoa(s){g.unit_price !== null && ` · ${dinheiroBR(g.unit_price)} cada`} <span className={'badge ' + BADGE[g.status]}>{SITUACAO[g.status]}</span></span>
+                    <span style={{ whiteSpace: 'nowrap' }}>
+                      {g.status === 'confirmed' && <button type="button" className="btn sm" onClick={() => mudar(g, 'attended')}>Compareceu</button>}{' '}
+                      {g.status === 'confirmed' && <button type="button" className="btn sm" onClick={() => mudar(g, 'cancelled')}>Cancelar</button>}{' '}
+                      {g.status === 'cancelled' && <button type="button" className="btn sm" onClick={() => mudar(g, 'confirmed')}>Reativar</button>}{' '}
+                      <button type="button" className="btn sm" onClick={() => apagar(g)}>Apagar</button>
+                    </span>
+                  </div>
+                ))}
+                {!d.guests.length && <p className="muted">Nenhum convidado ainda.</p>}
+                <h3 style={{ margin: '14px 0 4px' }}>Adicionar convidado</h3>
+                <p className="muted" style={{ marginTop: 0 }}>Para vender lugares sobrando na portaria, escolha o valor normal ou combine um valor.</p>
+                <form onSubmit={addConvidado}>
+                  <div className="row" style={{ alignItems: 'flex-end' }}>
+                    <div className="field" style={{ flex: 2 }}><label>Nome *</label><input value={novo.name} maxLength="120" onChange={(e) => setNovo({ ...novo, name: e.target.value })} required /></div>
+                    <div className="field"><label>Telefone</label><input value={novo.phone} onChange={(e) => setNovo({ ...novo, phone: e.target.value })} /></div>
+                    <div className="field"><label>Pessoas</label><input type="number" min="1" value={novo.people} onChange={(e) => setNovo({ ...novo, people: e.target.value })} style={{ maxWidth: 80 }} /></div>
+                  </div>
+                  <div className="row" style={{ alignItems: 'flex-end' }}>
+                    <div className="field"><label>Valor por pessoa</label>
+                      <select value={novo.price_mode} onChange={(e) => setNovo({ ...novo, price_mode: e.target.value })}>
+                        <option value="mesa">Com o desconto da mesa</option><option value="normal">Valor normal vigente</option><option value="manual">Valor combinado</option>
+                      </select></div>
+                    {novo.price_mode === 'manual' && <div className="field"><label>R$</label><input value={novo.unit_price} onChange={(e) => setNovo({ ...novo, unit_price: e.target.value })} required style={{ maxWidth: 100 }} /></div>}
+                    <button className="btn primary" disabled={d.free < 1}>Adicionar</button>
+                  </div>
+                </form>
+              </>
+            )}
+          </>
+        )}
+        <div className="row" style={{ marginTop: 14 }}><button type="button" className="btn" onClick={onClose}>Fechar</button></div>
+      </div>
     </div>
   );
 }
