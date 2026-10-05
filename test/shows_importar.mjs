@@ -53,6 +53,16 @@ const dia = new Date(Date.now() + 86400000 * 40).toISOString().slice(0, 10);
 const disp = (await api('GET', `/casa-de-shows/availability?date=${dia}&people=2`)).body;
 const sug = disp.suggested_sectors || [];
 check('ordem sugerida: ideal antes do resto e última opção no fim', sug.indexOf('ZZI A') !== -1 && sug.indexOf('ZZI A') < sug.indexOf('ZZI B') && sug.indexOf('ZZI B') === sug.length - 1, JSON.stringify(sug));
+// apagar vários de uma vez
+const zz = (await api('GET', '/casa-de-shows/sectors')).body.filter((x) => x.name.startsWith('ZZI'));
+const zm = (await api('GET', '/casa-de-shows/table-types')).body.filter((x) => x.name.startsWith('ZZI'));
+const dr = await api('POST', '/casa-de-shows/sectors/bulk-delete', { ids: zz.map((x) => Number(x.id)), dry_run: true });
+check('apagar vários: conferir não apaga', dr.body.found === zz.length && (await api('GET', '/casa-de-shows/sectors')).body.filter((x) => x.name.startsWith('ZZI')).length === zz.length, JSON.stringify(dr.body));
+const bs = await api('POST', '/casa-de-shows/sectors/bulk-delete', { ids: zz.map((x) => Number(x.id)) });
+check('apagar vários setores', bs.body.deleted === zz.length && !(await api('GET', '/casa-de-shows/sectors')).body.some((x) => x.name.startsWith('ZZI')), JSON.stringify(bs.body));
+const bm = await api('POST', '/casa-de-shows/table-types/bulk-delete', { ids: zm.map((x) => Number(x.id)) });
+check('apagar várias mesas', bm.body.deleted === zm.length, JSON.stringify(bm.body));
+check('apagar vários sem escolher nada é recusado', (await api('POST', '/casa-de-shows/sales/bulk-delete', { ids: [] })).status === 400);
 limpa();
 console.log(`shows_importar: ${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);

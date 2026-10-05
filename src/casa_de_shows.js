@@ -437,6 +437,24 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     await salvarRegras(req.params.id, rg.regras);
     res.json((await q(`${SETOR} WHERE id=$1`, [req.params.id])).rows[0]);
   }));
+  // Apagar vários de uma vez (marcar tudo na lista). Cada item é tentado sozinho: o que tem vínculo fica de fora e volta explicado em "skipped".
+  const apagarVarios = (tabela, motivo23503, nomeCol = 'name') => wrap(async (req, res) => {
+    const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(Number).filter((n) => Number.isInteger(n) && n > 0))].slice(0, 2000);
+    if (!ids.length) return res.status(400).json({ error: 'Nenhum item selecionado' });
+    if (req.body.dry_run === true) return res.json({ found: (await q(`SELECT count(*)::int AS n FROM ${tabela} WHERE id = ANY($1::bigint[])`, [ids])).rows[0].n });
+    let deleted = 0; const skipped = [];
+    for (const id of ids) {
+      try { deleted += (await q(`DELETE FROM ${tabela} WHERE id=$1`, [id])).rowCount; } catch (e) {
+        if (e.code !== '23503') throw e;
+        const nome = (await q(`SELECT ${nomeCol} AS n FROM ${tabela} WHERE id=$1`, [id])).rows[0]?.n;
+        skipped.push({ id, name: nome, motivo: motivo23503 });
+      }
+    }
+    res.json({ deleted, skipped });
+  });
+  r.post('/casa-de-shows/sectors/bulk-delete', apagarVarios('shows_sectors', 'tem vendas; desative em vez de apagar'));
+  r.post('/casa-de-shows/table-types/bulk-delete', apagarVarios('shows_table_types', 'em uso'));
+  r.post('/casa-de-shows/sales/bulk-delete', apagarVarios('shows_sales', 'tem convidados; apague os convidados antes'));
   r.delete('/casa-de-shows/sectors/:id', wrap(async (req, res) => {
     try {
       const { rowCount } = await q('DELETE FROM shows_sectors WHERE id=$1', [req.params.id]);

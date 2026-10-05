@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api, fmtPhone } from '../api.js';
+import { useSelecao, CelulaTodos, CelulaLinha, ApagarSelecionados, resumoApagado } from '../selecao.jsx';
 import ImportarAqui from '../ImportarAqui.jsx';
 
 const SITUACAO = { confirmed: 'Confirmada', attended: 'Compareceu', cancelled: 'Cancelada', no_show: 'Não veio' };
@@ -51,6 +52,8 @@ function Vendas() {
   const [data, setData] = useState(hoje());
   const [disp, setDisp] = useState(null);
   const [lista, setLista] = useState([]);
+  const sel = useSelecao(lista);
+  const [aviso, setAviso] = useState('');
   const [todosSetores, setSetores] = useState([]);
   const [locais, setLocais] = useState([]);
   const [setup, setSetup] = useState(null);
@@ -292,12 +295,15 @@ function Vendas() {
           ))}
         </div>
       )}
+      {aviso && <div className="error">{aviso}</div>}
+      <ApagarSelecionados s={sel} total={lista.length} rotulo="venda(s)" rota="/casa-de-shows/sales/bulk-delete" onDone={(r) => { setAviso(resumoApagado(r, 'venda(s)')); load(); }} />
       <div className="card table-wrap">
         <table>
-          <thead><tr><th>Setor</th><th>Nome</th><th>Telefone</th><th>Pessoas</th><th>Mesa</th><th>Valor</th><th>Pagamento</th><th>Situação</th><th></th></tr></thead>
+          <thead><tr><CelulaTodos s={sel} /><th>Setor</th><th>Nome</th><th>Telefone</th><th>Pessoas</th><th>Mesa</th><th>Valor</th><th>Pagamento</th><th>Situação</th><th></th></tr></thead>
           <tbody>
             {lista.map((v) => (
               <tr key={v.id}>
+                <CelulaLinha s={sel} id={v.id} />
                 <td>{v.sector_name}</td>
                 <td>
                   {v.host_sale_id ? <><span className="muted">↳ </span>{v.name}<div className="muted" style={{ fontSize: 12 }}>Convidado da mesa de {v.host_name}</div></> : v.name}
@@ -319,7 +325,7 @@ function Vendas() {
                 </td>
               </tr>
             ))}
-            {!lista.length && <tr><td colSpan="9" className="muted">Nenhuma venda {oc === 'data' ? `em ${dia(data)}` : 'neste evento'}.</td></tr>}
+            {!lista.length && <tr><td colSpan="10" className="muted">Nenhuma venda {oc === 'data' ? `em ${dia(data)}` : 'neste evento'}.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -977,6 +983,8 @@ function Setores() {
   const load = () => api('/casa-de-shows/sectors').then(setRows).catch((e) => setErr(e.message));
   useEffect(() => { load(); api('/casa-de-shows/table-types').then(setTipos).catch(() => {}); api('/casa-de-shows/venues').then(setLocais).catch(() => {}); }, []);
   const visiveis = rows.filter((s) => !filtroLocal || String(s.venue_id) === filtroLocal);
+  const sel = useSelecao(visiveis);
+  const [aviso, setAviso] = useState('');
   const nomeMesas = (s) => (s.tables.length ? s.tables.map((g) => { const t = tipos.find((x) => String(x.id) === String(g.table_type_id)); return t ? t.name + (g.max_tables ? ` (até ${g.max_tables})` : '') : null; }).filter(Boolean).join(', ') : 'Todas');
   const abrir = (s) => {
     setErr('');
@@ -1009,6 +1017,8 @@ function Setores() {
         <div className="row" style={{ gap: 8 }}><ImportarAqui tipo="shows_sectors" onFeito={load} /><button className="btn primary" onClick={() => abrir(null)}>+ Novo setor</button></div>
       </div>
       {err && !edit && <div className="error">{err}</div>}
+      {aviso && <div className="error">{aviso}</div>}
+      <ApagarSelecionados s={sel} total={visiveis.length} rotulo="setor(es)" rota="/casa-de-shows/sectors/bulk-delete" onDone={(r) => { setAviso(resumoApagado(r, 'setor(es)')); load(); }} />
       {locais.length > 1 && (
         <div className="row" style={{ marginBottom: 10 }}>
           <select value={filtroLocal} onChange={(e) => setFiltroLocal(e.target.value)} style={{ maxWidth: 260 }}>
@@ -1019,10 +1029,11 @@ function Setores() {
       )}
       <div className="card table-wrap">
         <table>
-          <thead><tr><th>Setor</th>{locais.length > 1 && <th>Local</th>}<th>Capacidade</th><th>Mesas aceitas</th><th>Visão</th><th>Som</th><th>Observações</th><th>Situação</th><th></th></tr></thead>
+          <thead><tr><CelulaTodos s={sel} /><th>Setor</th>{locais.length > 1 && <th>Local</th>}<th>Capacidade</th><th>Mesas aceitas</th><th>Visão</th><th>Som</th><th>Observações</th><th>Situação</th><th></th></tr></thead>
           <tbody>
             {visiveis.map((s) => (
               <tr key={s.id}>
+                <CelulaLinha s={sel} id={s.id} />
                 <td>{s.name}</td>{locais.length > 1 && <td>{s.venue_name}</td>}<td>{n1(s.space)}</td><td>{nomeMesas(s)}</td><td>{s.view_score != null ? n1(s.view_score) : '—'}</td><td>{s.sound || '—'}</td><td className="muted">{s.notes || '—'}</td><td>{s.active ? 'Ativo' : 'Desativado'}</td>
                 <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                   <button className="btn sm" onClick={() => abrir(s)}>Editar</button>{' '}
@@ -1030,7 +1041,7 @@ function Setores() {
                 </td>
               </tr>
             ))}
-            {!visiveis.length && <tr><td colSpan="9" className="muted">Nenhum setor cadastrado.</td></tr>}
+            {!visiveis.length && <tr><td colSpan="10" className="muted">Nenhum setor cadastrado.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -1092,6 +1103,8 @@ function Mesas() {
   const [err, setErr] = useState('');
   const load = () => api('/casa-de-shows/table-types').then(setRows).catch((e) => setErr(e.message));
   useEffect(() => { load(); }, []);
+  const sel = useSelecao(rows);
+  const [aviso, setAviso] = useState('');
   async function salvar(e) {
     e.preventDefault(); setErr('');
     const body = { name: edit.name, seats: Number(edit.seats), space: edit.space, active: edit.active };
@@ -1112,12 +1125,15 @@ function Mesas() {
         <div className="row" style={{ gap: 8 }}><ImportarAqui tipo="shows_tables" onFeito={load} /><button className="btn primary" onClick={() => { setErr(''); setEdit({ name: '', seats: '', space: '', active: true, espacoAuto: true }); }}>+ Nova mesa</button></div>
       </div>
       {err && !edit && <div className="error">{err}</div>}
+      {aviso && <div className="error">{aviso}</div>}
+      <ApagarSelecionados s={sel} total={rows.length} rotulo="mesa(s)" rota="/casa-de-shows/table-types/bulk-delete" onDone={(r) => { setAviso(resumoApagado(r, 'mesa(s)')); load(); }} />
       <div className="card table-wrap">
         <table>
-          <thead><tr><th>Mesa</th><th>Lugares</th><th>Pontos que ocupa</th><th>Situação</th><th></th></tr></thead>
+          <thead><tr><CelulaTodos s={sel} /><th>Mesa</th><th>Lugares</th><th>Pontos que ocupa</th><th>Situação</th><th></th></tr></thead>
           <tbody>
             {rows.map((t) => (
               <tr key={t.id}>
+                <CelulaLinha s={sel} id={t.id} />
                 <td>{t.name}</td><td>{t.seats}</td><td>{n1(t.space)}</td><td>{t.active ? 'Ativa' : 'Desativada'}</td>
                 <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                   <button className="btn sm" onClick={() => { setErr(''); setEdit({ id: t.id, name: t.name, seats: t.seats, space: String(t.space).replace('.', ','), active: t.active }); }}>Editar</button>{' '}
@@ -1125,7 +1141,7 @@ function Mesas() {
                 </td>
               </tr>
             ))}
-            {!rows.length && <tr><td colSpan="5" className="muted">Nenhuma mesa cadastrada.</td></tr>}
+            {!rows.length && <tr><td colSpan="6" className="muted">Nenhuma mesa cadastrada.</td></tr>}
           </tbody>
         </table>
       </div>
