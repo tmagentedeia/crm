@@ -8,7 +8,7 @@ import { ASSISTENTE_SQL } from './assistente.js';
 import { PRODUTOS_SQL } from './produtos.js';
 import { VENDAS_SQL } from './vendas.js';
 import { COMISSOES_SQL } from './comissoes.js';
-import { CASA_DE_SHOWS_SQL, SHOWS_MEDIA_SQL, SHOWS_PAGAMENTOS_SQL, SHOWS_RENOMEAR_SQL, SHOWS_LOCAIS_SQL, SHOWS_LOCAL_PADRAO_SQL } from './casa_de_shows.js';
+import { CASA_DE_SHOWS_SQL, SHOWS_MEDIA_SQL, SHOWS_PAGAMENTOS_SQL, SHOWS_RENOMEAR_SQL, SHOWS_LOCAIS_SQL, SHOWS_LOCAL_PADRAO_SQL, SHOWS_PIX_EVENTO_SQL } from './casa_de_shows.js';
 import { ANIVERSARIO_SQL } from './aniversario.js';
 import { DOCUMENTOS_SQL } from './documentos.js';
 import { DELIVERY_SQL } from './delivery.js';
@@ -172,6 +172,8 @@ export const TENANT_STEPS = [
   { version: 33, sql: SHOWS_LOCAIS_SQL },
   // 34: o local criado na migração passa a se chamar Padrão
   { version: 34, sql: SHOWS_LOCAL_PADRAO_SQL },
+  // 35: chaves Pix por evento, com rodízio por valor
+  { version: 35, sql: SHOWS_PIX_EVENTO_SQL },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 
@@ -207,6 +209,7 @@ export async function createCompanySchema(cx, companyId) {
   await cx.query(SHOWS_PAGAMENTOS_SQL);
   await cx.query(SHOWS_LOCAIS_SQL);
   await cx.query(SHOWS_LOCAL_PADRAO_SQL);
+  await cx.query(SHOWS_PIX_EVENTO_SQL);
   await cx.query('SET LOCAL search_path TO public');
   await cx.query('INSERT INTO tenant_versions (company_id, version) VALUES ($1, 1)', [companyId]);
 }

@@ -1034,7 +1034,65 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     if (outro === null || outro < 0 || outro > 100) return res.status(400).json({ error: 'Percentual inválido' });
     const pr = await precoPara(q, ev.id, String(req.query.code || '').trim(), outro, null);
     const ins = (await q('SELECT instructions FROM shows_event_conditions WHERE event_id=$1', [ev.id])).rows[0]?.instructions || null;
-    res.json({ event: { id: ev.id, title: ev.title }, ...pr, code_id: undefined, people, total: people && pr.unit_price !== null ? r2(people * pr.unit_price) : null, instructions: ins });
+    const pix = await chavesDoEvento(q, ev.id);
+    res.json({ event: { id: ev.id, title: ev.title }, ...pr, code_id: undefined, people, total: people && pr.unit_price !== null ? r2(people * pr.unit_price) : null, instructions: ins, pix_key: chaveOut(pix.current), pix_all_full: pix.all_full });
+  }));
+
+  // ---------- chaves Pix do evento (com rodízio por valor) ----------
+  // Lista as chaves do evento em ordem, com quanto cada uma já recebeu NESTE evento (Pix lançado nas reservas, sem as canceladas).
+  // A chave da vez é a primeira ativa que ainda não chegou ao limite; se todas chegaram, fica a última e vem all_full = true.
+  // Evento sem chaves próprias usa a primeira chave ativa da empresa.
+  async function chavesDoEvento(run, eventId) {
+    const lista = (await run(`SELECT e.key_id, e.position, e.limit_amount::float AS limit_amount, k.key, k.key_type, k.beneficiary, k.active,
+                                     COALESCE((SELECT SUM(p.amount) FROM shows_res_payments p JOIN shows_reservations v ON v.id = p.reservation_id
+                                               WHERE p.method = 'pix' AND p.pix_key_id = e.key_id AND v.event_id = e.event_id AND v.status <> 'cancelled'), 0)::float AS received
+                              FROM shows_event_pix e JOIN pix_keys k ON k.id = e.key_id WHERE e.event_id = $1 ORDER BY e.position`, [eventId])).rows;
+    const out = { configured: lista.length > 0, keys: lista, current: null, all_full: false };
+    if (lista.length) {
+      const ativas = lista.filter((k) => k.active);
+      const vez = ativas.find((k) => k.limit_amount === null || k.received < k.limit_amount);
+      out.current = vez || ativas[ativas.length - 1] || null;
+      out.all_full = !!ativas.length && !vez;
+    } else {
+      const k = (await run('SELECT id AS key_id, key, key_type, beneficiary, active FROM pix_keys WHERE active ORDER BY id LIMIT 1')).rows[0];
+      out.current = k ? { ...k, position: 0, limit_amount: null, received: 0 } : null;
+    }
+    return out;
+  }
+  const chaveOut = (c) => (c ? { key_id: c.key_id, key: c.key, key_type: c.key_type, beneficiary: c.beneficiary } : null);
+  r.get('/casa-de-shows/events/:id/pix', wrap(async (req, res) => {
+    const ev = await eventoDe(req.params.id);
+    if (!ev) return res.status(404).json({ error: 'Evento não encontrado' });
+    const c = await chavesDoEvento(q, ev.id);
+    res.json({ event_id: ev.id, configured: c.configured, keys: c.keys, current: chaveOut(c.current), all_full: c.all_full });
+  }));
+  // Corpo: { keys: [{ key_id, limit_amount? }, ...] } na ordem do rodízio ; { keys: [] } volta a usar a chave da empresa
+  r.put('/casa-de-shows/events/:id/pix', wrap(async (req, res) => {
+    if ((req.baseUrl || '').includes('n8n')) return res.status(403).json({ error: 'Só pelo painel' });
+    const ev = await eventoDe(req.params.id);
+    if (!ev) return res.status(404).json({ error: 'Evento não encontrado' });
+    const ks = req.body?.keys;
+    if (!Array.isArray(ks) || ks.length > 20) return res.status(400).json({ error: 'Informe a lista de chaves (até 20)' });
+    const vistos = new Set(), novas = [];
+    for (const [i, k] of ks.entries()) {
+      const id = idOk(k?.key_id);
+      if (!id) return res.status(400).json({ error: 'Chave inválida' });
+      if (vistos.has(id)) return res.status(400).json({ error: 'A mesma chave foi escolhida duas vezes' });
+      vistos.add(id);
+      if (!(await q('SELECT 1 FROM pix_keys WHERE id=$1', [id])).rows.length) return res.status(400).json({ error: 'Chave Pix não encontrada' });
+      let lim = null;
+      if (k.limit_amount !== undefined && k.limit_amount !== null && k.limit_amount !== '') {
+        lim = dinheiro(k.limit_amount);
+        if (lim === null || lim <= 0) return res.status(400).json({ error: 'Limite inválido' });
+      }
+      novas.push([id, i + 1, lim]);
+    }
+    await tx(currentCompany(), async (t) => {
+      await t('DELETE FROM shows_event_pix WHERE event_id=$1', [ev.id]);
+      for (const [id, pos, lim] of novas) await t('INSERT INTO shows_event_pix (event_id, key_id, position, limit_amount) VALUES ($1,$2,$3,$4)', [ev.id, id, pos, lim]);
+    });
+    const c = await chavesDoEvento(q, ev.id);
+    res.json({ event_id: ev.id, configured: c.configured, keys: c.keys, current: chaveOut(c.current), all_full: c.all_full });
   }));
 
   // Duplica um evento (também um já realizado): mesmas condições, palavras-chave e espaço dos setores, com a lista de reservas vazia.
@@ -1055,6 +1113,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
       const e = (await t('INSERT INTO events (title, starts_at, ends_at, place, notes) VALUES ($1,$2,$3,$4,$5) RETURNING *', [titulo, novoInicio.toISOString(), fim, orig.place, orig.notes])).rows[0];
       await t('INSERT INTO shows_event_sectors (event_id, sector_id, space) SELECT $2, sector_id, space FROM shows_event_sectors WHERE event_id=$1', [orig.id, e.id]);
       await t('INSERT INTO shows_event_setup (event_id, venue_id, layout_id) SELECT $2, venue_id, layout_id FROM shows_event_setup WHERE event_id=$1', [orig.id, e.id]);
+      await t('INSERT INTO shows_event_pix (event_id, key_id, position, limit_amount) SELECT $2, key_id, position, limit_amount FROM shows_event_pix WHERE event_id=$1', [orig.id, e.id]);
       const c = (await t('SELECT * FROM shows_event_conditions WHERE event_id=$1', [orig.id])).rows[0];
       if (c) await t('INSERT INTO shows_event_conditions (event_id, price, door_price, price_until, instructions) VALUES ($1,$2,$3,$4,$5)', [e.id, c.price, c.door_price, mover(c.price_until), c.instructions]);
       const ks = (await t('SELECT * FROM shows_event_codes WHERE event_id=$1 ORDER BY id', [orig.id])).rows;
@@ -1474,6 +1533,17 @@ export const SHOWS_RENOMEAR_SQL = `
 `;
 
 // Passo 34: o local criado na migração se chama "Padrão" (não existe necessariamente um local principal)
+// Chaves Pix de cada evento, em ordem de rodízio: cada chave recebe até o limite e depois passa a vez à próxima
+export const SHOWS_PIX_EVENTO_SQL = `
+  CREATE TABLE IF NOT EXISTS shows_event_pix (
+    event_id     BIGINT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    key_id       BIGINT NOT NULL REFERENCES pix_keys(id) ON DELETE CASCADE,
+    position     INT NOT NULL,
+    limit_amount NUMERIC(12,2) CHECK (limit_amount > 0),        -- vazio = sem limite
+    PRIMARY KEY (event_id, key_id)
+  );
+`;
+
 export const SHOWS_LOCAL_PADRAO_SQL = `
   UPDATE shows_venues SET name = 'Padrão' WHERE name = 'Local principal' AND NOT EXISTS (SELECT 1 FROM shows_venues WHERE name = 'Padrão');
 `;

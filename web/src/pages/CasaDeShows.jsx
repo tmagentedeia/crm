@@ -59,6 +59,8 @@ function Reservas() {
   const [extras, setExtras] = useState([]);
   const [novaExtra, setNovaExtra] = useState(null);
   const [cond, setCond] = useState(null);
+  const [pix, setPix] = useState(null);
+  const [chavesEmpresa, setChavesEmpresa] = useState([]);
   const [codigos, setCodigos] = useState([]);
   const [novoCod, setNovoCod] = useState({ word: '', kind: 'percent', value: '', max_uses: '', note: '' });
   const [dup, setDup] = useState(null);
@@ -130,7 +132,9 @@ function Reservas() {
   async function abrirCond() {
     setErr('');
     try {
-      const [c, k] = await Promise.all([api(`/casa-de-shows/events/${oc}/conditions`), api(`/casa-de-shows/events/${oc}/codes`)]);
+      const [c, k, px, ch] = await Promise.all([api(`/casa-de-shows/events/${oc}/conditions`), api(`/casa-de-shows/events/${oc}/codes`), api(`/casa-de-shows/events/${oc}/pix`), api('/finance/keys')]);
+      setChavesEmpresa(ch.filter((x) => x.active));
+      setPix({ keys: px.keys.map((x) => ({ key_id: String(x.key_id), limit: x.limit_amount === null ? '' : String(x.limit_amount).replace('.', ','), received: x.received })), configured: px.configured, current: px.current, all_full: px.all_full });
       setCond({ price: vir(c.price), door_price: vir(c.door_price), price_until: paraInput(c.price_until), instructions: c.instructions || '' });
       setCodigos(k);
       setNovoCod({ word: '', kind: 'percent', value: '', max_uses: '', note: '' });
@@ -143,6 +147,18 @@ function Reservas() {
       setCond(null); load();
     } catch (e2) { setErr(e2.message); }
   }
+  async function salvarPix() {
+    setErr('');
+    try {
+      const r = await api(`/casa-de-shows/events/${oc}/pix`, { method: 'PUT', body: { keys: pix.keys.filter((x) => x.key_id).map((x) => ({ key_id: x.key_id, limit_amount: x.limit || null })) } });
+      setPix({ keys: r.keys.map((x) => ({ key_id: String(x.key_id), limit: x.limit_amount === null ? '' : String(x.limit_amount).replace('.', ','), received: x.received })), configured: r.configured, current: r.current, all_full: r.all_full, salvo: true });
+    } catch (e) { setErr(e.message); }
+  }
+  const moverPix = (i, d) => {
+    const ks = [...pix.keys]; const j = i + d;
+    if (j < 0 || j >= ks.length) return;
+    [ks[i], ks[j]] = [ks[j], ks[i]]; setPix({ ...pix, keys: ks, salvo: false });
+  };
   async function addCodigo() {
     setErr('');
     try {
@@ -209,7 +225,7 @@ function Reservas() {
           {oc === 'data' && <input type="date" value={data} onChange={(e) => setData(e.target.value || hoje())} style={{ maxWidth: 170 }} />}
           {oc !== 'data' && variosLocais && <button className="btn" onClick={abrirSetup}>Local e formato</button>}
           {oc !== 'data' && <button className="btn" onClick={abrirAjuste}>Ajustar espaço deste evento</button>}
-          {oc !== 'data' && <button className="btn" onClick={abrirCond}>Preço e descontos</button>}
+          {oc !== 'data' && <button className="btn" onClick={abrirCond}>Condições do evento</button>}
           {oc !== 'data' && <button className="btn" onClick={abrirDup}>Duplicar evento</button>}
           <button className="btn" disabled={!setores.some((s) => s.active) || !tiposAtivos.length} onClick={() => { setErr(''); setNovaExtra({ sector_id: setores.find((x) => x.active)?.id || '', table_type_id: tiposAtivos[0]?.id || '', quantity: 1, note: '' }); }}>+ Mesa extra</button>
         </div>
@@ -337,7 +353,7 @@ function Reservas() {
       {cond && (
         <div className="modal-bg" onClick={() => setCond(null)}>
           <form className="modal" style={{ maxWidth: 560 }} onClick={(e) => e.stopPropagation()} onSubmit={salvarCond}>
-            <h2>Preço e descontos do evento</h2>
+            <h2>Condições do evento</h2>
             {err && <div className="error">{err}</div>}
             <div className="row">
               <div className="field"><label>Ingresso por pessoa (R$)</label><input value={cond.price} onChange={(e) => setCond({ ...cond, price: e.target.value })} /></div>
@@ -347,6 +363,43 @@ function Reservas() {
             <div className="field"><label>Instrução para o atendente (descontos excepcionais, avisos…)</label>
               <textarea rows="3" maxLength="2000" value={cond.instructions} onChange={(e) => setCond({ ...cond, instructions: e.target.value })} placeholder="Ex.: quem disser que é amigo da Rafa paga R$ 25." /></div>
             <div className="row"><button className="btn primary">Salvar</button><button type="button" className="btn" onClick={() => setCond(null)}>Fechar</button></div>
+            <h3 style={{ marginTop: 18 }}>Chaves Pix do evento</h3>
+            <p className="muted">Escolha quais chaves recebem este evento. Com mais de uma, cada chave recebe até o valor definido e depois a vez passa para a próxima da lista. Sem chaves aqui, vale a chave principal da empresa.</p>
+            {pix && pix.keys.length > 0 && (
+              <div className="muted" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 120px auto', gap: 8, marginTop: 8, fontSize: 13 }}>
+                <span>Chave, na ordem do rodízio</span><span>Recebe até (R$)</span><span />
+              </div>
+            )}
+            {pix && pix.keys.map((x, i) => {
+              const ch = chavesEmpresa.find((c) => String(c.id) === x.key_id);
+              const lim = Number(String(x.limit).replace(',', '.'));
+              const cheia = lim > 0 && x.received >= lim;
+              return (
+                <div key={i} style={{ marginTop: 6 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 120px auto', gap: 8, alignItems: 'center' }}>
+                    <select value={x.key_id} onChange={(e) => setPix({ ...pix, salvo: false, keys: pix.keys.map((y, j) => (j === i ? { ...y, key_id: e.target.value } : y)) })}>
+                      <option value="">Escolha…</option>
+                      {chavesEmpresa.map((c) => <option key={c.id} value={c.id}>{c.beneficiary ? c.beneficiary + ' · ' : ''}{c.key}</option>)}
+                      {x.key_id && !ch && <option value={x.key_id}>Chave desativada</option>}
+                    </select>
+                    <input value={x.limit} placeholder={i === pix.keys.length - 1 ? 'Sem limite' : 'Ex.: 5000'} onChange={(e) => setPix({ ...pix, salvo: false, keys: pix.keys.map((y, j) => (j === i ? { ...y, limit: e.target.value } : y)) })} />
+                    <span className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
+                      <button type="button" className="btn sm" onClick={() => moverPix(i, -1)} disabled={i === 0} title="Subir">↑</button>
+                      <button type="button" className="btn sm" onClick={() => moverPix(i, 1)} disabled={i === pix.keys.length - 1} title="Descer">↓</button>
+                      <button type="button" className="btn sm" onClick={() => setPix({ ...pix, salvo: false, keys: pix.keys.filter((_, j) => j !== i) })}>Tirar</button>
+                    </span>
+                  </div>
+                  {(x.received > 0 || cheia) && <div className="muted" style={{ fontSize: 13 }}>Já recebeu {dinheiroBR(x.received)} neste evento{cheia ? ' · limite atingido' : ''}</div>}
+                </div>
+              );
+            })}
+            {pix && !pix.keys.length && <p className="muted">Nenhuma chave própria: este evento usa a chave principal da empresa.</p>}
+            <div className="row" style={{ marginTop: 8 }}>
+              <button type="button" className="btn" onClick={() => setPix({ ...pix, salvo: false, keys: [...pix.keys, { key_id: '', limit: '', received: 0 }] })} disabled={pix && pix.keys.length >= chavesEmpresa.length}>+ Adicionar chave</button>
+              <button type="button" className="btn primary" onClick={salvarPix}>Salvar chaves</button>
+              {pix?.salvo && <span className="muted">Salvo.</span>}
+            </div>
+            {pix?.current && <p className="muted" style={{ marginTop: 6 }}>Chave da vez agora: <strong>{pix.current.beneficiary || pix.current.key}</strong>{pix.all_full && ' (todas já chegaram ao limite)'}</p>}
             <h3 style={{ marginTop: 18 }}>Palavras-chave de desconto</h3>
             <p className="muted">O atendente pergunta ao painel se a palavra dita pelo cliente vale; ele nunca vê a lista.</p>
             {codigos.map((k) => (
@@ -530,6 +583,7 @@ function Pagamentos({ reserva, onClose, onChange }) {
   useEffect(() => {
     load();
     api('/finance/keys').then((l) => setChaves(l.filter((k) => k.active))).catch(() => {});
+    if (reserva.event_id) api(`/casa-de-shows/events/${reserva.event_id}/pix`).then((p) => { if (p.configured && p.current) { setF((x) => ({ ...x, pix_key_id: String(p.current.key_id) })); } }).catch(() => {});
     api('/payments?status=accepted').then((l) => setComprovantes(l.slice(0, 100))).catch(() => {});
   }, []);
   async function lancar(e) {
@@ -541,6 +595,7 @@ function Pagamentos({ reserva, onClose, onChange }) {
     try {
       await api(`/casa-de-shows/reservations/${reserva.id}/payments`, { method: 'POST', body });
       setF({ method: 'pix', amount: '', pix_key_id: '', payment_id: '', note: '' });
+      if (reserva.event_id) api(`/casa-de-shows/events/${reserva.event_id}/pix`).then((p) => { if (p.configured && p.current) setF((x) => ({ ...x, pix_key_id: String(p.current.key_id) })); }).catch(() => {});
       await load(); onChange();
     } catch (e2) { setErr(e2.message); }
   }
