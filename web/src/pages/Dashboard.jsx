@@ -71,7 +71,7 @@ export default function Dashboard({ company }) {
         </select>
       </div>
       <div className="grid cols-4" style={{ marginBottom: 16 }}>
-        {d.conversas && <div className="card stat"><span className="muted">Atendimentos</span><div className="v">{d.conversas.total ?? '—'}</div><span className="muted">{d.conversas.total === null ? 'ainda sem dados de conversa' : 'pessoas que conversaram com o agente'}</span></div>}
+        <div className="card stat"><span className="muted">Atendimentos</span><div className="v">{d.conversas?.total ?? '—'}</div><span className="muted">{d.conversas?.total != null ? 'pessoas que conversaram com o agente' : 'a contagem começa quando o agente for ligado ao painel'}</span></div>
         {agenda && <div className="card stat"><span className="muted">Agendamentos realizados</span><div className="v">{d.atendimentos}</div></div>}
         {agenda && <div className="card stat"><span className="muted">Faturamento da agenda</span><div className="v">{money(d.faturamento)}</div></div>}
         {agenda && <div className="card stat"><span className="muted">Ticket médio</span><div className="v">{money(ticket)}</div></div>}
