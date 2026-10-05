@@ -27,7 +27,7 @@ const n8n = (m, p, body) => call(m, '/n8n' + p, { body, headers: { 'x-api-key': 
 
 psql("update public.companies set wa_api_url=null, wa_api_token=null where id=1");
 let r = await n8n('POST', '/casa-de-shows/media/send', { number: '5532999999999', what: 'map' });
-check('sem WhatsApp ligado avisa', r.status === 409, JSON.stringify(r));
+check('sem WhatsApp ligado avisa', r.status === 200 && r.body.ok === false && /não foi ligado/.test(r.body.message), JSON.stringify(r));
 
 psql(`update public.companies set wa_api_url='http://127.0.0.1:${porta}', wa_api_token='tok-teste' where id=1`);
 const nome = 'Setor Foto ' + Date.now() % 100000;
@@ -35,7 +35,7 @@ const s = (await api('POST', '/casa-de-shows/sectors', { name: nome, space: 20 }
 const semFoto = (await api('POST', '/casa-de-shows/sectors', { name: 'Setor Sem Foto ' + Date.now() % 100000, space: 10 })).body;
 psql("delete from company_1.shows_media where kind='map'");
 r = await n8n('POST', '/casa-de-shows/media/send', { number: '5532999999999', what: 'map' });
-check('sem mapa cadastrado', r.status === 404, JSON.stringify(r));
+check('sem mapa cadastrado', r.status === 200 && r.body.ok === false && /Não há mapa/.test(r.body.message), JSON.stringify(r));
 
 await api('POST', '/casa-de-shows/media', { kind: 'map', data: PNG, caption: 'Mapa da casa' });
 await api('POST', '/casa-de-shows/media', { kind: 'photo', sector_id: s.id, data: PNG });
@@ -54,11 +54,11 @@ recebidos.length = 0;
 r = await n8n('POST', '/casa-de-shows/media/send', { number: '5532999999999', sector: 'o ' + nome.toUpperCase() });
 check('acha o setor sem ligar para maiúsculas', r.status === 200 && r.body.sent === 2, JSON.stringify(r));
 r = await n8n('POST', '/casa-de-shows/media/send', { number: '5532999999999', sector: semFoto.name });
-check('setor sem fotos avisa', r.status === 404 && /não tem fotos/.test(r.body.error), JSON.stringify(r));
+check('setor sem fotos avisa', r.status === 200 && r.body.ok === false && /não tem fotos/.test(r.body.message), JSON.stringify(r));
 r = await n8n('POST', '/casa-de-shows/media/send', { number: '5532999999999', sector: 'Setor que nao existe zzz' });
-check('setor que não existe lista os setores', r.status === 400 && /Setores:/.test(r.body.error), JSON.stringify(r));
+check('setor que não existe lista os setores', r.status === 200 && r.body.ok === false && /Setores:/.test(r.body.message), JSON.stringify(r));
 r = await n8n('POST', '/casa-de-shows/media/send', { number: '5532999999999', what: 'map', event: 'evento que nao existe' });
-check('evento que não existe avisa', r.status === 400 && /Não achei esse evento/.test(r.body.error), JSON.stringify(r));
+check('evento que não existe avisa', r.status === 200 && r.body.ok === false && /Não achei esse evento/.test(r.body.message), JSON.stringify(r));
 r = await n8n('POST', '/casa-de-shows/media/send', { what: 'map' });
 check('sem número avisa', r.status === 400, JSON.stringify(r));
 

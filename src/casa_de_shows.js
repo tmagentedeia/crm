@@ -317,10 +317,12 @@ export function registerCasaDeShowsRoutes(r, wrap) {
   const semAcento = (t) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
   r.post('/casa-de-shows/media/send', comTratamento(async (req, res) => {
     const b = req.body || {};
+    // resultado esperado (sem mapa, sem foto...) volta como resposta normal com a explicação: o atendente só enxerga o texto em respostas de sucesso
+    const nao = (message) => res.json({ ok: false, sent: 0, message });
     const numero = String(b.number || '').trim();
     if (!numero || numero.length > 80) return res.status(400).json({ error: 'Informe o número do cliente' });
     const con = await conexaoWhats(currentCompany());
-    if (!con) return res.status(409).json({ error: 'O WhatsApp desta empresa ainda não foi ligado ao painel. Fale com o suporte.' });
+    if (!con) return nao('Não consegui enviar a imagem: o WhatsApp desta empresa ainda não foi ligado ao painel. Siga sem a imagem e avise o ADM com a tool Aviso.');
     // evento (opcional): vale o local dele
     let origem = {};
     const evTxt = semAcento(b.event);
@@ -330,7 +332,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
       const m = evTxt.match(/^(?:dia\s*)?(\d{1,2})(?:\s*[\/\-]\s*(\d{1,2}))?$/);
       const porData = m ? evs.filter((e) => Number(e.dd.slice(0, 2)) === Number(m[1]) && (!m[2] || Number(e.dd.slice(3)) === Number(m[2]))) : [];
       const e = porData.length === 1 ? porData[0] : (evs.find((x) => String(x.id) === evTxt) || evs.find((x) => semAcento(x.title) === evTxt) || evs.find((x) => semAcento(x.title).includes(evTxt) || evTxt.includes(semAcento(x.title))));
-      if (!e) return res.status(400).json({ error: `Não achei esse evento. Eventos: ${evs.map((x) => `${x.title} (${x.dd})`).join(', ') || 'nenhum'}` });
+      if (!e) return nao(`Não achei esse evento. Eventos: ${evs.map((x) => `${x.title} (${x.dd})`).join(', ') || 'nenhum'}. Pergunte ao cliente qual.`);
       origem = { event_id: e.id };
     }
     const lv = await venueDe(origem);
@@ -342,16 +344,16 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     let envios, o_que;
     if (querMapa) {
       const mapa = midias.find((m) => m.kind === 'map');
-      if (!mapa) return res.status(404).json({ error: 'Não há mapa cadastrado' });
+      if (!mapa) return nao('Não há mapa cadastrado. Siga sem o mapa, descrevendo os setores com o que a tool Disponibilidade devolveu.');
       envios = [{ file: midiaOut(req, mapa).url, text: mapa.caption || 'Mapa dos setores' }]; o_que = 'o mapa';
     } else {
       const setores = (await q('SELECT id, name FROM shows_sectors WHERE active AND venue_id=$1 ORDER BY position, id', [lv.venue_id])).rows;
       const num = (pedido.match(/\d+/) || [])[0];
       const dig = (t) => (semAcento(t).match(/\d+/) || [])[0];
       const s = setores.find((x) => semAcento(x.name) === pedido) || setores.find((x) => num && dig(x.name) === num) || setores.find((x) => semAcento(x.name).includes(pedido) || pedido.includes(semAcento(x.name)));
-      if (!s) return res.status(400).json({ error: `Não achei esse setor. Setores: ${setores.map((x) => x.name).join(', ')}` });
+      if (!s) return nao(`Não achei esse setor. Setores: ${setores.map((x) => x.name).join(', ')}. Pergunte ao cliente qual.`);
       const fotos = midias.filter((m) => m.kind === 'photo' && String(m.sector_id) === String(s.id));
-      if (!fotos.length) return res.status(404).json({ error: `O ${s.name} não tem fotos cadastradas` });
+      if (!fotos.length) return nao(`O ${s.name} não tem fotos cadastradas. Diga ao cliente que não tem foto à mão e descreva o setor com a visão e o som que a tool Disponibilidade devolveu.`);
       envios = fotos.map((f) => ({ file: midiaOut(req, f).url, text: f.caption || s.name })); o_que = `as fotos do ${s.name}`;
     }
     let enviados = 0;
@@ -359,7 +361,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
       if (enviados) await pausa(1500);
       try { await postarWhats(con, '/send/media', { number: numero, type: 'image', file: e.file, text: e.text, readchat: true }); enviados++; } catch (x) { console.error('mídia do setor:', x.message); }
     }
-    if (!enviados) return res.status(502).json({ error: 'Não consegui enviar pelo WhatsApp' });
+    if (!enviados) return nao('Não consegui enviar a imagem pelo WhatsApp agora. Avise o cliente e siga sem ela.');
     res.json({ ok: true, sent: enviados, of: envios.length, what: o_que, message: `Enviei ${o_que} ao cliente. Não envie de novo e não descreva a imagem como se a visse; só diga que mandou.` });
   }));
 
