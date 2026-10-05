@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from './api.js';
 
-// Seleção de itens numa lista + exclusão em massa com confirmação forte (é preciso digitar APAGAR).
+// Seleção de itens numa lista + exclusão em massa com confirmação forte (é preciso digitar X).
 
 export function useSelecao(rows) {
   const [sel, setSel] = useState(() => new Set());
@@ -57,7 +57,7 @@ export function ApagarSelecionados({ s, total, rotulo, rota, descreve, opcao, on
     } catch (e) { setErr(e.message); }
     setBusy(false);
   };
-  const pronto = txt.trim().toUpperCase() === 'APAGAR';
+  const pronto = txt.trim().toUpperCase() === 'X';
   return (
     <>
       <div className="card row" style={{ marginBottom: 8, gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -77,8 +77,8 @@ export function ApagarSelecionados({ s, total, rotulo, rota, descreve, opcao, on
                 <span>{opcao.texto}</span>
               </label>
             )}
-            <p><strong>Isso é definitivo e não dá para desfazer.</strong> Para confirmar, digite <strong>APAGAR</strong> abaixo:</p>
-            <input value={txt} onChange={(e) => setTxt(e.target.value)} autoFocus placeholder="APAGAR" style={{ marginBottom: 10 }} />
+            <p><strong>Isso é definitivo e não dá para desfazer.</strong> Para confirmar, digite <strong>X</strong> abaixo:</p>
+            <input value={txt} onChange={(e) => setTxt(e.target.value)} autoFocus placeholder="X" style={{ marginBottom: 10 }} />
             {err && <div className="error">{err}</div>}
             <div className="row">
               <button className="btn bad" disabled={!pronto || busy} onClick={apagar}>{busy ? 'Apagando…' : `Apagar ${s.count} definitivamente`}</button>
