@@ -1004,7 +1004,7 @@ function Setores() {
   return (
     <>
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: 12 }}>
-        <p className="muted" style={{ margin: 0 }}>O espaço é uma medida sua: use pontos, metros quadrados ou o que preferir, desde que as mesas usem a mesma medida. Em cada setor você também define quais mesas ele aceita e quantas de cada tipo cabem.</p>
+        <p className="muted" style={{ margin: 0 }}>A capacidade é em pontos: um ponto por pessoa sentada. Mesas pequenas desperdiçam mais espaço, então você pode fazer uma mesa de 2 ocupar mais de 2 pontos. Em cada setor você também define quais mesas ele aceita e quantas de cada tipo cabem.</p>
         <button className="btn primary" onClick={() => abrir(null)}>+ Novo setor</button>
       </div>
       {err && !edit && <div className="error">{err}</div>}
@@ -1018,7 +1018,7 @@ function Setores() {
       )}
       <div className="card table-wrap">
         <table>
-          <thead><tr><th>Setor</th>{locais.length > 1 && <th>Local</th>}<th>Espaço</th><th>Mesas aceitas</th><th>Observações</th><th>Situação</th><th></th></tr></thead>
+          <thead><tr><th>Setor</th>{locais.length > 1 && <th>Local</th>}<th>Capacidade</th><th>Mesas aceitas</th><th>Observações</th><th>Situação</th><th></th></tr></thead>
           <tbody>
             {visiveis.map((s) => (
               <tr key={s.id}>
@@ -1043,7 +1043,7 @@ function Setores() {
                 <select value={edit.venue_id} onChange={(e) => setEdit({ ...edit, venue_id: e.target.value })}>{locais.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></div>
             )}
             <div className="field"><label>Nome *</label><input value={edit.name} maxLength={60} onChange={(e) => setEdit({ ...edit, name: e.target.value })} required /></div>
-            <div className="field"><label>Espaço total *</label><input value={edit.space} onChange={(e) => setEdit({ ...edit, space: e.target.value })} required /></div>
+            <div className="field"><label>Capacidade (pontos) *</label><input value={edit.space} onChange={(e) => setEdit({ ...edit, space: e.target.value })} required /></div>
             <div className="field"><label>Observações (visão, som, perto do bar…)</label><input value={edit.notes} maxLength={300} onChange={(e) => setEdit({ ...edit, notes: e.target.value })} /></div>
             {edit.id ? <FotosDoSetor setorId={edit.id} /> : <p className="muted">Salve o setor para poder adicionar fotos.</p>}
             <label className="row" style={{ gap: 8 }}><input type="checkbox" checked={edit.restringe} onChange={(e) => setEdit({ ...edit, restringe: e.target.checked })} /> Este setor só aceita algumas mesas</label>
@@ -1094,13 +1094,13 @@ function Mesas() {
   return (
     <>
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: 12 }}>
-        <p className="muted" style={{ margin: 0 }}>Cada tipo de mesa tem seus lugares e o espaço que ocupa. Mudar aqui não altera vendas já feitas.</p>
-        <button className="btn primary" onClick={() => { setErr(''); setEdit({ name: '', seats: '', space: '', active: true }); }}>+ Nova mesa</button>
+        <p className="muted" style={{ margin: 0 }}>Cada tipo de mesa tem os seus lugares e os pontos que ocupa da capacidade do setor (por padrão, um por lugar). Mudar aqui não altera vendas já feitas.</p>
+        <button className="btn primary" onClick={() => { setErr(''); setEdit({ name: '', seats: '', space: '', active: true, espacoAuto: true }); }}>+ Nova mesa</button>
       </div>
       {err && !edit && <div className="error">{err}</div>}
       <div className="card table-wrap">
         <table>
-          <thead><tr><th>Mesa</th><th>Lugares</th><th>Espaço que ocupa</th><th>Situação</th><th></th></tr></thead>
+          <thead><tr><th>Mesa</th><th>Lugares</th><th>Pontos que ocupa</th><th>Situação</th><th></th></tr></thead>
           <tbody>
             {rows.map((t) => (
               <tr key={t.id}>
@@ -1122,8 +1122,8 @@ function Mesas() {
             {err && <div className="error">{err}</div>}
             <div className="field"><label>Nome *</label><input value={edit.name} maxLength={60} onChange={(e) => setEdit({ ...edit, name: e.target.value })} placeholder="Ex.: Mesa de 4" required /></div>
             <div className="row">
-              <div className="field"><label>Lugares *</label><input type="number" min="1" max="200" value={edit.seats} onChange={(e) => setEdit({ ...edit, seats: e.target.value })} required /></div>
-              <div className="field"><label>Espaço que ocupa *</label><input value={edit.space} onChange={(e) => setEdit({ ...edit, space: e.target.value })} required /></div>
+              <div className="field"><label>Lugares *</label><input type="number" min="1" max="200" value={edit.seats} onChange={(e) => setEdit({ ...edit, seats: e.target.value, ...(edit.espacoAuto ? { space: e.target.value } : {}) })} required /></div>
+              <div className="field"><label>Pontos que ocupa *</label><input value={edit.space} onChange={(e) => setEdit({ ...edit, space: e.target.value, espacoAuto: false })} required /><div className="muted" style={{ fontSize: 12 }}>Por padrão, um ponto por lugar. Aumente nas mesas pequenas, que sobram mais espaço.</div></div>
             </div>
             <label className="row" style={{ gap: 8 }}><input type="checkbox" checked={edit.active} onChange={(e) => setEdit({ ...edit, active: e.target.checked })} /> Mesa ativa</label>
             <div className="row" style={{ marginTop: 12 }}><button className="btn primary">Salvar</button><button type="button" className="btn" onClick={() => setEdit(null)}>Cancelar</button></div>

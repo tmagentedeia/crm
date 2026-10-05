@@ -448,6 +448,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     const o = {};
     if (!parcial || b.name !== undefined) { o.name = txt(b.name, 60); if (!o.name) return { erro: 'Informe o nome da mesa (até 60 letras)' }; }
     if (!parcial || b.seats !== undefined) { o.seats = inteiro(b.seats, 1, 200); if (o.seats === null) return { erro: 'Informe quantos lugares tem a mesa (1 a 200)' }; }
+    if (!parcial && b.space === undefined && o.seats) b = { ...b, space: o.seats };   // sem espaço informado, a mesa ocupa um ponto por lugar
     if (!parcial || b.space !== undefined) { o.space = espaco(b.space, 0.01); if (o.space === null) return { erro: 'Informe o espaço que a mesa ocupa (maior que 0)' }; }
     if (b.active !== undefined) { if (typeof b.active !== 'boolean') return { erro: 'Ativo inválido' }; o.active = b.active; }
     return { o };
