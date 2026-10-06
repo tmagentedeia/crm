@@ -14,6 +14,7 @@ import { ANIVERSARIO_SQL } from './aniversario.js';
 import { CONTATOS_SQL } from './contatos.js';
 import { ESPELHO_SQL } from './espelho_contatos.js';
 import { CAMPOS_EXTRA_SQL } from './planilha_contatos.js';
+import { GRUPOS_CAMPANHA_SQL } from './grupos_campanha.js';
 import { DOCUMENTOS_SQL, DOC_FILES_VENDA_SQL, DOC_BLOCOS_SQL, DOC_VAGAS_SQL } from './documentos.js';
 import { DELIVERY_SQL } from './delivery.js';
 import { RESTAURANTE_SQL } from './restaurante.js';
@@ -211,6 +212,8 @@ export const TENANT_STEPS = [
   { version: 51, sql: ESPELHO_SQL },
   // 52: campos personalizados do contato (colunas extras da planilha importada)
   { version: 52, sql: CAMPOS_EXTRA_SQL },
+  // 53: grupos de contatos salvos para campanhas
+  { version: 53, sql: GRUPOS_CAMPANHA_SQL },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 
@@ -262,6 +265,7 @@ export async function createCompanySchema(cx, companyId) {
   await cx.query(CONTATOS_SQL);
   await cx.query(ESPELHO_SQL);
   await cx.query(CAMPOS_EXTRA_SQL);
+  await cx.query(GRUPOS_CAMPANHA_SQL);
   await cx.query('SET LOCAL search_path TO public');
   await cx.query('INSERT INTO tenant_versions (company_id, version) VALUES ($1, 1)', [companyId]);
 }

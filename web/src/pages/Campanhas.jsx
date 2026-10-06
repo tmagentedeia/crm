@@ -16,7 +16,7 @@ const STATUS_ENVIO = { pending: 'Na fila', sending: 'Enviando', sent: 'Enviada',
 const PADRAO = {
   name: '', messages: ['', '', ''],
   interval_min: 5, interval_max: 10, batch_size: 20, batch_pause_min: 60, daily_limit: 50,
-  mode: 'clients', ids: [],
+  mode: 'clients', ids: [], allow_excluded: false,
 };
 const AVISO = 'Os limites definidos aqui são baseados em critérios subjetivos. O risco varia muito de acordo com o seu histórico de interações com os contatos e de número para número: já houve relatos de bloqueio com apenas 10 envios por dia, assim como números que fizeram mais de 100 envios por dia sem nenhum bloqueio. Por isso, recomendamos sempre o mínimo possível de envios com o máximo intervalo possível, para reduzir o risco de o WhatsApp bloquear o seu número. Não nos responsabilizamos por eventuais bloqueios nem pela sua decisão.';
 
@@ -73,6 +73,25 @@ const lerJson = (k) => { try { return JSON.parse(localStorage.getItem(k)); } cat
 function Form({ id, voltar, abrir, frases }) {
   const [f, setF] = useState(PADRAO);
   const [clientes, setClientes] = useState([]);
+  const [busca, setBusca] = useState('');
+  const [grupos, setGrupos] = useState([]);
+  const [nomeGrupo, setNomeGrupo] = useState('');
+  const [msgGrupo, setMsgGrupo] = useState('');
+  const carregarGrupos = () => api('/campaign-groups').then(setGrupos).catch(() => {});
+  useEffect(() => { carregarGrupos(); }, []);
+  const salvarGrupo = async () => {
+    setMsgGrupo('');
+    try { await api('/campaign-groups', { method: 'POST', body: { name: nomeGrupo, ids: f.ids } }); setMsgGrupo(`Grupo “${nomeGrupo.trim()}” salvo.`); setNomeGrupo(''); carregarGrupos(); }
+    catch (e) { setMsgGrupo(e.message); }
+  };
+  const apagarGrupo = async (g) => {
+    if (!window.confirm(`Apagar o grupo “${g.name}”? Os contatos não são apagados.`)) return;
+    try { await api('/campaign-groups/' + g.id, { method: 'DELETE' }); carregarGrupos(); } catch (e) { setMsgGrupo(e.message); }
+  };
+  const usarGrupo = (g) => { mexeu.current = true; setF((x) => ({ ...x, mode: 'selected', ids: g.ids, allow_excluded: false })); setMsgGrupo(''); };
+  // grupo pronto "Não enviar para": serve para testar a campanha só com os contatos que ficam de fora das campanhas de verdade
+  const excecoes = clientes.filter((c) => c.campaign_excluded);
+  const usarExcecoes = () => { mexeu.current = true; setF((x) => ({ ...x, mode: 'selected', ids: excecoes.map((c) => c.id), allow_excluded: true })); setMsgGrupo(''); };
   const [sim, setSim] = useState(null);
   const [erro, setErro] = useState('');
   const [salvando, setSalvando] = useState(false);
@@ -86,7 +105,7 @@ function Form({ id, voltar, abrir, frases }) {
     name: c.name, messages: c.messages,
     interval_min: c.interval_min, interval_max: c.interval_max, batch_size: c.batch_size,
     batch_pause_min: c.batch_pause_min, daily_limit: c.daily_limit,
-    mode: 'selected', ids: c.recipients.map((r) => r.customer_id).filter(Boolean),
+    mode: 'selected', ids: c.recipients.map((r) => r.customer_id).filter(Boolean), allow_excluded: !!c.allow_excluded,
   }));
 
   useEffect(() => {
@@ -114,19 +133,19 @@ function Form({ id, voltar, abrir, frases }) {
   const setMsg = (i, v) => { mexeu.current = true; setF((x) => ({ ...x, messages: x.messages.map((m, j) => (j === i ? v : m)) })); };
   // quem está na lista de exceções não recebe: fica fora da contagem
   const { total, ignorados } = useMemo(() => {
-    const no = (c) => c.campaign_excluded;
+    const no = (c) => c.campaign_excluded && !(f.mode === 'selected' && f.allow_excluded);
     const base = f.mode === 'selected' ? clientes.filter((c) => f.ids.includes(c.id))
       : f.mode === 'clients' ? clientes.filter((c) => c.tipo === 'Cliente')
       : f.mode === 'leads' ? clientes.filter((c) => c.tipo === 'Lead') : clientes;
     const fora = base.filter(no).length;
     return { total: f.mode === 'selected' && !clientes.length ? f.ids.length : base.length - fora, ignorados: fora };
-  }, [f.mode, f.ids, clientes]);
+  }, [f.mode, f.ids, f.allow_excluded, clientes]);
 
   const body = () => ({
     name: f.name, messages: f.messages,
     interval_min: Number(f.interval_min), interval_max: Number(f.interval_max),
     batch_size: Number(f.batch_size), batch_pause_min: Number(f.batch_pause_min), daily_limit: Number(f.daily_limit),
-    recipients: { mode: f.mode, ids: f.ids },
+    recipients: { mode: f.mode, ids: f.ids, allow_excluded: f.mode === 'selected' && !!f.allow_excluded },
   });
 
   useEffect(() => {
@@ -241,11 +260,42 @@ function Form({ id, voltar, abrir, frases }) {
             <label key={v}><input type="radio" style={{ width: 'auto' }} checked={f.mode === v} onChange={() => set('mode', v)} /> {r}</label>
           ))}
         </div>
+        {(grupos.length > 0 || excecoes.length > 0) && (
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+            <span className="muted">Grupos salvos:</span>
+            {excecoes.length > 0 && (
+              <span className="badge" title="Contatos da lista “Não enviar para”. Use para testar a campanha só com eles.">
+                <a href="#" onClick={(e) => { e.preventDefault(); usarExcecoes(); }}>Não enviar para (teste) · {excecoes.length}</a>
+              </span>
+            )}
+            {grupos.map((g) => (
+              <span key={g.id} className="badge" style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                <a href="#" onClick={(e) => { e.preventDefault(); usarGrupo(g); }} title="Usar este grupo">{g.name} · {g.count}</a>
+                <a href="#" onClick={(e) => { e.preventDefault(); apagarGrupo(g); }} title="Apagar grupo" className="muted">×</a>
+              </span>
+            ))}
+          </div>
+        )}
+        {f.mode === 'selected' && f.ids.length > 0 && (
+          <div className="row" style={{ gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+            <span className="muted">Salvar esta seleção como grupo para envios futuros:</span>
+            <input placeholder="Nome do grupo" style={{ maxWidth: 220 }} value={nomeGrupo} onChange={(e) => setNomeGrupo(e.target.value)} />
+            <button type="button" className="btn sm" disabled={!nomeGrupo.trim()} onClick={salvarGrupo}>Salvar grupo</button>
+            {msgGrupo && <span className="muted">{msgGrupo}</span>}
+          </div>
+        )}
+        {f.mode === 'selected' && (
+          <input placeholder="Buscar por nome ou telefone…" value={busca} onChange={(e) => setBusca(e.target.value)} style={{ maxWidth: 320, marginBottom: 8 }} />
+        )}
         {f.mode === 'selected' && (
           <div style={{ maxHeight: 280, overflow: 'auto' }}>
             <table>
               <tbody>
-                {clientes.map((c) => (
+                {clientes.filter((c) => {
+                  const t = busca.trim().toLowerCase(); if (!t) return true;
+                  const d = t.replace(/\D/g, '');
+                  return (c.name || '').toLowerCase().includes(t) || (d && String(c.phone || '').includes(d));
+                }).map((c) => (
                   <tr key={c.id} onClick={() => alternar(c.id)} style={{ cursor: 'pointer' }}>
                     <td><input type="checkbox" style={{ width: 'auto' }} readOnly checked={f.ids.includes(c.id)} /></td>
                     <td>{c.name || 'Sem nome'}</td><td className="muted">{fmtPhone(c.phone)}</td><td className="muted">{c.tipo}{c.campaign_excluded ? ' · não recebe campanhas' : ''}</td>
@@ -255,6 +305,7 @@ function Form({ id, voltar, abrir, frases }) {
             </table>
           </div>
         )}
+        {f.mode === 'selected' && f.allow_excluded && <p className="muted" style={{ color: 'var(--bad)' }}>Esta campanha é de teste: vai enviar para contatos que ficam de fora das campanhas normais (lista “Não enviar para”).</p>}
         <p className="muted">{total} contato{total === 1 ? '' : 's'} selecionado{total === 1 ? '' : 's'}.{ignorados > 0 && <> {ignorados} ficam de fora por estarem na lista “Não enviar para”.</>}</p>
       </div>
 

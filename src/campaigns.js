@@ -168,7 +168,7 @@ export async function claimNext(companyId) {
         [c.id, LIMITS.INTERVAL_MIN])).rowCount;
       if (colada) continue;
       // quem entrou na lista de exceções depois de a campanha ser montada não recebe
-      await t(`UPDATE campaign_recipients SET status='cancelled', error='Na lista de exceções'
+      if (!c.allow_excluded) await t(`UPDATE campaign_recipients SET status='cancelled', error='Na lista de exceções'
                WHERE campaign_id=$1 AND status='pending' AND phone IN (SELECT phone FROM campaign_exclusions)`, [c.id]);
       // a ordem de envio é sorteada (não segue a ordem do cadastro)
       const rec = (await t(
@@ -276,7 +276,7 @@ export function registerCampaignRoutes(r, wrap) {
       if (where !== null) todos = (await q(`SELECT id,name,phone,chat_id FROM customers ${where}`)).rows;
     }
     if (!todos.length) return Object.assign([], { ignorados: 0 });
-    const fora = new Set((await q('SELECT phone FROM campaign_exclusions WHERE phone = ANY($1)', [todos.map((x) => x.phone)])).rows.map((x) => x.phone));
+    const fora = new Set(sel?.allow_excluded ? [] : (await q('SELECT phone FROM campaign_exclusions WHERE phone = ANY($1)', [todos.map((x) => x.phone)])).rows.map((x) => x.phone));
     return Object.assign(todos.filter((x) => !fora.has(x.phone)), { ignorados: fora.size ? todos.filter((x) => fora.has(x.phone)).length : 0 });
   }
 
@@ -412,15 +412,15 @@ export function registerCampaignRoutes(r, wrap) {
         if (!cur) return { code: 404, error: 'Não encontrada' };
         if (cur.status !== 'draft') return { code: 409, error: 'Só dá para editar uma campanha que ainda não começou' };
         await t(`UPDATE campaigns SET name=$2,messages=$3,greeting_random=$4,interval_min=$5,interval_max=$6,
-                 batch_size=$7,batch_pause_min=$8,daily_limit=$9 WHERE id=$1`,
-          [cid, c.name, JSON.stringify(c.messages), c.greeting_random, c.interval_min, c.interval_max, c.batch_size, c.batch_pause_min, c.daily_limit]);
+                 batch_size=$7,batch_pause_min=$8,daily_limit=$9,allow_excluded=$10 WHERE id=$1`,
+          [cid, c.name, JSON.stringify(c.messages), c.greeting_random, c.interval_min, c.interval_max, c.batch_size, c.batch_pause_min, c.daily_limit, req.body?.recipients?.allow_excluded === true]);
         await t('DELETE FROM campaign_recipients WHERE campaign_id=$1', [cid]);
       } else {
         const lotado = await cheio(t);
         if (lotado) return { code: 409, error: lotado };
-        cid = (await t(`INSERT INTO campaigns (name,messages,greeting_random,interval_min,interval_max,batch_size,batch_pause_min,daily_limit)
-                        VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
-          [c.name, JSON.stringify(c.messages), c.greeting_random, c.interval_min, c.interval_max, c.batch_size, c.batch_pause_min, c.daily_limit])).rows[0].id;
+        cid = (await t(`INSERT INTO campaigns (name,messages,greeting_random,interval_min,interval_max,batch_size,batch_pause_min,daily_limit,allow_excluded)
+                        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+          [c.name, JSON.stringify(c.messages), c.greeting_random, c.interval_min, c.interval_max, c.batch_size, c.batch_pause_min, c.daily_limit, req.body?.recipients?.allow_excluded === true])).rows[0].id;
       }
       for (const p of recips) {
         await t(`INSERT INTO campaign_recipients (campaign_id,customer_id,name,phone,chat_id) VALUES ($1,$2,$3,$4,$5)
