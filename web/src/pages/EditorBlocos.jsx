@@ -183,11 +183,11 @@ export default function EditorBlocos({ doc, onChange, variaveis, logo }) {
             <Cor rotulo="Cor do texto" valor={doc.config.cor} padrao="#1f2937" aoMudar={(v) => setCfg({ cor: v || '#1f2937' })} />
             <Cor rotulo="Cor de destaque" valor={doc.config.destaque} padrao="#1f2937" aoMudar={(v) => setCfg({ destaque: v || '#1f2937' })} />
             <Cor rotulo="Fundo do miolo" valor={doc.config.fundo} padrao="#ffffff" aoMudar={(v) => setCfg({ fundo: v || '#ffffff' })} />
-            {doc.config.moldura === 'ingresso' && <Cor rotulo="Cor da moldura" valor={doc.config.corMoldura} padrao="#e6e6e6" aoMudar={(v) => setCfg({ corMoldura: v || '#e6e6e6' })} />}
+            {(doc.config.moldura === 'ingresso' || doc.config.moldura === 'bilhete') && <Cor rotulo="Cor da moldura" valor={doc.config.corMoldura} padrao="#e6e6e6" aoMudar={(v) => setCfg({ corMoldura: v || '#e6e6e6' })} />}
             <Num rotulo="Margem (px)" valor={doc.config.margem} min={0} max={80} aoMudar={(v) => setCfg({ margem: v })} />
             <div className="field"><label>Moldura</label>
               <select value={doc.config.moldura || (doc.config.borda === false ? 'nenhuma' : 'simples')} onChange={(e) => setCfg({ moldura: e.target.value })}>
-                <option value="nenhuma">Sem moldura</option><option value="simples">Simples</option><option value="ingresso">Bilhete de ingresso</option></select></div>
+                <option value="nenhuma">Sem moldura</option><option value="simples">Simples</option><option value="ingresso">Bilhete arredondado</option><option value="bilhete">Bilhete recortado</option></select></div>
             <Num rotulo="Largura (px, 0 = toda)" valor={doc.config.largura || 0} min={0} max={900} aoMudar={(v) => setCfg({ largura: v && v < 260 ? 260 : v })} />
           </div>
         </div>

@@ -5,7 +5,7 @@ const FONTES = {
   serif: 'Georgia,"Times New Roman",serif',
   mono: '"Courier New",monospace',
 };
-const MOLDURAS = ['nenhuma', 'simples', 'ingresso'];
+const MOLDURAS = ['nenhuma', 'simples', 'ingresso', 'bilhete'];
 const ALINHA = ['left', 'center', 'right'];
 export const TIPOS_BLOCO = ['logo', 'titulo', 'texto', 'faixa', 'dados', 'lista', 'qrcode', 'atendente', 'espaco', 'linha'];
 const MAX_BLOCOS = 60;
@@ -76,7 +76,10 @@ export function blocosParaHtml(entrada, titulo = 'Documento') {
   const base = `font-family:${FONTES[config.fonte]};color:${config.cor};background:${config.fundo};padding:${config.margem}px`;
   const largura = config.largura ? `max-width:${config.largura}px;margin:0 auto;` : '';
   let corpo;
-  if (config.moldura === 'ingresso') corpo = `<div style="${largura}background:${config.corMoldura};border:3px solid #222;border-radius:26px;padding:14px"><div style="${base};border:1px solid #222">\n${miolo}\n</div></div>`;
+  // bilhete recortado: os quatro cantos ganham um arco para dentro (fundo escuro por baixo faz o contorno)
+  const recorte = (r, cor) => ['0 0', '100% 0', '0 100%', '100% 100%'].map((c) => `radial-gradient(circle at ${c}, transparent ${r - 1}px, ${cor} ${r}px) ${c.replace('0 ', 'left ').replace('100% 0', 'right top').replace('0 100%', 'left bottom').replace('100% 100%', 'right bottom')}/51% 51% no-repeat`).join(',');
+  if (config.moldura === 'bilhete') corpo = `<div style="${largura}background:${recorte(22, '#222')};padding:3px"><div style="background:${recorte(28, config.corMoldura)};padding:14px"><div style="${base};border:1px solid #222">\n${miolo}\n</div></div></div>`;
+  else   if (config.moldura === 'ingresso') corpo = `<div style="${largura}background:${config.corMoldura};border:3px solid #222;border-radius:26px;padding:14px"><div style="${base};border:1px solid #222">\n${miolo}\n</div></div>`;
   else corpo = `<div style="${largura}${base}${config.moldura === 'simples' ? ';border:1px solid #d8d8d8;border-radius:14px' : ''}">\n${miolo}\n</div>`;
   return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>${esc(titulo)}</title><style>body{margin:0;padding:24px;background:${config.moldura === 'nenhuma' ? config.fundo : '#ffffff'}}</style></head><body>${corpo}</body></html>`;
 }
@@ -110,7 +113,7 @@ export const INGRESSO_EXEMPLO = {
 
 // Ingresso vertical, no formato de um bilhete: moldura de ingresso, logotipo, evento, quem entra e o QR Code
 export const INGRESSO_VERTICAL = {
-  config: { fonte: 'sans', cor: '#111111', destaque: '#111111', fundo: '#ffffff', moldura: 'ingresso', largura: 380, margem: 22 },
+  config: { fonte: 'sans', cor: '#111111', destaque: '#111111', fundo: '#ffffff', moldura: 'bilhete', largura: 380, margem: 22 },
   blocos: [
     { tipo: 'titulo', texto: 'INGRESSO', tamanho: 36, alinhamento: 'center', negrito: true },
     { tipo: 'logo', alinhamento: 'center', altura: 90, largura: 240, caixa: true },
