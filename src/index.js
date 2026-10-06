@@ -15,6 +15,7 @@ import { listar as listarBloqueios, bloquear, liberar, numeroDoContato, nomeVali
 import { requireUser, requireN8n, requireAdmin, isAdmin, signToken, signImpersonationToken } from './auth.js';
 import { buildRouter } from './routes.js';
 import { startCampaignScheduler } from './campaigns.js';
+import { registerEspelhoAdmin, startEspelhoContatos } from './espelho_contatos.js';
 import { startListaScheduler } from './lista_evento.js';
 import { startLimpezaIngressos } from './documentos.js';
 import { birthdayTickAll } from './aniversario.js';
@@ -223,6 +224,7 @@ app.get('/api/admin/access-log', requireUser, requireAdmin, async (req, res) => 
 });
 
 registerIndicacoesAdmin(app, requireUser, requireAdmin);
+registerEspelhoAdmin(app, requireUser, requireAdmin);
 registerEquipeRoutes(app, requireUser);
 // Conferência de quem é quem: para cada empresa, o responsável (e-mail do login), o nome do agente e o manual publicado no banco.
 // Serve para apontar de onde vem um dado que parece estar na empresa errada.
@@ -247,7 +249,7 @@ app.get('/api/admin/diagnostico', requireUser, requireAdmin, async (req, res) =>
 
 app.get('/api/admin/companies', requireUser, requireAdmin, async (req, res) => {
   const { rows } = await qg(
-    `SELECT c.id, c.name, c.max_professionals, c.doc_slots, c.doc_extras, c.doc_nivel, c.billing_due_day, c.billing_exempt, (SELECT count(*) FROM partner_referrals pr WHERE pr.company_id=c.id)::int AS referrals_total, c.created_at, c.modules, c.locked_modules, c.module_labels, c.whatsapp_instance, c.chat_table, c.redis_prefix, c.campaign_webhook_url, c.wa_api_url, (c.wa_api_token IS NOT NULL) AS wa_api_set, right(c.wa_api_token, 4) AS wa_api_fim, c.booking_mode, c.api_key_hint, c.api_key_created_at,
+    `SELECT c.id, c.name, c.max_professionals, c.doc_slots, c.doc_extras, c.doc_nivel, c.billing_due_day, c.billing_exempt, (SELECT count(*) FROM partner_referrals pr WHERE pr.company_id=c.id)::int AS referrals_total, c.created_at, c.modules, c.locked_modules, c.module_labels, c.whatsapp_instance, c.chat_table, c.redis_prefix, c.campaign_webhook_url, c.contact_mirror_url, c.contact_mirror_on, c.wa_api_url, (c.wa_api_token IS NOT NULL) AS wa_api_set, right(c.wa_api_token, 4) AS wa_api_fim, c.booking_mode, c.api_key_hint, c.api_key_created_at,
             (SELECT u.email FROM users u WHERE u.company_id = c.id ORDER BY (u.role = 'owner') DESC, u.id LIMIT 1) AS owner_email
      FROM companies c ORDER BY c.id`);
   // profissionais ativos: contados dentro do schema de cada empresa
@@ -481,6 +483,7 @@ app.get('*', (req, res, next) => {
 
 app.listen(process.env.PORT || 3000, () => console.log('CRM rodando na porta', process.env.PORT || 3000));
 startCampaignScheduler();
+startEspelhoContatos();
 startListaScheduler();
 startLimpezaIngressos();
 // aniversariantes: confere de hora em hora (a fila de cada empresa é montada no máximo uma vez por dia)

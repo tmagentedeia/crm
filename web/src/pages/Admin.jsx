@@ -72,6 +72,24 @@ export default function Admin() {
       const { [s.id]: _, ...resto } = wh; setWh(resto); setMsg('Endereço do envio de campanhas de ' + s.name + ' atualizado.'); load();
     } catch (e) { setErr(e.message); }
   };
+  const [esp, setEsp] = useState({}); // endereço do espelho dos contatos em edição, por empresa
+  const [espFalta, setEspFalta] = useState({}); // contatos que ainda faltam copiar, por empresa
+  const espAtualiza = (s) => api(`/admin/companies/${s.id}/contact-mirror`).then((x) => setEspFalta((o) => ({ ...o, [s.id]: x.pending }))).catch(() => {});
+  const espSalvar = async (s, corpo, aviso) => {
+    setErr(''); setMsg('');
+    try {
+      await api(`/admin/companies/${s.id}/contact-mirror`, { method: 'PUT', body: corpo });
+      const { [s.id]: _, ...resto } = esp; setEsp(resto); setMsg(aviso); load(); espAtualiza(s);
+    } catch (e) { setErr(e.message); }
+  };
+  const espTodos = async (s) => {
+    if (!confirm('Copiar TODOS os contatos de ' + s.name + ' para a planilha? Vai devagar, em segundo plano, e pode levar um bom tempo se a base for grande.')) return;
+    setErr(''); setMsg('');
+    try {
+      const r = await api(`/admin/companies/${s.id}/contact-mirror/send-all`, { method: 'POST' });
+      setMsg(`${r.total} contatos entraram na fila (cerca de ${r.minutos} min).`); espAtualiza(s);
+    } catch (e) { setErr(e.message); }
+  };
   const [wa, setWa] = useState({}); // conexão do WhatsApp para avisos, em edição por empresa: { id: { u: endereço, t: chave } }
   const salvarWa = async (s) => {
     setErr(''); setMsg('');
@@ -479,6 +497,19 @@ export default function Admin() {
                   <input placeholder="https://…/webhook/campanhas-envio" style={{ width: 300 }} value={wh[s.id] ?? s.campaign_webhook_url ?? ''}
                     onChange={(e) => setWh({ ...wh, [s.id]: e.target.value })} />
                   {s.id in wh && <button className="btn sm primary" onClick={() => salvarWh(s)}>Salvar</button>}
+                </Campo>
+                <Campo rotulo="Cópia dos contatos na planilha (endereço do fluxo)">
+                  <input placeholder="https://…/webhook/contatos-planilha" style={{ width: 300 }} value={esp[s.id] ?? s.contact_mirror_url ?? ''}
+                    onChange={(e) => setEsp({ ...esp, [s.id]: e.target.value })} />
+                  {s.id in esp && <button className="btn sm primary" onClick={() => espSalvar(s, { url: esp[s.id] }, 'Endereço da cópia de ' + s.name + ' atualizado.')}>Salvar</button>}
+                  <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center', marginLeft: 8 }}>
+                    <input type="checkbox" checked={!!s.contact_mirror_on} disabled={!(s.contact_mirror_url || esp[s.id]) || s.id in esp}
+                      onChange={(e) => espSalvar(s, { on: e.target.checked }, e.target.checked ? 'Cópia ligada: valem os contatos criados ou alterados daqui em diante.' : 'Cópia desligada.')} /> Ligada
+                  </label>
+                  {s.contact_mirror_on && <>
+                    <button className="btn sm" style={{ marginLeft: 8 }} onClick={() => espTodos(s)}>Copiar todos agora</button>
+                    <button className="btn sm" onClick={() => espAtualiza(s)} title="Ver quantos faltam">Faltam{espFalta[s.id] != null ? `: ${espFalta[s.id]}` : ''}</button>
+                  </>}
                 </Campo>
                 <Campo rotulo="WhatsApp para avisos do painel (endereço e chave)">
                   <input placeholder="https://…" style={{ width: 240 }} value={wa[s.id]?.u ?? s.wa_api_url ?? ''}
