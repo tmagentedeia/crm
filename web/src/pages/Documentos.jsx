@@ -4,8 +4,8 @@ import EditorBlocos, { NOVO_DOC } from './EditorBlocos.jsx';
 
 const TIPOS = { ingresso: 'Ingresso', contrato: 'Contrato', proposta: 'Proposta', outro: 'Outro' };
 const quando = (iso) => new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
-const ROTULOS = { nome: 'Nome do cliente', telefone: 'Telefone', empresa: 'Nome da empresa', data: 'Data de hoje', hora: 'Hora', numero: 'Número do documento', numero_curto: 'Número curto', evento: 'Evento', evento_data: 'Data do evento', abertura: 'Abertura das portas', local: 'Local', setor: 'Setor', mesa: 'Mesa', pessoa: 'Pessoa (1 de 4)', codigo: 'Código do ingresso' };
-const BASE = ['numero', 'numero_curto', 'data', 'hora', 'empresa', 'nome', 'telefone', 'text', 'qrcode', 'codigo', 'evento', 'evento_data', 'abertura', 'local', 'setor', 'mesa', 'pessoa'];
+const ROTULOS = { nome: 'Nome do cliente', telefone: 'Telefone', empresa: 'Nome da empresa', data: 'Data de hoje', hora: 'Hora', numero: 'Número do documento', numero_curto: 'Número curto', evento: 'Evento', evento_data: 'Data do evento', abertura: 'Abertura das portas', local: 'Local', endereco: 'Endereço do local', lugares_mesa: 'Lugares da mesa', comprador: 'Nome do comprador', setor: 'Setor', mesa: 'Mesa', pessoa: 'Pessoa (1 de 4)', codigo: 'Código do ingresso' };
+const BASE = ['numero', 'numero_curto', 'data', 'hora', 'empresa', 'nome', 'telefone', 'text', 'qrcode', 'codigo', 'evento', 'evento_data', 'abertura', 'local', 'endereco', 'setor', 'mesa', 'lugares_mesa', 'comprador', 'pessoa'];
 
 export default function Documentos() {
   const [st, setSt] = useState(null);
@@ -178,7 +178,7 @@ function Modelos() {
     api('/documents/settings').then((r) => setFixas(Object.keys(r.vars || {}))).catch(() => {});
   }, []);
   const variaveis = [
-    ...['nome', 'telefone', 'empresa', 'data', 'hora', 'evento', 'evento_data', 'abertura', 'local', 'setor', 'mesa', 'pessoa', 'numero', 'numero_curto', 'codigo'].map((n) => ({ nome: n, rotulo: ROTULOS[n] })),
+    ...['nome', 'telefone', 'empresa', 'data', 'hora', 'evento', 'evento_data', 'abertura', 'local', 'endereco', 'setor', 'mesa', 'lugares_mesa', 'comprador', 'pessoa', 'numero', 'numero_curto', 'codigo'].map((n) => ({ nome: n, rotulo: ROTULOS[n] })),
     ...fixas.map((n) => ({ nome: n, rotulo: `Dado fixo: ${n}` })),
   ];
 

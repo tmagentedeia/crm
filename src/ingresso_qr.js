@@ -33,7 +33,9 @@ export async function variaveisDoIngresso(saleId, seq) {
   const s = (await q(
     `SELECT s.id, s.event_id, s.name, s.people, s.guests, s.status, s.table_name, s.tables, s.host_sale_id, sec.name AS sector,
             (SELECT h.name FROM shows_sales h WHERE h.id = s.host_sale_id) AS host_name,
-            e.title, e.starts_at, e.doors_at, e.place
+            e.title, e.starts_at, e.doors_at, e.place, s.seats_each,
+            (SELECT v.address FROM shows_venues v WHERE v.id = sec.venue_id) AS venue_address,
+            (SELECT v.name FROM shows_venues v WHERE v.id = sec.venue_id) AS venue_name
      FROM shows_sales s JOIN shows_sectors sec ON sec.id = s.sector_id LEFT JOIN events e ON e.id = s.event_id WHERE s.id = $1`, [saleId])).rows[0];
   if (!s) return { erro: [404, 'Venda não encontrada'] };
   if (!Number.isInteger(n) || n < 1 || n > s.people) return { erro: [404, 'Pessoa não encontrada nessa venda'] };
@@ -46,7 +48,7 @@ export async function variaveisDoIngresso(saleId, seq) {
   return {
     nome, event_id: s.event_id || null,
     vars: {
-      qrcode: await qrHtml(codigo), codigo, evento: s.title || '', evento_data: dataBr(s.starts_at, tz), abertura: dataBr(s.doors_at, tz), local: s.place || '',
+      qrcode: await qrHtml(codigo), codigo, evento: s.title || '', evento_data: dataBr(s.starts_at, tz), abertura: dataBr(s.doors_at, tz), local: s.place || s.venue_name || '', endereco: s.venue_address || '', lugares_mesa: String(s.seats_each || ''), comprador: s.host_sale_id ? (s.host_name || s.name) : s.name,
       setor: s.sector, mesa: s.host_sale_id ? `Mesa de ${s.host_name}` : `${s.tables} × ${s.table_name}`, pessoa: `${n} de ${s.people}`,
     },
   };

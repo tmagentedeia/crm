@@ -5,6 +5,7 @@ const FONTES = {
   serif: 'Georgia,"Times New Roman",serif',
   mono: '"Courier New",monospace',
 };
+const MOLDURAS = ['nenhuma', 'simples', 'ingresso'];
 const ALINHA = ['left', 'center', 'right'];
 export const TIPOS_BLOCO = ['logo', 'titulo', 'texto', 'faixa', 'dados', 'lista', 'qrcode', 'atendente', 'espaco', 'linha'];
 const MAX_BLOCOS = 60;
@@ -26,7 +27,9 @@ export function normalizarDoc(d) {
     cor: cor(cfg.cor, '#1f2937'),
     destaque: cor(cfg.destaque, '#1f2937'),
     fundo: cor(cfg.fundo, '#ffffff'),
-    borda: cfg.borda === undefined ? true : !!cfg.borda,
+    moldura: MOLDURAS.includes(cfg.moldura) ? cfg.moldura : cfg.borda === false ? 'nenhuma' : 'simples',
+    corMoldura: cor(cfg.corMoldura, '#e6e6e6'),
+    largura: cfg.largura === 0 || cfg.largura === '0' ? 0 : num(cfg.largura, 260, 900, 0),
     margem: num(cfg.margem, 0, 80, 28),
   };
   const lista = Array.isArray(doc.blocos) ? doc.blocos.slice(0, MAX_BLOCOS) : [];
@@ -35,13 +38,13 @@ export function normalizarDoc(d) {
     if (!b || typeof b !== 'object' || !TIPOS_BLOCO.includes(b.tipo)) continue;
     const o = { tipo: b.tipo };
     switch (b.tipo) {
-      case 'logo': o.alinhamento = alinha(b.alinhamento, 'center'); o.altura = num(b.altura, 20, 220, 70); break;
+      case 'logo': o.alinhamento = alinha(b.alinhamento, 'center'); o.altura = num(b.altura, 20, 220, 70); o.largura = b.largura === 0 ? 0 : num(b.largura, 40, 600, 0); o.caixa = !!b.caixa; break;
       case 'titulo': o.texto = txt(b.texto, 300); o.tamanho = num(b.tamanho, 14, 64, 30); o.alinhamento = alinha(b.alinhamento, 'center'); o.cor = cor(b.cor, ''); o.negrito = b.negrito === undefined ? true : !!b.negrito; break;
       case 'texto': o.texto = txt(b.texto); o.tamanho = num(b.tamanho, 9, 40, 15); o.alinhamento = alinha(b.alinhamento); o.cor = cor(b.cor, ''); o.negrito = !!b.negrito; o.italico = !!b.italico; break;
       case 'faixa': o.texto = txt(b.texto, 200); o.fundo = cor(b.fundo, ''); o.cor = cor(b.cor, '#ffffff'); o.alinhamento = alinha(b.alinhamento); break;
       case 'dados': o.linhas = (Array.isArray(b.linhas) ? b.linhas.slice(0, 40) : []).map((l) => ({ rotulo: txt(l?.rotulo, 120), valor: txt(l?.valor, 400) })); o.larguraRotulo = num(b.larguraRotulo, 20, 60, 35); break;
       case 'lista': o.itens = (Array.isArray(b.itens) ? b.itens.slice(0, 40) : []).map((i) => txt(i, 400)); o.tamanho = num(b.tamanho, 9, 30, 14); break;
-      case 'qrcode': o.alinhamento = alinha(b.alinhamento, 'center'); o.mostrarCodigo = b.mostrarCodigo === undefined ? true : !!b.mostrarCodigo; break;
+      case 'qrcode': o.alinhamento = alinha(b.alinhamento, 'center'); o.caixa = !!b.caixa; o.mostrarCodigo = b.mostrarCodigo === undefined ? true : !!b.mostrarCodigo; break;
       case 'atendente': o.tamanho = num(b.tamanho, 9, 40, 16); o.alinhamento = alinha(b.alinhamento); o.negrito = !!b.negrito; break;
       case 'espaco': o.altura = num(b.altura, 4, 200, 20); break;
       case 'linha': o.cor = cor(b.cor, '#d8d8d8'); break;
@@ -53,13 +56,13 @@ export function normalizarDoc(d) {
 
 function htmlDoBloco(b, config) {
   switch (b.tipo) {
-    case 'logo': return `<div style="text-align:${b.alinhamento};margin:6px 0"><img src="{{logotipo_src}}" alt="" style="height:${b.altura}px;max-width:100%"></div>`;
+    case 'logo': return `<div style="text-align:${b.alinhamento};margin:8px 0"><div style="display:inline-block;${b.largura ? `width:${b.largura}px;max-width:100%;` : 'max-width:100%;'}height:${b.altura}px;line-height:0;${b.caixa ? 'border:1px solid #222;padding:8px;box-sizing:content-box;' : ''}"><img src="{{logotipo_src}}" alt="" style="display:block;margin:0 auto;height:100%;${b.largura ? 'width:100%;' : 'max-width:100%;'}object-fit:contain"></div></div>`;
     case 'titulo': return `<div style="font-size:${b.tamanho}px;font-weight:${b.negrito ? 'bold' : 'normal'};text-align:${b.alinhamento};margin:10px 0${b.cor ? `;color:${b.cor}` : ''}">${linhas(b.texto)}</div>`;
     case 'texto': return `<div style="font-size:${b.tamanho}px;text-align:${b.alinhamento};margin:8px 0;line-height:1.45${b.negrito ? ';font-weight:bold' : ''}${b.italico ? ';font-style:italic' : ''}${b.cor ? `;color:${b.cor}` : ''}">${linhas(b.texto)}</div>`;
     case 'faixa': return `<div style="background:${b.fundo || config.destaque};color:${b.cor};padding:8px 12px;border-radius:5px;font-size:16px;font-weight:bold;text-align:${b.alinhamento};margin:16px 0 8px">${linhas(b.texto)}</div>`;
     case 'dados': return `<table style="width:100%;border-collapse:collapse;margin:6px 0">${b.linhas.map((l) => `<tr><td style="width:${b.larguraRotulo}%;padding:8px 10px;border-bottom:1px solid #e3e3e3;background:#f7f7f7;font-weight:bold;vertical-align:top">${linhas(l.rotulo)}</td><td style="padding:8px 10px;border-bottom:1px solid #e3e3e3;vertical-align:top">${linhas(l.valor)}</td></tr>`).join('')}</table>`;
     case 'lista': return `<ul style="font-size:${b.tamanho}px;line-height:1.5;margin:8px 0;padding-left:22px">${b.itens.filter(Boolean).map((i) => `<li>${linhas(i)}</li>`).join('')}</ul>`;
-    case 'qrcode': return `<div style="text-align:${b.alinhamento};margin:16px 0">{{{qrcode}}}${b.mostrarCodigo ? '<div style="font-size:11px;color:#666;margin-top:4px">{{codigo}}</div>' : ''}</div>`;
+    case 'qrcode': return `<div style="text-align:${b.alinhamento};margin:16px 0"><div style="display:inline-block;${b.caixa ? 'border:1px solid #222;padding:10px;' : ''}">{{{qrcode}}}</div>${b.mostrarCodigo ? '<div style="font-size:11px;color:#666;margin-top:4px">{{codigo}}</div>' : ''}</div>`;
     case 'atendente': return `<div style="font-size:${b.tamanho}px;text-align:${b.alinhamento};margin:10px 0${b.negrito ? ';font-weight:bold' : ''}">{{{text}}}</div>`;
     case 'espaco': return `<div style="height:${b.altura}px"></div>`;
     case 'linha': return `<hr style="border:0;border-top:1px solid ${b.cor};margin:14px 0">`;
@@ -69,13 +72,18 @@ function htmlDoBloco(b, config) {
 
 export function blocosParaHtml(entrada, titulo = 'Documento') {
   const { config, blocos } = normalizarDoc(entrada);
-  const pagina = `font-family:${FONTES[config.fonte]};color:${config.cor};background:${config.fundo};padding:${config.margem}px${config.borda ? ';border:1px solid #d8d8d8;border-radius:14px' : ''}`;
-  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>${esc(titulo)}</title><style>body{margin:0;padding:24px;background:${config.fundo}}</style></head><body><div style="${pagina}">\n${blocos.map((b) => htmlDoBloco(b, config)).join('\n')}\n</div></body></html>`;
+  const miolo = blocos.map((b) => htmlDoBloco(b, config)).join('\n');
+  const base = `font-family:${FONTES[config.fonte]};color:${config.cor};background:${config.fundo};padding:${config.margem}px`;
+  const largura = config.largura ? `max-width:${config.largura}px;margin:0 auto;` : '';
+  let corpo;
+  if (config.moldura === 'ingresso') corpo = `<div style="${largura}background:${config.corMoldura};border:3px solid #222;border-radius:26px;padding:14px"><div style="${base};border:1px solid #222">\n${miolo}\n</div></div>`;
+  else corpo = `<div style="${largura}${base}${config.moldura === 'simples' ? ';border:1px solid #d8d8d8;border-radius:14px' : ''}">\n${miolo}\n</div>`;
+  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>${esc(titulo)}</title><style>body{margin:0;padding:24px;background:${config.moldura === 'nenhuma' ? config.fundo : '#ffffff'}}</style></head><body>${corpo}</body></html>`;
 }
 
 // ---------- modelos de exemplo feitos de blocos ----------
 export const INGRESSO_EXEMPLO = {
-  config: { fonte: 'sans', cor: '#1f2937', destaque: '#111827', fundo: '#ffffff', borda: true, margem: 28 },
+  config: { fonte: 'sans', cor: '#1f2937', destaque: '#111827', fundo: '#ffffff', moldura: 'simples', margem: 28 },
   blocos: [
     { tipo: 'logo', alinhamento: 'center', altura: 80 },
     { tipo: 'titulo', texto: 'INGRESSO', tamanho: 34, alinhamento: 'center', negrito: true },
@@ -97,5 +105,23 @@ export const INGRESSO_EXEMPLO = {
     { tipo: 'texto', texto: 'Ingresso Nº #{{numero_curto}}', tamanho: 18, alinhamento: 'center', negrito: true },
     { tipo: 'faixa', texto: 'Informações importantes', cor: '#ffffff', alinhamento: 'left' },
     { tipo: 'lista', tamanho: 14, itens: ['Apresente o QR Code na entrada, em papel ou no celular.', 'Este ingresso é pessoal e tem validade única.'] },
+  ],
+};
+
+// Ingresso vertical, no formato de um bilhete: moldura de ingresso, logotipo, evento, quem entra e o QR Code
+export const INGRESSO_VERTICAL = {
+  config: { fonte: 'sans', cor: '#111111', destaque: '#111111', fundo: '#ffffff', moldura: 'ingresso', largura: 380, margem: 22 },
+  blocos: [
+    { tipo: 'titulo', texto: 'INGRESSO', tamanho: 36, alinhamento: 'center', negrito: true },
+    { tipo: 'logo', alinhamento: 'center', altura: 90, largura: 240, caixa: true },
+    { tipo: 'espaco', altura: 6 },
+    { tipo: 'titulo', texto: '{{evento}}', tamanho: 24, alinhamento: 'center', negrito: true },
+    { tipo: 'texto', texto: '{{evento_data}}', tamanho: 17, alinhamento: 'center', negrito: true },
+    { tipo: 'texto', texto: '{{local}}\n{{endereco}}', tamanho: 15, alinhamento: 'center', negrito: true },
+    { tipo: 'espaco', altura: 6 },
+    { tipo: 'titulo', texto: '{{nome}}', tamanho: 24, alinhamento: 'center', negrito: true },
+    { tipo: 'texto', texto: '{{setor}}\nMesa para {{lugares_mesa}} lugares\nComprador: {{comprador}}', tamanho: 16, alinhamento: 'center', negrito: true },
+    { tipo: 'qrcode', alinhamento: 'center', caixa: true, mostrarCodigo: true },
+    { tipo: 'texto', texto: 'Apresente este QR Code na entrada, em papel ou no celular.\nIngresso pessoal e de uso único.', tamanho: 12, alinhamento: 'center', cor: '#444444' },
   ],
 };

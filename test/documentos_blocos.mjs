@@ -78,6 +78,15 @@ check('ingresso de exemplo vem em blocos', ti.blocks?.blocos?.some((b) => b.tipo
 const pi = (await api('POST', '/documents/preview', { blocks: ti.blocks })).body;
 check('ingresso de exemplo mostra logotipo e dados', pi.html.includes(PNG) && pi.html.includes('Show de exemplo') && pi.html.includes('Pista'));
 
+// ingresso vertical: moldura de bilhete, cores e áreas do logotipo e do QR
+const vert = (await api('GET', '/documents/templates')).body.find((x) => x.name.startsWith('Ingresso vertical'));
+const tv = (await api('GET', `/documents/templates/${vert.id}`)).body;
+check('ingresso vertical é por blocos com moldura de bilhete', tv.blocks.config.moldura === 'ingresso' && tv.blocks.config.largura === 380);
+const pvv = (await api('POST', '/documents/preview', { blocks: { ...tv.blocks, config: { ...tv.blocks.config, corMoldura: '#ffcc00', fundo: '#f0f0ff', cor: '#003366' } } })).body;
+check('cores da moldura, do miolo e do texto', pvv.html.includes('background:#ffcc00') && pvv.html.includes('background:#f0f0ff') && pvv.html.includes('color:#003366'));
+check('logotipo em área fixa sem distorcer', pvv.html.includes('object-fit:contain') && pvv.html.includes('width:240px'));
+check('endereço, comprador e lugares da mesa na prévia', pvv.html.includes('Rua Exemplo, 100') && pvv.html.includes('João da Silva') && pvv.html.includes('Mesa para 4 lugares'));
+
 // PDF gerado usa o logotipo
 const g = await api('POST', '/documents/generate', { template: String(ing.id), name: 'Joana' });
 check('gera PDF do modelo por blocos', g.status === 201, JSON.stringify(g.body));

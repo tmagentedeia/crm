@@ -3,7 +3,7 @@ import { api } from '../api.js';
 
 // Editor visual dos modelos de documento: o modelo é uma lista de blocos que o cliente move, ajusta e preenche sem código.
 export const NOVO_DOC = {
-  config: { fonte: 'sans', cor: '#1f2937', destaque: '#1f2937', fundo: '#ffffff', borda: true, margem: 28 },
+  config: { fonte: 'sans', cor: '#1f2937', destaque: '#1f2937', fundo: '#ffffff', moldura: 'simples', largura: 0, margem: 28 },
   blocos: [
     { tipo: 'logo', alinhamento: 'center', altura: 70 },
     { tipo: 'titulo', texto: 'Título do documento', tamanho: 30, alinhamento: 'center', negrito: true },
@@ -89,7 +89,9 @@ export default function EditorBlocos({ doc, onChange, variaveis, logo }) {
       case 'logo': return (
         <div style={cx}>
           <Alinha valor={b.alinhamento} aoMudar={(v) => up({ alinhamento: v })} />
-          <Num rotulo="Altura (px)" valor={b.altura} min={20} max={220} aoMudar={(v) => up({ altura: v })} />
+          <Num rotulo="Altura da área (px)" valor={b.altura} min={20} max={220} aoMudar={(v) => up({ altura: v })} />
+          <Num rotulo="Largura da área (0 = automática)" valor={b.largura || 0} min={0} max={600} aoMudar={(v) => up({ largura: v && v < 40 ? 40 : v })} />
+          <Marca rotulo="Moldura ao redor" valor={b.caixa} aoMudar={(v) => up({ caixa: v })} />
           {!logo && <span className="muted" style={{ fontSize: 13 }}>Logotipo ainda não enviado (veja o aviso no topo).</span>}
         </div>);
       case 'titulo': return (
@@ -146,6 +148,7 @@ export default function EditorBlocos({ doc, onChange, variaveis, logo }) {
       case 'qrcode': return (
         <div style={cx}>
           <Alinha valor={b.alinhamento} aoMudar={(v) => up({ alinhamento: v })} />
+          <Marca rotulo="Moldura ao redor" valor={b.caixa} aoMudar={(v) => up({ caixa: v })} />
           <Marca rotulo="Mostrar o código escrito abaixo" valor={b.mostrarCodigo} aoMudar={(v) => up({ mostrarCodigo: v })} />
           <span className="muted" style={{ fontSize: 13 }}>O QR Code é gerado sozinho para cada ingresso.</span>
         </div>);
@@ -179,9 +182,13 @@ export default function EditorBlocos({ doc, onChange, variaveis, logo }) {
               <select value={doc.config.fonte} onChange={(e) => setCfg({ fonte: e.target.value })}>{FONTES.map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></div>
             <Cor rotulo="Cor do texto" valor={doc.config.cor} padrao="#1f2937" aoMudar={(v) => setCfg({ cor: v || '#1f2937' })} />
             <Cor rotulo="Cor de destaque" valor={doc.config.destaque} padrao="#1f2937" aoMudar={(v) => setCfg({ destaque: v || '#1f2937' })} />
-            <Cor rotulo="Fundo" valor={doc.config.fundo} padrao="#ffffff" aoMudar={(v) => setCfg({ fundo: v || '#ffffff' })} />
+            <Cor rotulo="Fundo do miolo" valor={doc.config.fundo} padrao="#ffffff" aoMudar={(v) => setCfg({ fundo: v || '#ffffff' })} />
+            {doc.config.moldura === 'ingresso' && <Cor rotulo="Cor da moldura" valor={doc.config.corMoldura} padrao="#e6e6e6" aoMudar={(v) => setCfg({ corMoldura: v || '#e6e6e6' })} />}
             <Num rotulo="Margem (px)" valor={doc.config.margem} min={0} max={80} aoMudar={(v) => setCfg({ margem: v })} />
-            <Marca rotulo="Moldura" valor={doc.config.borda} aoMudar={(v) => setCfg({ borda: v })} />
+            <div className="field"><label>Moldura</label>
+              <select value={doc.config.moldura || (doc.config.borda === false ? 'nenhuma' : 'simples')} onChange={(e) => setCfg({ moldura: e.target.value })}>
+                <option value="nenhuma">Sem moldura</option><option value="simples">Simples</option><option value="ingresso">Bilhete de ingresso</option></select></div>
+            <Num rotulo="Largura (px, 0 = toda)" valor={doc.config.largura || 0} min={0} max={900} aoMudar={(v) => setCfg({ largura: v && v < 260 ? 260 : v })} />
           </div>
         </div>
         <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 8, alignItems: 'center' }}>

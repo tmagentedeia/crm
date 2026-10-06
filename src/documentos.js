@@ -6,7 +6,7 @@ import { q, qg, runAs, currentCompany } from './db.js';
 import { normPhone } from './phone.js';
 import { isAdmin } from './auth.js';
 import { variaveisDoIngresso, qrHtml } from './ingresso_qr.js';
-import { blocosParaHtml, normalizarDoc, INGRESSO_EXEMPLO } from './doc_blocos.js';
+import { blocosParaHtml, normalizarDoc, INGRESSO_EXEMPLO, INGRESSO_VERTICAL } from './doc_blocos.js';
 
 export const DOCUMENTOS_SQL = `
   CREATE TABLE IF NOT EXISTS doc_templates (
@@ -139,6 +139,10 @@ export const EXEMPLOS = [
   {
     kind: 'ingresso', name: 'Ingresso (exemplo)', blocks: INGRESSO_EXEMPLO,
     html: blocosParaHtml(INGRESSO_EXEMPLO, 'Ingresso'),
+  },
+  {
+    kind: 'ingresso', name: 'Ingresso vertical (exemplo)', blocks: INGRESSO_VERTICAL,
+    html: blocosParaHtml(INGRESSO_VERTICAL, 'Ingresso'),
   },
   {
     kind: 'proposta', name: 'Proposta comercial (exemplo)',
@@ -281,7 +285,7 @@ export function registerDocumentRoutes(r, wrap) {
   r.post('/documents/preview', soAdmin(async (req, res) => {
     const html = req.body?.blocks && typeof req.body.blocks === 'object' ? blocosParaHtml(req.body.blocks) : typeof req.body?.html === 'string' ? req.body.html : '';
     if (!html || html.length > HTML_MAX) return res.status(400).json({ error: 'Modelo inválido' });
-    const vars = { ...variaveisBase(), nome: 'Maria da Silva', telefone: '5532999990000', empresa: 'Sua empresa', qrcode: await qrHtml('TMI-0-0-0-000000000000', 120), codigo: 'TMI-0-0-0-000000000000', evento: 'Show de exemplo', evento_data: '10/10/2026 21:00', abertura: '10/10/2026 19:00', local: 'Casa de exemplo', setor: 'Pista', mesa: '1 × Mesa 4 lugares', pessoa: '1 de 4', text: '<ul><li>Item de exemplo: valor</li><li>Outro item: valor</li></ul>', ...(await varsLogo()), ...(await varsFixas()), ...lerVars(req.body?.vars) };
+    const vars = { ...variaveisBase(), nome: 'Maria da Silva', telefone: '5532999990000', empresa: 'Sua empresa', qrcode: await qrHtml('TMI-0-0-0-000000000000', 120), codigo: 'TMI-0-0-0-000000000000', evento: 'Show de exemplo', evento_data: '10/10/2026 21:00', abertura: '10/10/2026 19:00', local: 'Casa de exemplo', endereco: 'Rua Exemplo, 100 - Centro', lugares_mesa: '4', comprador: 'João da Silva', setor: 'Pista', mesa: '1 × Mesa 4 lugares', pessoa: '1 de 4', text: '<ul><li>Item de exemplo: valor</li><li>Outro item: valor</li></ul>', ...(await varsLogo()), ...(await varsFixas()), ...lerVars(req.body?.vars) };
     const usadas = variaveisDe(html);
     const vazias = usadas.filter((k) => !(k in vars));
     res.json({ html: renderizar(html, vars), missing: vazias });
