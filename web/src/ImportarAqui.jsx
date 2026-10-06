@@ -109,12 +109,12 @@ export default function ImportarAqui({ tipo, onFeito }) {
             {err && <div className="error">{err}</div>}
             {rows.length > 0 && <p><strong>{rows.length}</strong> linha(s) prontas. <button className="btn sm" onClick={() => { setRows([]); setRep(null); }}>Limpar</button></p>}
             <div className="row" style={{ gap: 8 }}>
-              <button className="btn" disabled={!rows.length || busy} onClick={() => rodar(true)}>Conferir (não grava)</button>
-              <button className="btn primary" disabled={!rows.length || busy || !rep?.dry_run} onClick={() => rodar(false)}>Importar de verdade</button>
+              <button className="btn" disabled={!rows.length || busy} onClick={() => rodar(true)}>1. Conferir (só simula, não grava)</button>
+              <button className="btn primary" disabled={!rows.length || busy || !rep?.dry_run} onClick={() => rodar(false)}>2. Importar de verdade</button>
             </div>
             {rep && (
               <div style={{ marginTop: 12 }}>
-                <p><strong>{rep.dry_run ? 'Simulação — nada foi gravado ainda' : 'Importação concluída'}</strong>: {resumo}</p>
+                <p><strong>{rep.dry_run ? 'SIMULAÇÃO — nada foi gravado ainda. Se estiver certo, clique em "2. Importar de verdade".' : 'Importação concluída (gravado)'}</strong>: {resumo}</p>
                 {rep.ignored_columns?.length > 0 && <p className="muted">Colunas não usadas: {rep.ignored_columns.join(', ')}.</p>}
                 {rep.errors?.length > 0 && <div className="error"><strong>Linhas ignoradas ({rep.errors.length}):</strong><ul>{rep.errors.map((x, i) => <li key={i}>{x}</li>)}</ul></div>}
                 {rep.warnings?.length > 0 && <div className="muted"><strong>Avisos:</strong><ul>{rep.warnings.map((x, i) => <li key={i}>{x}</li>)}</ul></div>}
