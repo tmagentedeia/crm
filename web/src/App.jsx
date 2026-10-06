@@ -27,7 +27,8 @@ import Documentos from './pages/Documentos.jsx';
 import Beneficios from './pages/Beneficios.jsx';
 import { moduleOn } from './modules.js';
 import UpgradeModal from './UpgradeModal.jsx';
-import { IconeCadeado, IconeSair, IconeTema } from './icones.jsx';
+import { IconeCadeado, IconeChave, IconeSair, IconeTema } from './icones.jsx';
+import SenhaModal from './SenhaModal.jsx';
 import ListaDoEvento from './pages/ListaDoEvento.jsx';
 import { MenuCustomContext, nomeDoMenu, iconeDoMenu } from './menu.jsx';
 
@@ -80,6 +81,7 @@ export default function App() {
   const [page, setPage] = useState(() => location.hash.slice(1) || 'dashboard');
   const [nomeProg, setNomeProg] = useState('');
   const [upgrade, setUpgrade] = useState(null); // nome da função apagada que a pessoa tocou
+  const [trocaSenha, setTrocaSenha] = useState(false); // janela "Alterar minha senha"
   const [collapsed, setCollapsed] = useState(window.innerWidth < 760);
   const [company, setCompany] = useState(() => lerEmpresa());
   const [theme, setTheme] = useState(() => localStorage.getItem('crm_theme') ||
@@ -176,6 +178,11 @@ export default function App() {
           </a>
         ))}
         <div className="spacer" />
+        {!modoAdmin && (
+          <button className="nav-item" onClick={() => { setTrocaSenha(true); if (window.innerWidth < 760) setCollapsed(true); }}>
+            <span className="nav-icon" style={{ display: 'inline-flex', justifyContent: 'center' }}><IconeChave /></span><span>Alterar senha</span>
+          </button>
+        )}
         <button className="nav-item" onClick={() => { setToken(null); localStorage.removeItem(ADMIN_KEY); localStorage.removeItem('crm_company'); setLogged(false); }}>
           <span className="nav-icon" style={{ display: 'inline-flex', justifyContent: 'center' }}><IconeSair /></span><span>Sair</span>
         </button>
@@ -201,6 +208,7 @@ export default function App() {
         <Current company={company} menu={menuDasTelas} rotulos={rotulosTelas} />
       </main>
       {upgrade && <UpgradeModal company={company} nome={upgrade} onClose={() => setUpgrade(null)} />}
+      {trocaSenha && <SenhaModal onClose={() => setTrocaSenha(false)} />}
     </div>
     </MenuCustomContext.Provider>
   );

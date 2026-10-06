@@ -5,6 +5,7 @@
 #  - modelos.mjs: salvar como modelo e começar do modelo
 #  - acesso_admin.mjs: "abrir painel" do administrador
 #  - sessao.mjs: sessão do painel renova com o uso
+#  - senha.mjs: cada pessoa (dono ou equipe) troca a própria senha
 #  - venda.mjs: venda com valor (pagamento aceito ou pedido pago) vira cliente
 #  - bloqueios.mjs: lista de atendimentos bloqueados (precisa do redis-server instalado)
 #  - chave_global.mjs: chave global desligada com ALLOW_GLOBAL_KEY=false (segundo servidor, porta 3998)
@@ -133,6 +134,7 @@ BASE=http://localhost:3999 node test/restaurante.mjs || R=1
 BASE=http://localhost:3999 node test/modelos.mjs || R=1
 BASE=http://localhost:3999 node test/acesso_admin.mjs || R=1
 BASE=http://localhost:3999 node test/sessao.mjs || R=1
+BASE=http://localhost:3999 node test/senha.mjs || R=1
 BASE=http://localhost:3999 node test/bloqueios.mjs || R=1
 BASE=http://localhost:3999 node test/confirmacao.mjs || R=1
 BASE=http://localhost:3999 node test/clube.mjs || R=1

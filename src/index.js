@@ -61,6 +61,24 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
+// Cada pessoa troca a própria senha (dono ou equipe): informa a atual e define a nova.
+// Não vale no acesso temporário do administrador ("Abrir painel"): ali a sessão é do responsável da empresa, e quem entrou não sabe a senha dele.
+app.post('/api/auth/password', requireUser, async (req, res) => {
+  if (req.user.imp) return res.status(403).json({ error: 'Você está vendo o painel desta empresa como administrador. A senha só pode ser trocada pelo próprio usuário.' });
+  const atual = String(req.body.current || '');
+  const nova = String(req.body.password || '');
+  if (!atual) return res.status(400).json({ error: 'Informe a senha atual' });
+  if (nova.length < 8) return res.status(400).json({ error: 'A senha nova precisa ter ao menos 8 caracteres' });
+  if (nova.length > 200) return res.status(400).json({ error: 'A senha nova é longa demais' });
+  try {
+    const u = (await qg('SELECT id, company_id, role, active, password_hash FROM users WHERE id=$1', [req.user.id])).rows[0];
+    if (!u || !u.active) return res.status(401).json({ error: 'Sessão inválida ou expirada' });
+    if (!(await bcrypt.compare(atual, u.password_hash))) return res.status(400).json({ error: 'A senha atual está incorreta' });
+    if (nova === atual) return res.status(400).json({ error: 'A senha nova precisa ser diferente da atual' });
+    await qg('UPDATE users SET password_hash=$2 WHERE id=$1', [u.id, await bcrypt.hash(nova, 10)]);
+    res.json({ ok: true, token: signToken(u) });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Erro interno' }); }
+});
 
 // Contato e texto do aviso de "função de outro plano" (definidos pelo administrador, valem para todas as empresas)
 async function upgradeInfo() {
