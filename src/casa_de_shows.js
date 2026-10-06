@@ -484,14 +484,54 @@ export function registerCasaDeShowsRoutes(r, wrap) {
       message: `Enviei ${enviados} ingresso(s) em PDF ao cliente, um para cada pessoa, com o nome no arquivo.` + (falharam.length ? ` Não consegui emitir o de ${falharam.join(', ')}: o nome está na lista e isso basta; ele pode pedir de novo outro dia.` : '') + ' O ingresso é só uma comodidade, a entrada é confirmada pelo nome.' });
   }));
 
+  // Nomes que valem hoje na lista de uma venda (o que foi editado pela equipe ou pela troca vale mais que o cadastro original)
+  const nomesAtuais = async (v) => {
+    const base = nomesDe(v.guests);
+    const at = (await q('SELECT seq, name FROM shows_attendees WHERE sale_id=$1 AND name IS NOT NULL', [v.id])).rows;
+    return Array.from({ length: v.people }, (_, i) => at.find((a) => Number(a.seq) === i + 1)?.name || base[i] || (i === 0 ? v.name : `Acompanhante de ${v.name}`));
+  };
+  // Troca de nome pelo atendente: só vale para quem comprou (o telefone da conversa é o do comprador) e só dentro das compras dele.
+  // Um nome igual na mesa de outro comprador nunca é tocado.
+  r.post('/casa-de-shows/sales/rename', comTratamento(async (req, res) => {
+    const b = req.body || {};
+    const nao = (message) => res.json({ ok: false, message });
+    const phone = normPhone(String(b.phone || '').replace(/@.*/, ''));
+    if (!/^\d{8,15}$/.test(phone)) return nao('Não consegui identificar o telefone do cliente.');
+    const antigo = txt(b.old_name, 120), novo = txt(String(b.new_name ?? '').replace(/\s+/g, ' '), 120);
+    if (!antigo || !novo) return nao('Preciso do nome que está na lista e do nome novo, com sobrenome.');
+    if (semAcento(novo).split(/\s+/).length < 2) return nao('Peça o nome novo com sobrenome, do jeito que vai entrar na lista.');
+    const a = [phone, OCUPAM]; let w = `v.phone = $1 AND v.status = ANY($2) AND (v.event_id IS NULL OR COALESCE(e.ends_at, e.starts_at + interval '3 hours') > now())`;
+    if (semAcento(b.event)) { const e = await eventoPorTexto(b.event); if (e.erro) return nao(e.erro); a.push(e.id); w += ` AND v.event_id = $${a.length}`; }
+    const vendas = (await q(`${VENDA} WHERE ${w} ORDER BY v.id DESC LIMIT 10`, a)).rows;
+    if (!vendas.length) return nao('Este telefone não tem compra de ingresso para os próximos eventos. Só quem comprou pode trocar nomes da lista; se for outra pessoa, peça para o comprador falar com você.');
+    const todos = [];
+    for (const v of vendas) (await nomesAtuais(v)).forEach((nome, i) => todos.push({ v, seq: i + 1, nome }));
+    const alvo = semAcento(antigo).replace(/\s+/g, ' ');
+    let achou = todos.filter((x) => semAcento(x.nome).replace(/\s+/g, ' ') === alvo);
+    if (!achou.length) { const pal = alvo.split(' '); achou = todos.filter((x) => { const n = semAcento(x.nome); return pal.every((p) => n.includes(p)); }); }
+    const onde = (x) => `${x.v.event_title || x.v.date}, ${x.v.sector_name}`;
+    if (!achou.length) return nao('Não achei esse nome nas compras deste cliente. Nomes na lista dele: ' + todos.map((x) => `${x.nome} (${onde(x)})`).join('; ') + '. Confirme com o cliente qual nome ele quer trocar.');
+    if (achou.length > 1) return nao('Achei mais de um nome parecido nas compras deste cliente: ' + achou.map((x) => `${x.nome} (${onde(x)})`).join('; ') + '. Pergunte qual deles é e, se for de eventos diferentes, informe o evento.');
+    const { v, seq, nome } = achou[0];
+    const at = (await q('SELECT entered_at FROM shows_attendees WHERE sale_id=$1 AND seq=$2', [v.id, seq])).rows[0];
+    if (at?.entered_at) return nao(`${nome} já entrou na casa, então o nome não pode mais ser trocado por aqui.`);
+    await q('INSERT INTO shows_attendees (sale_id, seq) VALUES ($1,$2) ON CONFLICT DO NOTHING', [v.id, seq]);
+    await q('UPDATE shows_attendees SET name=$3 WHERE sale_id=$1 AND seq=$2', [v.id, seq, novo]);
+    const linhas = nomesDe(v.guests);
+    if (linhas[seq - 1] !== undefined) { linhas[seq - 1] = novo; await q('UPDATE shows_sales SET guests=$2 WHERE id=$1', [v.id, linhas.join('\n')]); }
+    if (v.event_id) await q('INSERT INTO shows_attendee_log (event_id, sale_id, seq, person, actor, action, detail) VALUES ($1,$2,$3,$4,$5,$6,$7)', [v.event_id, v.id, seq, nome, 'IA', 'edicao', `nome: ${novo} (pedido pelo comprador, antes: ${nome})`]);
+    res.json({ ok: true, sale_id: v.id, from: nome, to: novo, message: `Troquei "${nome}" por "${novo}" na lista (${onde({ v })}). Se o cliente quiser o ingresso com o nome novo, use Enviar Ingressos; o PDF antigo continua com o nome antigo, mas na portaria vale o nome da lista.` });
+  }));
+
   // O que o cliente já comprou (pelo telefone): serve para o atendente conferir uma compra ou ver os nomes da lista
   r.get('/casa-de-shows/sales/by-phone', comTratamento(async (req, res) => {
     const phone = normPhone(String(req.query.phone || '').replace(/@.*/, ''));
     if (!/^\d{8,15}$/.test(phone)) return res.json({ ok: false, message: 'Telefone inválido.' });
     const vs = (await q(`${VENDA} WHERE v.phone=$1 AND v.status = ANY($2) AND (v.event_id IS NULL OR COALESCE(e.ends_at, e.starts_at + interval '3 hours') > now()) ORDER BY v.id DESC LIMIT 5`, [phone, OCUPAM])).rows;
     if (!vs.length) return res.json({ ok: true, sales: [], message: 'Este cliente não tem ingresso comprado para os próximos eventos.' });
-    const linhas = vs.map((v) => `- ${v.event_title || v.date}, ${v.sector_name}: ${v.people} pessoa(s) em ${v.tables} mesa(s) de ${v.seats_each} lugares. Nomes na lista: ${nomesDe(v.guests).join(', ') || v.name}. Pago: ${dinheiroBr(v.paid)}.`);
-    res.json({ ok: true, sales: vs.map((v) => ({ sale_id: v.id, event: v.event_title, sector: v.sector_name, people: v.people, names: nomesDe(v.guests), paid: v.paid })), message: 'Compras deste cliente:\n' + linhas.join('\n') });
+    for (const v of vs) v.nomes = await nomesAtuais(v);
+    const linhas = vs.map((v) => `- ${v.event_title || v.date}, ${v.sector_name}: ${v.people} pessoa(s) em ${v.tables} mesa(s) de ${v.seats_each} lugares. Nomes na lista: ${v.nomes.join(', ')}. Pago: ${dinheiroBr(v.paid)}.`);
+    res.json({ ok: true, sales: vs.map((v) => ({ sale_id: v.id, event: v.event_title, sector: v.sector_name, people: v.people, names: v.nomes, paid: v.paid })), message: 'Compras deste cliente:\n' + linhas.join('\n') });
   }));
 
   // Envio: { kind: 'map' | 'photo', sector_id (fotos), caption, data: "data:image/jpeg;base64,..." }

@@ -77,6 +77,33 @@ recebidos.length = 0;
 r = await ia('POST', '/casa-de-shows/sales/send-tickets', { number: fone + '@s.whatsapp.net', phone: fone, event: ev.title });
 check('nome trocado gera ingresso novo com o nome novo', recebidos.some((x) => x.body.docName === 'Ingresso - Beatriz Souza.pdf'), JSON.stringify(recebidos.map((d) => d.body.docName)));
 
+// ---- troca de nome: só o comprador, só nas compras dele ----
+const fone2 = '5532966' + String(marca).padStart(6, '0').slice(-6);
+const outra = await ia('POST', '/casa-de-shows/sales/register', { event: ev.title, sector: setor.name, names: ['Ana Souza', 'Duda Lima'], phone: fone2 });
+check('outro comprador com o mesmo nome na mesa dele', outra.status === 201, JSON.stringify(outra.body));
+r = await ia('POST', '/casa-de-shows/sales/rename', { phone: '5532900011122', old_name: 'Ana Souza', new_name: 'Ana Maria Souza' });
+check('quem não comprou não troca nada', r.body.ok === false && /não tem compra/.test(r.body.message), JSON.stringify(r.body));
+r = await ia('POST', '/casa-de-shows/sales/rename', { phone: fone, old_name: 'Zeca Nunes', new_name: 'Zeca Silva' });
+check('nome que não está nas compras dele lista os nomes dele', r.body.ok === false && /Ana Souza/.test(r.body.message) && !/Duda/.test(r.body.message), JSON.stringify(r.body));
+r = await ia('POST', '/casa-de-shows/sales/rename', { phone: fone, old_name: 'Caio Souza', new_name: 'Caio' });
+check('novo nome precisa de sobrenome', r.body.ok === false && /sobrenome/.test(r.body.message), JSON.stringify(r.body));
+r = await ia('POST', '/casa-de-shows/sales/rename', { phone: fone, old_name: 'Ana Souza', new_name: 'Ana Paula Souza' });
+check('o comprador troca o próprio nome da lista', r.body.ok === true && r.body.to === 'Ana Paula Souza', JSON.stringify(r.body));
+const lista2 = (await api('GET', `/event-list?event_id=${ev.id}`)).body.rows.map((x) => x.name);
+check('trocou só na compra dele', lista2.includes('Ana Paula Souza') && lista2.filter((n) => n === 'Ana Souza').length === 1 && lista2.includes('Duda Lima'), JSON.stringify(lista2));
+r = await ia('GET', `/casa-de-shows/sales/by-phone?phone=${fone}`);
+check('a consulta mostra o nome novo', /Ana Paula Souza/.test(r.body.message) && !/Ana Souza,/.test(r.body.message), r.body.message);
+r = await ia('GET', `/casa-de-shows/sales/by-phone?phone=${fone2}`);
+check('a compra do outro continua com o nome dele', /Ana Souza/.test(r.body.message) && !/Paula/.test(r.body.message), r.body.message);
+r = await ia('POST', '/casa-de-shows/sales/rename', { phone: fone, old_name: 'Souza', new_name: 'Fulana Souza' });
+check('nome parecido com mais de um pede para escolher', r.body.ok === false && /mais de um/.test(r.body.message), JSON.stringify(r.body));
+psql(`insert into company_1.shows_attendees (sale_id, seq, entered_at) values (${sid}, 3, now()) on conflict (sale_id, seq) do update set entered_at = now()`);
+r = await ia('POST', '/casa-de-shows/sales/rename', { phone: fone, old_name: 'Caio Souza', new_name: 'Caio Silva' });
+check('quem já entrou não troca', r.body.ok === false && /já entrou/.test(r.body.message), JSON.stringify(r.body));
+psql(`update company_1.shows_attendees set entered_at = null where sale_id=${sid} and seq=3`);
+check('a troca ficou no histórico', Number(psql(`select count(*) from company_1.shows_attendee_log where sale_id=${sid} and detail like '%pedido pelo comprador%'`)) === 1);
+psql(`update company_1.shows_attendees set name=null where sale_id=${sid} and seq=1`);
+
 // falha no WhatsApp: o nome continua salvo e a mensagem tranquiliza
 falhar = true; recebidos.length = 0;
 r = await ia('POST', '/casa-de-shows/sales/send-tickets', { number: fone + '@s.whatsapp.net', phone: fone, event: ev.title });
