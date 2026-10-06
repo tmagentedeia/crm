@@ -13,6 +13,7 @@ import { CASA_DE_SHOWS_SQL, SHOWS_MEDIA_SQL, SHOWS_PAGAMENTOS_SQL, SHOWS_RENOMEA
 import { ANIVERSARIO_SQL } from './aniversario.js';
 import { CONTATOS_SQL } from './contatos.js';
 import { ESPELHO_SQL } from './espelho_contatos.js';
+import { CAMPOS_EXTRA_SQL } from './planilha_contatos.js';
 import { DOCUMENTOS_SQL, DOC_FILES_VENDA_SQL, DOC_BLOCOS_SQL, DOC_VAGAS_SQL } from './documentos.js';
 import { DELIVERY_SQL } from './delivery.js';
 import { RESTAURANTE_SQL } from './restaurante.js';
@@ -208,6 +209,8 @@ export const TENANT_STEPS = [
   { version: 50, sql: ESPELHO_SQL },
   // 51: o espelho também acompanha o plano do Clube
   { version: 51, sql: ESPELHO_SQL },
+  // 52: campos personalizados do contato (colunas extras da planilha importada)
+  { version: 52, sql: CAMPOS_EXTRA_SQL },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 
@@ -258,6 +261,7 @@ export async function createCompanySchema(cx, companyId) {
   await cx.query(SHOWS_LISTA_QR_SQL);
   await cx.query(CONTATOS_SQL);
   await cx.query(ESPELHO_SQL);
+  await cx.query(CAMPOS_EXTRA_SQL);
   await cx.query('SET LOCAL search_path TO public');
   await cx.query('INSERT INTO tenant_versions (company_id, version) VALUES ($1, 1)', [companyId]);
 }

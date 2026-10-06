@@ -23,7 +23,7 @@ const rows = [
 const sim = (await call('POST', '/api/import', T, { customers: rows, dry_run: true })).body;
 check('simulação conta 6 novos', sim.customers.created === 6 && sim.dry_run === true, JSON.stringify(sim.customers));
 check('telefone ruim vira erro', sim.errors.length === 1 && /telefone/.test(sim.errors[0]), JSON.stringify(sim.errors));
-check('colunas não usadas listadas', sim.ignored_columns.includes('Pedidos') && sim.ignored_columns.includes('Status envio') && !sim.ignored_columns.includes('Plano'), JSON.stringify(sim.ignored_columns));
+check('colunas não usadas listadas', sim.extra_columns.includes('Pedidos') && sim.extra_columns.includes('Status envio') && !sim.extra_columns.includes('Plano'), JSON.stringify(sim.ignored_columns));
 check('avisa nível que não existe', sim.warnings.some((w) => /Nível 99/.test(w)), JSON.stringify(sim.warnings));
 check('avisa data inválida', sim.warnings.some((w) => /31\/04/.test(w)), JSON.stringify(sim.warnings));
 check('simulação não grava', (await call('GET', '/api/customers?search=Teste', T)).body.filter((c) => c.last_name === 'Um').length === 0);
@@ -77,7 +77,20 @@ await call('POST', '/api/import', T, { customers: [{ Nome: 'Jf', Sobrenome: 'Con
 const j2b = await por('553299992002'), j1b = await por('553299992001');
 check('reimportar promove o lead a cliente', j2b.status === 'client' && j2b.client_kinds.join() === 'buyer');
 check('reimportar soma perfis sem perder o anterior', [...j1b.client_kinds].sort().join() === 'buyer,hirer', JSON.stringify(j1b.client_kinds));
-check('ignora as colunas que o painel não usa', !(await call('POST', '/api/import', T, { customers: [{ Nome: 'X', Telefone: '553299992009', Assunto: 'a', Recados: 'b' }], dry_run: true })).body.ignored_columns.includes('Recados'));
+check('ignora as colunas que o painel não usa', !(await call('POST', '/api/import', T, { customers: [{ Nome: 'X', Telefone: '553299992009', Assunto: 'a', Recados: 'b' }], dry_run: true })).body.extra_columns.includes('Recados'));
 
+
+// colunas extras viram campos personalizados da ficha; reimportar mescla sem apagar os outros
+const ex1 = (await call('POST', '/api/import', T, { customers: [{ Nome: 'Extra', Telefone: '553299993001', Instrumento: 'Violão', Origem: 'Show' }] })).body;
+check('extras: colunas listadas', ex1.extra_columns.join() === 'Instrumento,Origem', JSON.stringify(ex1.extra_columns));
+const exc = (await call('GET', '/api/customers/by-phone/553299993001', T)).body;
+check('extras: guardados na ficha', exc.extra?.Instrumento === 'Violão' && exc.extra?.Origem === 'Show', JSON.stringify(exc.extra));
+await call('POST', '/api/import', T, { customers: [{ Nome: 'Extra', Telefone: '553299993001', Instrumento: 'Piano' }] });
+const exd = (await call('GET', '/api/customers/by-phone/553299993001', T)).body;
+check('extras: reimportar atualiza e mantém os outros', exd.extra?.Instrumento === 'Piano' && exd.extra?.Origem === 'Show', JSON.stringify(exd.extra));
+await call('PUT', '/api/customers/' + exd.id, T, { extra: { Origem: 'Indicação' } });
+check('extras: editar na ficha', (await call('GET', '/api/customers/' + exd.id, T)).body.extra?.Origem === 'Indicação');
+// planilha vinculada
+check('planilha: sem vínculo', (await call('GET', '/api/customers/sheet/info', T)).body.linked === false && (await call('GET', '/api/customers/sheet', T)).status === 404);
 console.log(`importar_clube: ${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);

@@ -3,7 +3,6 @@
 // e o painel envia um por vez, devagar, para o endereço do fluxo da empresa, que grava na planilha.
 // Falhou? Continua pendente e tenta de novo. Nunca atrapalha o cadastro: o espelho é só uma cópia.
 // Liga e desliga por empresa na Administração. Ao ligar não se copia o passado (só o que mudar dali em diante);
-// "enviar todos" copia a base inteira, devagar.
 import { q, qg, tx, runAs } from './db.js';
 import { configContatos } from './contatos.js';
 
@@ -92,27 +91,6 @@ export function registerEspelhoAdmin(app, requireUser, requireAdmin) {
       if (on && !atual.contact_mirror_on) await tx(id, (t) => t('UPDATE customers SET mirror_pending=false WHERE mirror_pending'));
       await qg("UPDATE companies SET contact_mirror_url=NULLIF($2,''), contact_mirror_on=$3 WHERE id=$1", [id, url, on && !!url]);
       res.json({ ok: true, url, on: on && !!url });
-    } catch (e) { console.error(e); res.status(500).json({ error: 'Erro interno' }); }
-  });
-  // copia a base inteira (devagar, em segundo plano)
-  app.post('/api/admin/companies/:id/contact-mirror/send-all', requireUser, requireAdmin, async (req, res) => {
-    try {
-      const id = idDe(req); if (!id) return res.status(404).json({ error: 'Empresa não encontrada' });
-      const e = (await qg('SELECT contact_mirror_on FROM companies WHERE id=$1', [id])).rows[0];
-      if (!e) return res.status(404).json({ error: 'Empresa não encontrada' });
-      if (!e.contact_mirror_on) return res.status(400).json({ error: 'Ligue o espelho antes' });
-      const n = await tx(id, async (t) => (await t('UPDATE customers SET mirror_pending=true WHERE phone IS NOT NULL')).rowCount);
-      res.json({ ok: true, total: n, minutos: Math.ceil(n / (POR_VEZ() * 4)) });
-    } catch (e) { console.error(e); res.status(500).json({ error: 'Erro interno' }); }
-  });
-  // quantos faltam
-  app.get('/api/admin/companies/:id/contact-mirror', requireUser, requireAdmin, async (req, res) => {
-    try {
-      const id = idDe(req); if (!id) return res.status(404).json({ error: 'Empresa não encontrada' });
-      const e = (await qg('SELECT contact_mirror_url, contact_mirror_on FROM companies WHERE id=$1', [id])).rows[0];
-      if (!e) return res.status(404).json({ error: 'Empresa não encontrada' });
-      const pend = e.contact_mirror_on ? await tx(id, async (t) => Number((await t('SELECT count(*) AS n FROM customers WHERE mirror_pending AND phone IS NOT NULL')).rows[0].n)) : 0;
-      res.json({ url: e.contact_mirror_url || '', on: !!e.contact_mirror_on, pending: pend });
     } catch (e) { console.error(e); res.status(500).json({ error: 'Erro interno' }); }
   });
 }

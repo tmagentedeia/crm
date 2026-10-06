@@ -192,6 +192,7 @@ const fichaCorpo = (f, clube) => ({
 
 function Detail({ c, PERFIL, rotuloAssunto, perfis, nomePedidos, clube, club, onClose, onSaved, onDeleted }) {
   const [f, setF] = useState({ name: c.name || '', last_name: c.last_name || '', phone: c.phone || '', status: c.status, notes: c.notes || '', subject: c.subject || '', ...fichaInicial(c) });
+  const [extra, setExtra] = useState(c.extra || {});
   const [hist, setHist] = useState(null);
   const verHistorico = () => api(`/customers/${c.id}/subjects`).then(setHist).catch((e) => setErr(e.message));
   const [kinds, setKinds] = useState(c.client_kinds || []);
@@ -201,7 +202,7 @@ function Detail({ c, PERFIL, rotuloAssunto, perfis, nomePedidos, clube, club, on
   const future = c.history.filter((h) => h.status === 'scheduled' && new Date(h.starts_at) > new Date()).length;
   const save = async () => {
     setErr('');
-    try { await api('/customers/' + c.id, { method: 'PUT', body: { name: f.name, last_name: f.last_name, phone: f.phone, status: f.status, notes: f.notes, subject: f.subject, ...fichaCorpo(f, clube), ...(perfis ? { client_kinds: kinds } : {}) } }); onSaved(); } catch (e) { setErr(e.message); }
+    try { await api('/customers/' + c.id, { method: 'PUT', body: { name: f.name, last_name: f.last_name, phone: f.phone, status: f.status, notes: f.notes, subject: f.subject, ...fichaCorpo(f, clube), extra, ...(perfis ? { client_kinds: kinds } : {}) } }); onSaved(); } catch (e) { setErr(e.message); }
   };
   const [semCamp, setSemCamp] = useState(!!c.campaign_excluded);
   const alternarCampanhas = async () => {
@@ -252,6 +253,13 @@ function Detail({ c, PERFIL, rotuloAssunto, perfis, nomePedidos, clube, club, on
           {hist && <ul className="muted" style={{ margin: '6px 0 0', paddingLeft: 18 }}>{hist.length ? hist.map((h, i) => <li key={i}>{fmtDate(h.at)} · {h.subject}</li>) : <li>Sem anteriores.</li>}</ul>}
         </div>
         <FichaCampos f={f} setF={setF} clube={clube} club={club} />
+        {Object.keys(extra).length > 0 && (
+          <div className="row" style={{ flexWrap: 'wrap' }}>
+            {Object.entries(extra).map(([k, v]) => (
+              <div className="field" key={k}><label>{k}</label><input value={v} onChange={(e) => setExtra({ ...extra, [k]: e.target.value })} /></div>
+            ))}
+          </div>
+        )}
         <div className="field"><label>Observações</label><textarea rows={3} value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} /></div>
         <div className="row" style={{ marginBottom: 14 }}>
           <button className="btn primary" onClick={save}>Salvar</button>

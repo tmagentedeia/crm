@@ -76,7 +76,7 @@ export async function runImport(companyId, data, dryRun) {
     dry_run: !!dryRun,
     services: { created: 0, updated: 0 }, categories: { created: 0 },
     professionals: { created: 0, updated: 0 }, customers: { created: 0, updated: 0 },
-    warnings: [], errors: [], ignored_columns: [],
+    warnings: [], errors: [], ignored_columns: [], extra_columns: [],
   };
   class Desfazer extends Error {}
   try {
@@ -208,7 +208,11 @@ export async function runImport(companyId, data, dryRun) {
         'aniversario', 'nascimento', 'data de nascimento', 'cidade', 'estado', 'uf', 'genero', 'sexo', 'data do cadastro', 'cadastro', 'observacoes', 'obs', 'recados'];
       const vistas = new Set();
       custRows.forEach((r) => Object.keys(r || {}).forEach((k) => vistas.add(k)));
-      rep.ignored_columns = [...vistas].filter((k) => !CONHECIDAS.includes(chave(k)));
+      // colunas que o painel não conhece viram campos personalizados do contato (a planilha é a referência da estrutura)
+      const IGNORAR = ['id', 'nome completo', 'full name', 'atualizado em', 'atualizado', 'criado em', 'ultima visita', 'updated at', 'created at'];
+      const extras = [...vistas].filter((k) => { const c = chave(k); return c && !CONHECIDAS.includes(c) && !IGNORAR.includes(c); });
+      rep.extra_columns = extras.map((k) => String(k).trim());
+      rep.ignored_columns = [];
       const niveis = new Map((await q('SELECT id,name FROM loyalty_levels')).rows.map((l) => [norm(l.name), l.id]));
       const SIT = { clube: 'member', membro: 'member', 'ex clube': 'former', 'ex-clube': 'former', 'ex membro': 'former', 'ex-membro': 'former', contribuinte: 'supporter', apoiador: 'supporter' };
       const tipoDe = (row) => norm(rowGet(row, 'tipo', 'situacao', 'programa')).replace(/\s+/g, ' ');
@@ -218,6 +222,7 @@ export async function runImport(companyId, data, dryRun) {
       const PERFIS_TIPO = { comprador: 'buyer', contratante: 'hirer' };
       const usaPerfis = custRows.some((r) => PERFIS_TIPO[tipoDe(r)]);
       const nivelAvisado = new Set();
+      const valoresExtras = (row, cols) => Object.fromEntries(cols.map((k) => [String(k).trim(), txt(row?.[k])]).filter(([, v]) => v !== ''));
       for (const [i, row] of custRows.entries()) {
         const name = txt(rowGet(row, 'nome', 'cliente'));
         const rawPhone = rowGet(row, 'telefone', 'celular', 'whatsapp');
@@ -247,8 +252,8 @@ export async function runImport(companyId, data, dryRun) {
         const created = parseDateTimeBr(cad);
         if (cad && !created) rep.warnings.push(`${line}: data do cadastro "${cad}" não entendida — usei a data de hoje`);
         const r = await q(
-          `INSERT INTO customers (name,last_name,phone,status,source,city,state,birth_day,birth_month,birth_year,gender,club_status,club_level_id,notes,created_at,client_kinds)
-           VALUES ($1,$2,$3,$4,'manual',$5,$6,$7,$8,$9,$10,$11,$12,$13,COALESCE($14::timestamptz, now()),$15::text[])
+          `INSERT INTO customers (name,last_name,phone,status,source,city,state,birth_day,birth_month,birth_year,gender,club_status,club_level_id,notes,created_at,client_kinds,extra)
+           VALUES ($1,$2,$3,$4,'manual',$5,$6,$7,$8,$9,$10,$11,$12,$13,COALESCE($14::timestamptz, now()),$15::text[],$16::jsonb)
            ON CONFLICT (phone) DO UPDATE SET
              name=COALESCE(NULLIF(EXCLUDED.name,''),customers.name),
              last_name=COALESCE(EXCLUDED.last_name,customers.last_name),
@@ -260,10 +265,11 @@ export async function runImport(companyId, data, dryRun) {
              notes=COALESCE(EXCLUDED.notes,customers.notes),
              client_kinds=(SELECT COALESCE(array_agg(DISTINCT x), '{}') FROM unnest(customers.client_kinds || EXCLUDED.client_kinds) x),
              status=CASE WHEN cardinality(EXCLUDED.client_kinds) > 0 THEN 'client' ELSE customers.status END,
+             extra=customers.extra || EXCLUDED.extra,
              updated_at=now()
            RETURNING (xmax = 0) AS inserted`,
           [name || null, txt(rowGet(row, 'sobrenome')) || null, phone, status, cs.city, cs.state || uf || null,
-           b.birth_day, b.birth_month, b.birth_year ?? null, gender, club, levelId, txt(rowGet(row, 'observacoes', 'obs', 'recados')) || null, created, perfil ? [perfil] : []]);
+           b.birth_day, b.birth_month, b.birth_year ?? null, gender, club, levelId, txt(rowGet(row, 'observacoes', 'obs', 'recados')) || null, created, perfil ? [perfil] : [], JSON.stringify(valoresExtras(row, extras))]);
         r.rows[0].inserted ? rep.customers.created++ : rep.customers.updated++;
       }
     }

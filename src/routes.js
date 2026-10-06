@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { lerCaixas, juntarCaixas, tituloDe, acharCaixa, temSeparador } from './manualCaixas.js';
 import { q, qg, tx, currentCompany } from './db.js';
 import { runImport } from './importer.js';
+import { baixarPlanilha, planilhaDaEmpresa } from './planilha_contatos.js';
 import { registerDiretrizesRoutes, textoDeDiretrizes } from './diretrizes.js';
 import { registerContatosRoutes, chavesDePerfil, definirAssunto, textoDeCadastroContato } from './contatos.js';
 import { registerCampaignRoutes } from './campaigns.js';
@@ -662,6 +663,13 @@ export function buildRouter() {
       [primeiro || '', resto.join(' '), phone, b.chat_id ? String(b.chat_id).slice(0, 80) : null]);
     res.status(rows[0].created ? 201 : 200).json({ ok: true, id: rows[0].id, created: rows[0].created });
   }));
+  // Planilha vinculada à empresa (cadastrada na Administração): diz se existe e entrega o conteúdo para a importação.
+  r.get('/customers/sheet/info', wrap(async (req, res) => res.json({ linked: !!(await planilhaDaEmpresa(req.user.companyId)) })));
+  r.get('/customers/sheet', wrap(async (req, res) => {
+    const url = await planilhaDaEmpresa(req.user.companyId);
+    if (!url) return res.status(404).json({ error: 'Nenhuma planilha vinculada a esta empresa.' });
+    try { res.json({ csv: await baixarPlanilha(url) }); } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+  }));
   r.get('/customers/by-phone/:phone', wrap(async (req, res) => {
     const { rows } = await q(`${CUST} WHERE c.phone=$1`, [digits(req.params.phone)]);
     rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Não encontrado' });
@@ -697,6 +705,10 @@ export function buildRouter() {
     await gravarFicha(rows[0].id, f.campos);
     if (perfis) await q(`UPDATE customers SET client_kinds=$2::text[], status = CASE WHEN $2::text[] && ARRAY['buyer','hirer'] THEN 'client' ELSE status END WHERE id=$1`, [rows[0].id, perfis]);
     if (req.body.subject !== undefined) await definirAssunto(rows[0].id, req.body.subject, 'Equipe');
+    if (req.body.extra && typeof req.body.extra === 'object' && !Array.isArray(req.body.extra)) {
+      const ex = Object.fromEntries(Object.entries(req.body.extra).slice(0, 60).map(([k, v]) => [String(k).slice(0, 80), String(v ?? '').slice(0, 500)]));
+      await q('UPDATE customers SET extra = extra || $2::jsonb WHERE id=$1', [rows[0].id, JSON.stringify(ex)]);
+    }
     res.json((await q(`${CUST} WHERE c.id=$1`, [rows[0].id])).rows[0]);
   }));
   // Liga ou desliga um perfil do cliente sem mexer nos outros (o atendente usa quando fecha uma contratação, por exemplo).
