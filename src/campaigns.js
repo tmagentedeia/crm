@@ -248,10 +248,21 @@ export async function gravarNaConversa(companyId, job, resp) {
     const pool = msgPool();
     const falta = !pool ? 'sem ligação com o histórico do atendimento (N8N_DATABASE_URL)' : !c?.chat_table ? 'empresa sem tabela de conversas' : !nomeTabelaValido(c.chat_table) ? 'nome de tabela inválido' : !c.whatsapp_instance ? 'empresa sem instância do WhatsApp' : '';
     if (falta) { console.error(`campanhas: histórico NÃO gravado (empresa ${companyId}): ${falta}`); return false; }
-    const chat = String(resp?.chatid || job.chat_id || job.phone).replace(/@.*$/, '');
+    // O agente guarda a conversa sob o número que o WhatsApp mostra no recebimento (muitas vezes sem o "9" extra),
+    // e nunca sob o identificador interno (@lid). Procuramos a conversa que já existe; se não houver, usamos o número do envio.
+    const so = (v) => String(v || '').replace(/@.*$/, '').replace(/\D/g, '');
+    const candidatos = [];
+    const add = (v) => { const d = so(v); if (d && !candidatos.includes(d)) candidatos.push(d); };
+    if (!/@lid$/i.test(String(resp?.chatid || ''))) add(resp?.chatid);
+    if (!/@lid$/i.test(String(job.chat_id || ''))) add(job.chat_id);
+    add(job.phone);
+    for (const d of [...candidatos]) { if (/^55\d{2}9\d{8}$/.test(d)) add(d.slice(0, 4) + d.slice(5)); }
+    const sessoes = candidatos.map((d) => `${c.whatsapp_instance} ${d} chats`);
+    const achada = (await pool.query(`SELECT session_id FROM "${c.chat_table}" WHERE session_id = ANY($1::text[]) LIMIT 1`, [sessoes])).rows[0]?.session_id;
+    const sessao = achada || sessoes[0];
     await pool.query(`INSERT INTO "${c.chat_table}" (session_id, message) VALUES ($1, $2::jsonb)`,
-      [`${c.whatsapp_instance} ${chat} chats`, JSON.stringify({ type: 'ai', content: job.text, tool_calls: [], additional_kwargs: {}, response_metadata: {}, invalid_tool_calls: [] })]);
-    console.log(`campanhas: histórico gravado (empresa ${companyId}, ${c.whatsapp_instance} ${chat})`);
+      [sessao, JSON.stringify({ type: 'ai', content: job.text, tool_calls: [], additional_kwargs: {}, response_metadata: {}, invalid_tool_calls: [] })]);
+    console.log(`campanhas: histórico gravado (empresa ${companyId}, sessão "${sessao}", ${achada ? 'conversa já existente' : 'conversa nova'}; WhatsApp respondeu chatid=${resp?.chatid ?? 'nada'})`);
     return true;
   } catch (e) { console.error('campanhas: histórico da conversa:', e.message); return false; }
 }
