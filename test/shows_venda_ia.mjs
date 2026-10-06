@@ -44,6 +44,7 @@ r = await ia('POST', '/casa-de-shows/sales/register', { event: ev.title, sector:
 check('registra a venda', r.status === 201 && r.body.ok === true && r.body.people === 3, JSON.stringify(r.body));
 check('a mensagem diz que o nome basta', /portaria dá presença pelo nome/.test(r.body.message || ''), r.body.message);
 const sid = r.body.sale_id;
+psql("delete from company_1.doc_templates where kind='ingresso'");
 await api('POST', '/documents/templates/examples', {});
 const lista = (await api('GET', `/event-list?event_id=${ev.id}`)).body;
 check('os três nomes estão na lista', lista.rows.length === 3 && lista.rows[0].name === 'Ana Souza' && lista.rows[2].name === 'Caio Souza', JSON.stringify(lista.rows?.map((x) => x.name)));

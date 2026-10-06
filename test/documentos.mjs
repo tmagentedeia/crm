@@ -15,10 +15,14 @@ const psql = (sql) => execSync(`psql "${process.env.DATABASE_URL}" -tAc "${sql}"
 const A = (await call('POST', '/api/auth/login', { body: { email: 'demo@demo.com', password: 'demo1234' } })).body;
 const B = (await call('POST', '/api/auth/login', { body: { email: 'dois@x.com', password: 'senhasenha' } })).body;
 psql('delete from company_1.doc_files; delete from company_1.doc_templates; delete from company_1.doc_settings');
+psql(`delete from company_${B.company.id}.doc_files; delete from company_${B.company.id}.doc_templates; delete from company_${B.company.id}.doc_settings`);
 
 check('status informa que o PDF está ligado', (await call('GET', '/api/documents/status', { token: A.token })).body?.configured === true);
 check('serviço de PDF responde ao teste', (await call('GET', '/api/documents/health', { token: A.token })).body?.ok === true);
-check('empresa comum não edita modelos', (await call('POST', '/api/documents/templates', { token: B.token, body: { name: 'x', kind: 'contrato', html: '<p>x</p>' } })).status === 403);
+const tb = await call('POST', '/api/documents/templates', { token: B.token, body: { name: 'x', kind: 'contrato', html: '<p>x</p>' } });
+check('empresa comum cria o próprio modelo (sem limite de vagas)', tb.status === 201);
+check('o modelo da empresa 2 não aparece na 1', (await call('GET', '/api/documents/templates', { token: A.token })).body.every((t) => t.name !== 'x'));
+await call('DELETE', `/api/documents/templates/${tb.body?.id}`, { token: B.token });
 check('modelo vazio recusado', (await call('POST', '/api/documents/templates', { token: A.token, body: { name: 'x', kind: 'contrato', html: '  ' } })).status === 400);
 check('tipo inválido recusado', (await call('POST', '/api/documents/templates', { token: A.token, body: { name: 'x', kind: 'nada', html: '<p>x</p>' } })).status === 400);
 
@@ -66,5 +70,6 @@ const id = (await call('GET', '/api/documents', { token: A.token })).body[0].id;
 check('apaga o documento', (await call('DELETE', `/api/documents/${id}`, { token: A.token })).status === 200);
 
 psql('delete from company_1.doc_files; delete from company_1.doc_templates; delete from company_1.doc_settings');
+psql(`delete from company_${B.company.id}.doc_files; delete from company_${B.company.id}.doc_templates; delete from company_${B.company.id}.doc_settings`);
 console.log(`documentos: ${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);

@@ -41,6 +41,7 @@ export default function Admin() {
   const definirMenuPadrao = (body, ok) => { setErr(''); setMsg(''); api('/admin/default-menu', { method: 'PUT', body }).then((r) => { setMenuPadrao(r); setMsg(ok); }).catch((e) => setErr(e.message)); };
   const verAcessos = () => (acessos ? setAcessos(null) : api('/admin/access-log').then(setAcessos).catch((e) => setErr(e.message)));
   const [ct, setCt] = useState({});
+  const [vg, setVg] = useState({});
   const salvarCt = async (s) => {
     setErr(''); setMsg('');
     try {
@@ -111,6 +112,16 @@ export default function Admin() {
       await api('/admin/companies/' + s.id, { method: 'PUT', body: { max_professionals: edit[s.id] === '' ? null : Number(edit[s.id]) } });
       setEdit(({ [s.id]: _, ...rest }) => rest);
       setMsg(`Limite de "${s.name}" atualizado.`);
+      load();
+    } catch (e) { setErr(e.message); }
+  }
+
+  async function salvarVagas(s) {
+    setErr(''); setMsg('');
+    try {
+      await api('/admin/companies/' + s.id, { method: 'PUT', body: { doc_slots: vg[s.id] === '' ? null : Number(vg[s.id]) } });
+      setVg(({ [s.id]: _, ...rest }) => rest);
+      setMsg(`Vagas de documento de "${s.name}" atualizadas.`);
       load();
     } catch (e) { setErr(e.message); }
   }
@@ -418,6 +429,11 @@ export default function Admin() {
             <div style={{ flex: '1 1 560px', display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
               <div style={{ display: 'flex', gap: 22, flexWrap: 'wrap', alignItems: 'flex-end' }}>
                 <Campo rotulo="Ativos">{s.ativos}</Campo>
+                <Campo rotulo="Vagas de documento">
+                  <input type="number" min="0" max="4" placeholder="—" value={s.id in vg ? vg[s.id] : s.doc_slots ?? ''} style={{ width: 50, minWidth: 50 }}
+                    onChange={(e) => setVg({ ...vg, [s.id]: e.target.value })} />
+                  {s.id in vg && <button className="btn sm primary" onClick={() => salvarVagas(s)}>Salvar</button>}
+                </Campo>
                 <Campo rotulo="Limite">
                   <input type="number" min="0" placeholder="—" value={shown(s)} style={{ width: 50, minWidth: 50 }}
                     onChange={(e) => setEdit({ ...edit, [s.id]: e.target.value })}

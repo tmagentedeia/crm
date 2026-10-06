@@ -51,7 +51,9 @@ const pv2 = (await api('POST', '/documents/preview', { blocks: doc })).body;
 check('sem logotipo não sobra imagem quebrada', !/<img[^>]*src=""/.test(pv2.html) && !pv2.html.includes('logotipo_src'));
 
 // salvar e reabrir
-check('empresa comum não salva modelo', (await call('POST', '/api/documents/templates', { token: B.token, body: { name: 'x', kind: 'ingresso', blocks: doc } })).status === 403);
+const tb = await call('POST', '/api/documents/templates', { token: B.token, body: { name: 'x', kind: 'ingresso', blocks: doc } });
+check('empresa comum salva o próprio modelo por blocos', tb.status === 201);
+await call('DELETE', `/api/documents/templates/${tb.body?.id}`, { token: B.token });
 const c = await api('POST', '/documents/templates', { name: 'Por blocos', kind: 'ingresso', blocks: doc });
 check('modelo por blocos criado', c.status === 201, JSON.stringify(c.body));
 const t = (await api('GET', `/documents/templates/${c.body.id}`)).body;

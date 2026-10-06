@@ -50,6 +50,10 @@ export const DOC_BLOCOS_SQL = `
   ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS blocks JSONB;
   ALTER TABLE doc_settings ADD COLUMN IF NOT EXISTS logo TEXT;`;
 
+// Vagas de documento: quantos tipos (ingresso, contrato, proposta...) a empresa usa ao mesmo tempo. O número vem do plano
+// (companies.doc_slots; vazio = sem limite) e os tipos em uso ficam em doc_settings.active_kinds. Trocar o tipo é livre: libera-se uma vaga e usa-se outra.
+export const DOC_VAGAS_SQL = `ALTER TABLE doc_settings ADD COLUMN IF NOT EXISTS active_kinds TEXT[] NOT NULL DEFAULT '{}';`;
+
 const TIPOS = ['ingresso', 'contrato', 'proposta', 'outro'];
 const HTML_MAX = 3 * 1024 * 1024;
 const TZ = 'America/Sao_Paulo';
@@ -173,6 +177,23 @@ function lerVars(obj) {
 async function varsFixas() {
   return (await q('SELECT vars FROM doc_settings WHERE id=1')).rows[0]?.vars || {};
 }
+async function estadoVagas() {
+  const total = (await qg('SELECT doc_slots FROM companies WHERE id=$1', [currentCompany()])).rows[0]?.doc_slots ?? null;
+  const ativos = (await q('SELECT active_kinds FROM doc_settings WHERE id=1')).rows[0]?.active_kinds || [];
+  return { total, ativos };
+}
+const NOME_TIPO = { ingresso: 'ingresso', contrato: 'contrato', proposta: 'proposta', outro: 'outro documento' };
+// Ocupa a vaga do tipo, se ainda houver; devolve a mensagem de recusa quando o plano já está com todas as vagas em uso
+async function garantirVaga(kind) {
+  const { total, ativos } = await estadoVagas();
+  if (total === null || ativos.includes(kind)) return null;
+  if (ativos.length >= total) {
+    return `Seu plano inclui ${total} tipo${total > 1 ? 's' : ''} de documento ao mesmo tempo e já está em uso (${ativos.map((k) => NOME_TIPO[k] || k).join(', ')}). Para usar ${NOME_TIPO[kind] || kind}, libere uma vaga em Documentos ou contrate uma vaga a mais com a M2.`;
+  }
+  await q(`INSERT INTO doc_settings (id, vars, active_kinds) VALUES (1, '{}'::jsonb, ARRAY[$1]) ON CONFLICT (id) DO UPDATE SET active_kinds = array_append(doc_settings.active_kinds, $1) WHERE NOT ($1 = ANY(doc_settings.active_kinds))`, [kind]);
+  return null;
+}
+
 const LOGO_MAX = 1024 * 1024 * 1.4;   // texto do arquivo em base64 (~1 MB de imagem)
 const logoOk = (v) => typeof v === 'string' && v.length <= LOGO_MAX && /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(v);
 // {{logotipo_src}} é o endereço da imagem (para blocos e modelos próprios); {{{logotipo}}} já vem como imagem pronta
@@ -189,6 +210,17 @@ export function registerDocumentRoutes(r, wrap) {
   });
 
   r.get('/documents/status', wrap(async (req, res) => res.json({ configured: gotenbergLigado(), admin: await ehAdmin(req) })));
+  r.get('/documents/slots', wrap(async (req, res) => {
+    const { total, ativos } = await estadoVagas();
+    res.json({ total, ativos, livres: total === null ? null : Math.max(0, total - ativos.length) });
+  }));
+  r.post('/documents/slots/release', wrap(async (req, res) => {
+    const kind = String(req.body?.kind ?? '');
+    if (!TIPOS.includes(kind)) return res.status(400).json({ error: 'Tipo de documento inválido' });
+    await q(`UPDATE doc_settings SET active_kinds = array_remove(active_kinds, $1) WHERE id=1`, [kind]);
+    const { total, ativos } = await estadoVagas();
+    res.json({ total, ativos, livres: total === null ? null : Math.max(0, total - ativos.length) });
+  }));
   r.get('/documents/health', soAdmin(async (req, res) => res.json(await testarGotenberg())));
 
   r.get('/documents/settings', wrap(async (req, res) => res.json({ vars: await varsFixas() })));
@@ -208,7 +240,9 @@ export function registerDocumentRoutes(r, wrap) {
 
   r.get('/documents/templates', wrap(async (req, res) => {
     const { rows } = await q('SELECT id::text AS id, kind, name, is_default, updated_at FROM doc_templates ORDER BY kind, is_default DESC, name');
-    res.json(rows);
+    const { total, ativos } = await estadoVagas();
+    const semVaga = total !== null && ativos.length >= total;
+    res.json(rows.map((t) => ({ ...t, sem_vaga: semVaga && !ativos.includes(t.kind) })));
   }));
   r.get('/documents/templates/:id', wrap(async (req, res) => {
     const id = idOk(req.params.id);
@@ -216,7 +250,7 @@ export function registerDocumentRoutes(r, wrap) {
     if (!t) return res.status(404).json({ error: 'Modelo não encontrado' });
     res.json({ ...t, variables: variaveisDe(t.html) });
   }));
-  r.post('/documents/templates/examples', soAdmin(async (req, res) => {
+  r.post('/documents/templates/examples', wrap(async (req, res) => {
     let novos = 0;
     for (const e of EXEMPLOS) {
       if ((await q('SELECT 1 FROM doc_templates WHERE kind=$1 AND name=$2', [e.kind, e.name])).rowCount) continue;
@@ -248,41 +282,43 @@ export function registerDocumentRoutes(r, wrap) {
     await q('UPDATE doc_templates SET is_default=false WHERE kind=$1 AND id<>$2', [kind, id]);
     await q('UPDATE doc_templates SET is_default=true WHERE id=$1', [id]);
   }
-  r.post('/documents/templates', soAdmin(async (req, res) => {
+  r.post('/documents/templates', wrap(async (req, res) => {
     const { o, erro } = lerModelo(req.body || {}, false);
     if (erro) return res.status(400).json({ error: erro });
+    if (!(await ehAdmin(req))) { const m = await garantirVaga(o.kind); if (m) return res.status(403).json({ error: m }); }
     const id = (await q('INSERT INTO doc_templates (kind, name, html, blocks) VALUES ($1,$2,$3,$4::jsonb) RETURNING id', [o.kind, o.name, o.html, o.blocks ? JSON.stringify(o.blocks) : null])).rows[0].id;
     const tem = (await q('SELECT 1 FROM doc_templates WHERE kind=$1 AND is_default', [o.kind])).rowCount > 0;
     if (o.is_default || !tem) await aplicarPadrao(id, o.kind);
     res.status(201).json({ id: String(id) });
   }));
-  r.put('/documents/templates/:id', soAdmin(async (req, res) => {
+  r.put('/documents/templates/:id', wrap(async (req, res) => {
     const id = idOk(req.params.id);
     const cur = id && (await q('SELECT id, kind FROM doc_templates WHERE id=$1', [id])).rows[0];
     if (!cur) return res.status(404).json({ error: 'Modelo não encontrado' });
     const { o, erro } = lerModelo(req.body || {}, true);
     if (erro) return res.status(400).json({ error: erro });
     const kind = o.kind || cur.kind;
+    if (!(await ehAdmin(req))) { const m = await garantirVaga(kind); if (m) return res.status(403).json({ error: m }); }
     if (kind !== cur.kind) await q('UPDATE doc_templates SET is_default=false WHERE id=$1', [id]);
     await q(`UPDATE doc_templates SET name=COALESCE($2,name), kind=$3, html=COALESCE($4,html), blocks=CASE WHEN $5::boolean THEN $6::jsonb ELSE blocks END, updated_at=now() WHERE id=$1`,
       [id, o.name ?? null, kind, o.html ?? null, o.html !== undefined, o.blocks ? JSON.stringify(o.blocks) : null]);
     if (o.is_default) await aplicarPadrao(id, kind);
     res.json({ ok: true });
   }));
-  r.delete('/documents/templates/:id', soAdmin(async (req, res) => {
+  r.delete('/documents/templates/:id', wrap(async (req, res) => {
     const id = idOk(req.params.id);
     const { rowCount } = id ? await q('DELETE FROM doc_templates WHERE id=$1', [id]) : { rowCount: 0 };
     rowCount ? res.json({ ok: true }) : res.status(404).json({ error: 'Modelo não encontrado' });
   }));
 
   // HTML de um modelo por blocos (para quem quiser seguir editando o código)
-  r.post('/documents/blocks-html', soAdmin(async (req, res) => {
+  r.post('/documents/blocks-html', wrap(async (req, res) => {
     if (!req.body?.blocks || typeof req.body.blocks !== 'object') return res.status(400).json({ error: 'Blocos inválidos' });
     res.json({ html: blocosParaHtml(req.body.blocks, txt(req.body.name, 80) || 'Documento') });
   }));
 
   // Pré-visualização do modelo com dados de teste (o HTML volta pronto para o painel mostrar)
-  r.post('/documents/preview', soAdmin(async (req, res) => {
+  r.post('/documents/preview', wrap(async (req, res) => {
     const html = req.body?.blocks && typeof req.body.blocks === 'object' ? blocosParaHtml(req.body.blocks) : typeof req.body?.html === 'string' ? req.body.html : '';
     if (!html || html.length > HTML_MAX) return res.status(400).json({ error: 'Modelo inválido' });
     const vars = { ...variaveisBase(), nome: 'Maria da Silva', telefone: '5532999990000', empresa: 'Sua empresa', qrcode: await qrHtml('TMI-0-0-0-000000000000', 120), codigo: 'TMI-0-0-0-000000000000', evento: 'Show de exemplo', evento_data: '10/10/2026 21:00', abertura: '10/10/2026 19:00', local: 'Casa de exemplo', endereco: 'Rua Exemplo, 100 - Centro', lugares_mesa: '4', comprador: 'João da Silva', setor: 'Pista', mesa: '1 × Mesa 4 lugares', pessoa: '1 de 4', text: '<ul><li>Item de exemplo: valor</li><li>Outro item: valor</li></ul>', ...(await varsLogo()), ...(await varsFixas()), ...lerVars(req.body?.vars) };
@@ -301,6 +337,7 @@ export function registerDocumentRoutes(r, wrap) {
     if (TIPOS.includes(alvo)) t = (await q('SELECT * FROM doc_templates WHERE kind=$1 AND is_default', [alvo])).rows[0];
     else if (idOk(alvo)) t = (await q('SELECT * FROM doc_templates WHERE id=$1', [alvo])).rows[0];
     if (!t) return { status: 404, body: { error: 'Modelo de documento não encontrado' } };
+    if (!(await ehAdmin(req))) { const m = await garantirVaga(t.kind); if (m) return { status: 403, body: { error: m } }; }
     const nome = txt(b.name, 120);
     if (nome === null) return { status: 400, body: { error: 'Nome inválido' } };
     const phone = b.number || b.phone ? normPhone(b.number || b.phone) : '';

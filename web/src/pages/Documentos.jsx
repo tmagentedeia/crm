@@ -22,12 +22,36 @@ export default function Documentos() {
       <div className="row" style={{ gap: 6, marginBottom: 12 }}>
         <button className={'btn sm' + (aba === 'gerados' ? ' primary' : '')} onClick={() => setAba('gerados')}>Gerados</button>
         <button className={'btn sm' + (aba === 'dados' ? ' primary' : '')} onClick={() => setAba('dados')}>Dados fixos</button>
-        {st.admin && <button className={'btn sm' + (aba === 'modelos' ? ' primary' : '')} onClick={() => setAba('modelos')}>Modelos</button>}
+        <button className={'btn sm' + (aba === 'modelos' ? ' primary' : '')} onClick={() => setAba('modelos')}>Modelos</button>
       </div>
+      <Vagas />
       {aba === 'gerados' && <Gerados configured={st.configured} />}
       {aba === 'dados' && <DadosFixos />}
-      {aba === 'modelos' && st.admin && <Modelos />}
+      {aba === 'modelos' && <Modelos admin={st.admin} />}
     </>
+  );
+}
+
+// Vagas de documento: quantos tipos o plano permite usar ao mesmo tempo. Liberar uma vaga deixa outro tipo ser usado; o modelo antigo fica guardado.
+function Vagas() {
+  const [v, setV] = useState(null);
+  const [err, setErr] = useState('');
+  useEffect(() => { api('/documents/slots').then(setV).catch(() => {}); }, []);
+  async function liberar(k) {
+    if (!window.confirm(`Liberar a vaga de ${TIPOS[k].toLowerCase()}? Os modelos ficam guardados, mas este tipo só volta a ser usado se houver vaga livre.`)) return;
+    try { setV(await api('/documents/slots/release', { method: 'POST', body: { kind: k } })); } catch (e) { setErr(e.message); }
+  }
+  if (!v || v.total === null) return null;
+  return (
+    <div className="card" style={{ marginBottom: 12 }}>
+      <strong>Vagas de documento: {v.ativos.length} de {v.total} em uso</strong>
+      <p className="muted" style={{ margin: '4px 0 8px' }}>Seu plano permite usar {v.total} tipo{v.total === 1 ? '' : 's'} de documento ao mesmo tempo. Para trocar de tipo, libere uma vaga. Precisa de mais? Fale com a M2.</p>
+      {err && <div className="error">{err}</div>}
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        {v.ativos.map((k) => <span key={k} className="row" style={{ gap: 6, alignItems: 'center' }}><strong>{TIPOS[k]}</strong><button className="btn sm" onClick={() => liberar(k)}>Liberar vaga</button></span>)}
+        {v.ativos.length === 0 && <span className="muted">Nenhum tipo em uso ainda. O primeiro documento que você criar ou gerar ocupa uma vaga.</span>}
+      </div>
+    </div>
   );
 }
 
@@ -159,7 +183,7 @@ function Logotipo() {
 }
 
 // Edição dos modelos (só o administrador)
-function Modelos() {
+function Modelos({ admin }) {
   const [lista, setLista] = useState(null);
   const [m, setM] = useState(null);          // modelo aberto: { id?, name, kind, html, is_default }
   const [prev, setPrev] = useState('');
@@ -238,12 +262,12 @@ function Modelos() {
         <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
           <button className="btn primary" onClick={() => { setPrev(''); setMsg(''); setAvancado(false); setM({ name: '', kind: 'contrato', blocks: NOVO_DOC, html: '', is_default: false }); }}>Novo modelo</button>
           <button className="btn" onClick={exemplos}>Adicionar modelos de exemplo</button>
-          <button className="btn" onClick={testar}>Testar serviço de PDF</button>
+          {admin && <button className="btn" onClick={testar}>Testar serviço de PDF</button>}
           {saude && <span className={saude.ok ? '' : 'error'}>{saude.ok ? 'Serviço de PDF funcionando' : saude.motivo}{!saude.ok && saude.detalhe && <span className="muted" style={{ display: 'block', fontSize: 12 }}>{saude.detalhe}</span>}</span>}
         </div>
         {lista.length > 0 && (
           <table style={{ marginTop: 10 }}><tbody>{lista.map((t) => (
-            <tr key={t.id}><td><strong>{t.name}</strong> {t.is_default && <span className="muted">· padrão</span>}</td><td>{TIPOS[t.kind]}</td>
+            <tr key={t.id}><td><strong>{t.name}</strong> {t.is_default && <span className="muted">· padrão</span>}</td><td>{TIPOS[t.kind]}{t.sem_vaga && <span className="muted"> · sem vaga</span>}</td>
               <td style={{ textAlign: 'right' }}><button className="btn sm" onClick={() => abrir(t.id)}>Editar</button></td></tr>
           ))}</tbody></table>
         )}

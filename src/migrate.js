@@ -34,6 +34,7 @@ try {
     await pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS redis_prefix TEXT NOT NULL DEFAULT ''");
     await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS campaign_webhook_url TEXT');
     await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS wa_api_url TEXT');
+    await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS doc_slots INT CHECK (doc_slots >= 0)');
     await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS wa_api_token TEXT');
     for (const c of ['admin_name', 'admin_phone', 'admin_email']) await pool.query(`ALTER TABLE companies ADD COLUMN IF NOT EXISTS ${c} TEXT`);
     await pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS booking_mode TEXT NOT NULL DEFAULT 'auto'");

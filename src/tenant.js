@@ -11,7 +11,7 @@ import { COMISSOES_SQL } from './comissoes.js';
 import { SHOWS_LISTA_SQL, SHOWS_LISTA_ENVIO_SQL } from './lista_evento.js';
 import { CASA_DE_SHOWS_SQL, SHOWS_MEDIA_SQL, SHOWS_PAGAMENTOS_SQL, SHOWS_RENOMEAR_SQL, SHOWS_LOCAIS_SQL, SHOWS_LOCAL_PADRAO_SQL, SHOWS_PIX_EVENTO_SQL, SHOWS_LOTES_SQL, SHOWS_VENDAS_SQL, SHOWS_MESA_RESERVADA_SQL, SHOWS_CLUBE_SQL, SHOWS_FICHA_SETOR_SQL } from './casa_de_shows.js';
 import { ANIVERSARIO_SQL } from './aniversario.js';
-import { DOCUMENTOS_SQL, DOC_FILES_VENDA_SQL, DOC_BLOCOS_SQL } from './documentos.js';
+import { DOCUMENTOS_SQL, DOC_FILES_VENDA_SQL, DOC_BLOCOS_SQL, DOC_VAGAS_SQL } from './documentos.js';
 import { DELIVERY_SQL } from './delivery.js';
 import { RESTAURANTE_SQL } from './restaurante.js';
 import { CONTRATACOES_SQL } from './contratacoes.js';
@@ -194,6 +194,8 @@ export const TENANT_STEPS = [
   { version: 44, sql: DOC_FILES_VENDA_SQL },
   // 45: modelos de documento por blocos e logotipo da empresa
   { version: 45, sql: DOC_BLOCOS_SQL },
+  // 46: vagas de documento (tipos em uso ao mesmo tempo)
+  { version: 46, sql: DOC_VAGAS_SQL },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 
@@ -225,6 +227,7 @@ export async function createCompanySchema(cx, companyId) {
   await cx.query(DOCUMENTOS_SQL);
   await cx.query(DOC_FILES_VENDA_SQL);
   await cx.query(DOC_BLOCOS_SQL);
+  await cx.query(DOC_VAGAS_SQL);
   await cx.query(DELIVERY_SQL);
   await cx.query(RESTAURANTE_SQL);
   await cx.query(SHOWS_MEDIA_SQL);
