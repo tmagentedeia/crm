@@ -305,7 +305,7 @@ function Form({ id, voltar, abrir, frases }) {
             </table>
           </div>
         )}
-        {f.mode === 'selected' && f.allow_excluded && <p className="muted" style={{ color: 'var(--bad)' }}>Esta campanha é de teste: vai enviar para contatos que ficam de fora das campanhas normais (lista “Não enviar para”).</p>}
+        {f.mode === 'selected' && f.allow_excluded && <p className="muted" style={{ color: 'var(--bad)' }}>Esta campanha é de teste: vai enviar para contatos que ficam de fora das campanhas normais (lista “Não enviar para”) e pode enviar a qualquer hora do dia.</p>}
         <p className="muted">{total} contato{total === 1 ? '' : 's'} selecionado{total === 1 ? '' : 's'}.{ignorados > 0 && <> {ignorados} ficam de fora por estarem na lista “Não enviar para”.</>}</p>
       </div>
 

@@ -125,7 +125,7 @@ const toCampaign = (c) => ({ ...c, messages: c.messages || [] });
 
 // Quando sai o próximo envio de uma campanha em andamento, já considerando a janela de envio e o limite do dia.
 // motivo: 'sorteado' (horário já definido), 'fora_do_horario', 'limite_do_dia' ou null (é só esperar a próxima rodada).
-export function proximoEnvio({ nextSendAt, sentToday, dailyLimit, tz, now = new Date() }) {
+export function proximoEnvio({ nextSendAt, sentToday, dailyLimit, tz, now = new Date(), semJanela = false }) {
   let t = nextSendAt && new Date(nextSendAt) > now ? new Date(nextSendAt) : now;
   const sorteado = t > now;
   let motivo = sorteado ? 'sorteado' : null;
@@ -138,7 +138,7 @@ export function proximoEnvio({ nextSendAt, sentToday, dailyLimit, tz, now = new 
     andar(() => dayOf(tz, t) === hoje);
     motivo = 'limite_do_dia';
   }
-  if (!inWindow(tz, t)) { andar(() => !inWindow(tz, t)); motivo = motivo === 'limite_do_dia' ? motivo : 'fora_do_horario'; }
+  if (!semJanela && !inWindow(tz, t)) { andar(() => !inWindow(tz, t)); motivo = motivo === 'limite_do_dia' ? motivo : 'fora_do_horario'; }
   return { at: motivo ? t.toISOString() : (sorteado ? t.toISOString() : null), motivo };
 }
 
@@ -148,7 +148,7 @@ const companyCfg = async (id) => (await qg('SELECT timezone, whatsapp_instance F
 export async function claimNext(companyId) {
   const cfg = await companyCfg(companyId);
   const tz = cfg.timezone || 'America/Sao_Paulo';
-  if (!inWindow(tz)) return null;
+  const foraDaJanela = !inWindow(tz); // a campanha de teste é a única que envia fora do horário
   const out = await tx(companyId, async (t) => {
     // quem ficou "enviando" sem resposta por mais de 30 min é dado como falho (nunca reenvia)
     await t(`UPDATE campaign_recipients SET status='failed', error='Sem retorno do envio'
@@ -157,6 +157,7 @@ export async function claimNext(companyId) {
       `SELECT * FROM campaigns WHERE status='running' AND (next_send_at IS NULL OR next_send_at <= now())
        ORDER BY id FOR UPDATE SKIP LOCKED`)).rows;
     for (const c of cs) {
+      if (foraDaJanela && !c.allow_excluded) continue;
       const sentToday = (await t(
         `SELECT COUNT(*)::int AS n FROM campaign_recipients WHERE sent_at IS NOT NULL
            AND (sent_at AT TIME ZONE $1)::date = (now() AT TIME ZONE $1)::date`, [tz])).rows[0].n;
@@ -393,7 +394,7 @@ export function registerCampaignRoutes(r, wrap) {
       const sentToday = (await q(
         `SELECT COUNT(*)::int AS n FROM campaign_recipients WHERE sent_at IS NOT NULL
            AND (sent_at AT TIME ZONE $1)::date = (now() AT TIME ZONE $1)::date`, [tz])).rows[0].n;
-      proximo = proximoEnvio({ nextSendAt: c.next_send_at, sentToday, dailyLimit: Math.min(c.daily_limit, LIMITS.DAILY_MAX), tz });
+      proximo = proximoEnvio({ nextSendAt: c.next_send_at, sentToday, dailyLimit: Math.min(c.daily_limit, LIMITS.DAILY_MAX), tz, semJanela: !!c.allow_excluded });
     }
     res.json({ ...toCampaign(c), recipients: rec, proximo_envio: proximo, ...simulate(c, rec.filter((x) => ['pending', 'sending'].includes(x.status)).length) });
   }));
