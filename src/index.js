@@ -247,7 +247,7 @@ app.get('/api/admin/diagnostico', requireUser, requireAdmin, async (req, res) =>
 
 app.get('/api/admin/companies', requireUser, requireAdmin, async (req, res) => {
   const { rows } = await qg(
-    `SELECT c.id, c.name, c.max_professionals, c.doc_slots, c.billing_due_day, c.billing_exempt, (SELECT count(*) FROM partner_referrals pr WHERE pr.company_id=c.id)::int AS referrals_total, c.created_at, c.modules, c.locked_modules, c.module_labels, c.whatsapp_instance, c.chat_table, c.redis_prefix, c.campaign_webhook_url, c.wa_api_url, (c.wa_api_token IS NOT NULL) AS wa_api_set, right(c.wa_api_token, 4) AS wa_api_fim, c.booking_mode, c.api_key_hint, c.api_key_created_at,
+    `SELECT c.id, c.name, c.max_professionals, c.doc_slots, c.doc_extras, c.doc_nivel, c.billing_due_day, c.billing_exempt, (SELECT count(*) FROM partner_referrals pr WHERE pr.company_id=c.id)::int AS referrals_total, c.created_at, c.modules, c.locked_modules, c.module_labels, c.whatsapp_instance, c.chat_table, c.redis_prefix, c.campaign_webhook_url, c.wa_api_url, (c.wa_api_token IS NOT NULL) AS wa_api_set, right(c.wa_api_token, 4) AS wa_api_fim, c.booking_mode, c.api_key_hint, c.api_key_created_at,
             (SELECT u.email FROM users u WHERE u.company_id = c.id ORDER BY (u.role = 'owner') DESC, u.id LIMIT 1) AS owner_email
      FROM companies c ORDER BY c.id`);
   // profissionais ativos: contados dentro do schema de cada empresa
@@ -287,10 +287,16 @@ app.put('/api/admin/companies/:id', requireUser, requireAdmin, async (req, res) 
   // vagas de documento: vazio = sem limite; ausente = não mexe
   const mexeVagas = req.body.doc_slots !== undefined;
   const docSlots = req.body.doc_slots === null || req.body.doc_slots === '' || req.body.doc_slots === undefined ? null : Number(req.body.doc_slots);
-  if (docSlots !== null && (!Number.isInteger(docSlots) || docSlots < 0 || docSlots > 4)) return res.status(400).json({ error: 'Vagas de documento inválidas (de 0 a 4, ou vazio para sem limite)' });
+  if (docSlots !== null && (!Number.isInteger(docSlots) || docSlots < 0 || docSlots > 4)) return res.status(400).json({ error: 'Vagas de documento inválidas (de 0 a 4, ou vazio para sem limite; documentos adicionais vão no campo próprio)' });
+  const mexeExtras = req.body.doc_extras !== undefined;
+  const docExtras = Number(req.body.doc_extras);
+  if (mexeExtras && (!Number.isInteger(docExtras) || docExtras < 0 || docExtras > 20)) return res.status(400).json({ error: 'Tipos de documento adicionais inválidos (de 0 a 20)' });
+  const mexeNivel = req.body.doc_nivel !== undefined;
+  const docNivel = req.body.doc_nivel === '' || req.body.doc_nivel === null ? null : req.body.doc_nivel;
+  if (mexeNivel && docNivel !== null && !['simples', 'completo'].includes(docNivel)) return res.status(400).json({ error: 'Nível de documento inválido' });
   const bm = req.body.booking_mode;
   if (bm !== undefined && !['auto', 'confirm'].includes(bm)) return res.status(400).json({ error: 'Modo de agendamento inválido' });
-  const { rows } = await qg('UPDATE companies SET max_professionals=CASE WHEN $4::boolean THEN $2::int ELSE max_professionals END, booking_mode=COALESCE($3, booking_mode), doc_slots=CASE WHEN $5::boolean THEN $6::int ELSE doc_slots END WHERE id=$1 RETURNING id, name, max_professionals, doc_slots, booking_mode', [req.params.id, max_professionals, bm ?? null, mexeLimite, mexeVagas, docSlots]);
+  const { rows } = await qg('UPDATE companies SET max_professionals=CASE WHEN $4::boolean THEN $2::int ELSE max_professionals END, booking_mode=COALESCE($3, booking_mode), doc_slots=CASE WHEN $5::boolean THEN $6::int ELSE doc_slots END, doc_nivel=CASE WHEN $7::boolean THEN $8::text ELSE doc_nivel END, doc_extras=CASE WHEN $9::boolean THEN $10::int ELSE doc_extras END WHERE id=$1 RETURNING id, name, max_professionals, doc_slots, doc_extras, doc_nivel, booking_mode', [req.params.id, max_professionals, bm ?? null, mexeLimite, mexeVagas, docSlots, mexeNivel, docNivel, mexeExtras, mexeExtras ? docExtras : 0]);
   rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Empresa não encontrada' });
 });
 
@@ -420,8 +426,8 @@ app.put('/api/admin/companies/:id/plan', requireUser, requireAdmin, async (req, 
   if (!Number.isSafeInteger(id) || id <= 0) return res.status(404).json({ error: 'Empresa não encontrada' });
   const ap = aplicacaoDoPlano(String(req.body.plan ?? ''));
   if (!ap) return res.status(400).json({ error: 'Plano inválido' });
-  const { rows } = await qg('UPDATE companies SET modules = modules || $2::jsonb, locked_modules = $3::jsonb WHERE id=$1 RETURNING id, name, modules, locked_modules, max_professionals',
-    [id, JSON.stringify(ap.modules), JSON.stringify(ap.locks)]);
+  const { rows } = await qg('UPDATE companies SET modules = modules || $2::jsonb, locked_modules = $3::jsonb, doc_slots=$4, doc_nivel=$5 WHERE id=$1 RETURNING id, name, modules, locked_modules, max_professionals, doc_slots, doc_nivel',
+    [id, JSON.stringify(ap.modules), JSON.stringify(ap.locks), ap.docs.slots, ap.docs.nivel]);
   rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Empresa não encontrada' });
 });
 

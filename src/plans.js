@@ -4,14 +4,17 @@
 import { MODULE_KEYS } from './modules.js';
 
 const STARTER = ['dashboard', 'agenda', 'fila', 'profissionais', 'servicos', 'clientes', 'inativos', 'importar', 'atendente', 'comandos', 'eventos', 'financeiro'];
-const PRO = [...STARTER, 'bloqueios', 'pedidos', 'comissoes', 'lembrete_cliente'];
+const PRO = [...STARTER, 'bloqueios', 'pedidos', 'comissoes', 'lembrete_cliente', 'documentos'];
 const ADVANCED = [...PRO, 'campanhas', 'clube', 'assistente'];
 export const PLANOS = { starter: STARTER, pro: PRO, advanced: ADVANCED };
+// Documentos de cada plano: quantos tipos ao mesmo tempo e o nível (simples = texto curto: ingresso, recibo; completo = sem limite: contrato)
+// Quem contrata documento adicional tem esse número aumentado pela Administração.
+export const DOCS_DO_PLANO = { starter: { slots: 0, nivel: 'simples' }, pro: { slots: 1, nivel: 'simples' }, advanced: { slots: 2, nivel: 'completo' } };
 
 // Módulos sem item de menu próprio: não entram na vitrine de upgrade
 const SEM_MENU = ['assistente', 'lembrete_cliente'];
 // Módulos fora dos planos: o administrador liga caso a caso; aplicar um plano não liga, não desliga e não coloca cadeado
-const FORA_DOS_PLANOS = ['casa_de_shows', 'beneficios', 'documentos', 'delivery', 'restaurante'];
+const FORA_DOS_PLANOS = ['casa_de_shows', 'beneficios', 'delivery', 'restaurante'];
 
 // { modules, locks } completos do plano, ou null se o plano não existe
 export function aplicacaoDoPlano(plano) {
@@ -19,5 +22,5 @@ export function aplicacaoDoPlano(plano) {
   if (!ligados) return null;
   const modules = Object.fromEntries(MODULE_KEYS.filter((k) => !FORA_DOS_PLANOS.includes(k)).map((k) => [k, ligados.includes(k)]));
   const locks = Object.fromEntries(MODULE_KEYS.filter((k) => !ligados.includes(k) && !SEM_MENU.includes(k) && !FORA_DOS_PLANOS.includes(k)).map((k) => [k, true]));
-  return { modules, locks };
+  return { modules, locks, docs: DOCS_DO_PLANO[plano] };
 }

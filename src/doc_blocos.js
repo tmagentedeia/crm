@@ -46,7 +46,7 @@ export function normalizarDoc(d) {
     switch (b.tipo) {
       case 'logo': o.alinhamento = alinha(b.alinhamento, 'center'); o.altura = num(b.altura, 20, 220, 70); o.largura = b.largura === 0 ? 0 : num(b.largura, 40, 600, 0); o.caixa = !!b.caixa; break;
       case 'titulo': o.texto = txt(b.texto, 300); o.tamanho = num(b.tamanho, 14, 64, 30); o.alinhamento = alinha(b.alinhamento, 'center'); o.cor = cor(b.cor, ''); o.negrito = b.negrito === undefined ? true : !!b.negrito; break;
-      case 'texto': o.texto = txt(b.texto); o.tamanho = num(b.tamanho, 9, 40, 15); o.alinhamento = alinha(b.alinhamento); o.cor = cor(b.cor, ''); o.negrito = !!b.negrito; o.italico = !!b.italico; break;
+      case 'texto': o.texto = txt(b.texto, 20000); o.tamanho = num(b.tamanho, 9, 40, 15); o.alinhamento = alinha(b.alinhamento); o.cor = cor(b.cor, ''); o.negrito = !!b.negrito; o.italico = !!b.italico; break;
       case 'faixa': o.texto = txt(b.texto, 200); o.fundo = cor(b.fundo, ''); o.cor = cor(b.cor, '#ffffff'); o.alinhamento = alinha(b.alinhamento); break;
       case 'dados': o.linhas = (Array.isArray(b.linhas) ? b.linhas.slice(0, 40) : []).map((l) => ({ rotulo: txt(l?.rotulo, 120), valor: txt(l?.valor, 400) })); o.larguraRotulo = num(b.larguraRotulo, 20, 60, 35); break;
       case 'lista': o.itens = (Array.isArray(b.itens) ? b.itens.slice(0, 40) : []).map((i) => txt(i, 400)); o.tamanho = num(b.tamanho, 9, 30, 14); break;
@@ -89,6 +89,24 @@ export function blocosParaHtml(entrada, titulo = 'Documento') {
   else   if (config.moldura === 'ingresso') corpo = `<div style="${largura}background:${config.corMoldura};border:3px solid #222;border-radius:26px;padding:14px"><div style="${base};border:1px solid #222">\n${miolo}\n</div></div>`;
   else corpo = `<div style="${largura}${base}${config.moldura === 'simples' ? ';border:1px solid #d8d8d8;border-radius:14px' : ''}">\n${miolo}\n</div>`;
   return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>${esc(titulo)}</title><style>body{margin:0;padding:24px;background:${config.moldura === 'nenhuma' ? config.fundo : '#ffffff'}}</style></head><body>${corpo}</body></html>`;
+}
+
+// Quantidade de caracteres do texto fixo do modelo (o que o cliente escreve), sem contar as variáveis nem o código.
+// Define se o documento é "simples" ou "completo" no plano.
+export const LIMITE_TEXTO_SIMPLES = 1500;
+const semVariaveis = (t) => String(t ?? '').replace(/\{\{\{?[^}]*\}?\}\}/g, '');
+export function contarTexto({ blocks, html }) {
+  let partes = [];
+  if (blocks) {
+    for (const b of normalizarDoc(blocks).blocos) {
+      if (['titulo', 'texto', 'faixa'].includes(b.tipo)) partes.push(b.texto);
+      else if (b.tipo === 'dados') b.linhas.forEach((l) => partes.push(l.rotulo, l.valor));
+      else if (b.tipo === 'lista') partes.push(...b.itens);
+    }
+  } else {
+    partes.push(String(html ?? '').replace(/<(style|script)[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' '));
+  }
+  return semVariaveis(partes.join(' ')).replace(/\s+/g, ' ').trim().length;
 }
 
 // ---------- modelos de exemplo feitos de blocos ----------

@@ -6,7 +6,7 @@ import { q, qg, runAs, currentCompany } from './db.js';
 import { normPhone } from './phone.js';
 import { isAdmin } from './auth.js';
 import { variaveisDoIngresso, qrHtml } from './ingresso_qr.js';
-import { blocosParaHtml, normalizarDoc, INGRESSO_EXEMPLO, INGRESSO_VERTICAL } from './doc_blocos.js';
+import { blocosParaHtml, normalizarDoc, contarTexto, LIMITE_TEXTO_SIMPLES, INGRESSO_EXEMPLO, INGRESSO_VERTICAL } from './doc_blocos.js';
 
 export const DOCUMENTOS_SQL = `
   CREATE TABLE IF NOT EXISTS doc_templates (
@@ -178,17 +178,28 @@ async function varsFixas() {
   return (await q('SELECT vars FROM doc_settings WHERE id=1')).rows[0]?.vars || {};
 }
 async function estadoVagas() {
-  const total = (await qg('SELECT doc_slots FROM companies WHERE id=$1', [currentCompany()])).rows[0]?.doc_slots ?? null;
-  const ativos = (await q('SELECT active_kinds FROM doc_settings WHERE id=1')).rows[0]?.active_kinds || [];
-  return { total, ativos };
+  const c = (await qg('SELECT doc_slots, doc_extras, doc_nivel FROM companies WHERE id=$1', [currentCompany()])).rows[0] || {};
+  const st = (await q('SELECT active_kinds FROM doc_settings WHERE id=1')).rows[0] || {};
+  return { total: c.doc_slots === null || c.doc_slots === undefined ? null : c.doc_slots + (c.doc_extras || 0), nivel: c.doc_nivel ?? null, ativos: st.active_kinds || [] };
+}
+const fmt = (n) => n.toLocaleString('pt-BR');
+// Regra do plano ao salvar o conteúdo de um modelo: tamanho do texto (documento simples). Editar é livre, sem limite de vezes. null = pode.
+async function conferirEdicao(kind, corpo) {
+  const { nivel } = await estadoVagas();
+  if (nivel === 'simples') {
+    const n = contarTexto(corpo);
+    if (n > LIMITE_TEXTO_SIMPLES) return `O seu plano inclui documentos simples, com até ${fmt(LIMITE_TEXTO_SIMPLES)} caracteres de texto, e este modelo tem ${fmt(n)}. Reduza o texto ou fale com a M2 sobre documentos completos, como contratos.`;
+  }
+  return null;
 }
 const NOME_TIPO = { ingresso: 'ingresso', contrato: 'contrato', proposta: 'proposta', outro: 'outro documento' };
 // Ocupa a vaga do tipo, se ainda houver; devolve a mensagem de recusa quando o plano já está com todas as vagas em uso
 async function garantirVaga(kind) {
   const { total, ativos } = await estadoVagas();
   if (total === null || ativos.includes(kind)) return null;
+  if (total === 0) return 'O seu plano não inclui documentos. Fale com a M2 para contratar.';
   if (ativos.length >= total) {
-    return `Seu plano inclui ${total} tipo${total > 1 ? 's' : ''} de documento ao mesmo tempo e já está em uso (${ativos.map((k) => NOME_TIPO[k] || k).join(', ')}). Para usar ${NOME_TIPO[kind] || kind}, libere uma vaga em Documentos ou contrate uma vaga a mais com a M2.`;
+    return `O seu plano inclui ${total} tipo${total > 1 ? 's' : ''} de documento ao mesmo tempo e já está em uso (${ativos.map((k) => NOME_TIPO[k] || k).join(', ')}). Para usar ${NOME_TIPO[kind] || kind}, pare de usar um dos atuais em Documentos ou contrate um documento adicional com a M2.`;
   }
   await q(`INSERT INTO doc_settings (id, vars, active_kinds) VALUES (1, '{}'::jsonb, ARRAY[$1]) ON CONFLICT (id) DO UPDATE SET active_kinds = array_append(doc_settings.active_kinds, $1) WHERE NOT ($1 = ANY(doc_settings.active_kinds))`, [kind]);
   return null;
@@ -210,16 +221,18 @@ export function registerDocumentRoutes(r, wrap) {
   });
 
   r.get('/documents/status', wrap(async (req, res) => res.json({ configured: gotenbergLigado(), admin: await ehAdmin(req) })));
+  async function resumoVagas() {
+    const { total, nivel, ativos } = await estadoVagas();
+    return { total, nivel, limite_texto: nivel === 'simples' ? LIMITE_TEXTO_SIMPLES : null, ativos, livres: total === null ? null : Math.max(0, total - ativos.length) };
+  }
   r.get('/documents/slots', wrap(async (req, res) => {
-    const { total, ativos } = await estadoVagas();
-    res.json({ total, ativos, livres: total === null ? null : Math.max(0, total - ativos.length) });
+    res.json(await resumoVagas());
   }));
   r.post('/documents/slots/release', wrap(async (req, res) => {
     const kind = String(req.body?.kind ?? '');
     if (!TIPOS.includes(kind)) return res.status(400).json({ error: 'Tipo de documento inválido' });
     await q(`UPDATE doc_settings SET active_kinds = array_remove(active_kinds, $1) WHERE id=1`, [kind]);
-    const { total, ativos } = await estadoVagas();
-    res.json({ total, ativos, livres: total === null ? null : Math.max(0, total - ativos.length) });
+    res.json(await resumoVagas());
   }));
   r.get('/documents/health', soAdmin(async (req, res) => res.json(await testarGotenberg())));
 
@@ -285,7 +298,8 @@ export function registerDocumentRoutes(r, wrap) {
   r.post('/documents/templates', wrap(async (req, res) => {
     const { o, erro } = lerModelo(req.body || {}, false);
     if (erro) return res.status(400).json({ error: erro });
-    if (!(await ehAdmin(req))) { const m = await garantirVaga(o.kind); if (m) return res.status(403).json({ error: m }); }
+    const comum = !(await ehAdmin(req));
+    if (comum) { const m = (await conferirEdicao(o.kind, { blocks: o.blocks, html: o.html })) || (await garantirVaga(o.kind)); if (m) return res.status(403).json({ error: m }); }
     const id = (await q('INSERT INTO doc_templates (kind, name, html, blocks) VALUES ($1,$2,$3,$4::jsonb) RETURNING id', [o.kind, o.name, o.html, o.blocks ? JSON.stringify(o.blocks) : null])).rows[0].id;
     const tem = (await q('SELECT 1 FROM doc_templates WHERE kind=$1 AND is_default', [o.kind])).rowCount > 0;
     if (o.is_default || !tem) await aplicarPadrao(id, o.kind);
@@ -298,7 +312,11 @@ export function registerDocumentRoutes(r, wrap) {
     const { o, erro } = lerModelo(req.body || {}, true);
     if (erro) return res.status(400).json({ error: erro });
     const kind = o.kind || cur.kind;
-    if (!(await ehAdmin(req))) { const m = await garantirVaga(kind); if (m) return res.status(403).json({ error: m }); }
+    const comum = !(await ehAdmin(req));
+    if (comum) {
+      const m = (o.html !== undefined ? await conferirEdicao(kind, { blocks: o.blocks, html: o.html }) : null) || (await garantirVaga(kind));
+      if (m) return res.status(403).json({ error: m });
+    }
     if (kind !== cur.kind) await q('UPDATE doc_templates SET is_default=false WHERE id=$1', [id]);
     await q(`UPDATE doc_templates SET name=COALESCE($2,name), kind=$3, html=COALESCE($4,html), blocks=CASE WHEN $5::boolean THEN $6::jsonb ELSE blocks END, updated_at=now() WHERE id=$1`,
       [id, o.name ?? null, kind, o.html ?? null, o.html !== undefined, o.blocks ? JSON.stringify(o.blocks) : null]);
@@ -324,7 +342,7 @@ export function registerDocumentRoutes(r, wrap) {
     const vars = { ...variaveisBase(), nome: 'Maria da Silva', telefone: '5532999990000', empresa: 'Sua empresa', qrcode: await qrHtml('TMI-0-0-0-000000000000', 120), codigo: 'TMI-0-0-0-000000000000', evento: 'Show de exemplo', evento_data: '10/10/2026 21:00', abertura: '10/10/2026 19:00', local: 'Casa de exemplo', endereco: 'Rua Exemplo, 100 - Centro', lugares_mesa: '4', comprador: 'João da Silva', setor: 'Pista', mesa: '1 × Mesa 4 lugares', pessoa: '1 de 4', text: '<ul><li>Item de exemplo: valor</li><li>Outro item: valor</li></ul>', ...(await varsLogo()), ...(await varsFixas()), ...lerVars(req.body?.vars) };
     const usadas = variaveisDe(html);
     const vazias = usadas.filter((k) => !(k in vars));
-    res.json({ html: renderizar(html, vars), missing: vazias });
+    res.json({ html: renderizar(html, vars), missing: vazias, chars: contarTexto(req.body?.blocks && typeof req.body.blocks === 'object' ? { blocks: req.body.blocks } : { html }) });
   }));
 
   // Gera o PDF: template = 'ingresso' | 'contrato' | 'proposta' | 'outro' (usa o modelo padrão do tipo) ou o id de um modelo

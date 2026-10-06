@@ -32,24 +32,32 @@ export default function Documentos() {
   );
 }
 
-// Vagas de documento: quantos tipos o plano permite usar ao mesmo tempo. Liberar uma vaga deixa outro tipo ser usado; o modelo antigo fica guardado.
+// Documentos do plano: quantos tipos podem ser usados ao mesmo tempo, o nível (simples ou completo) e a edição do mês.
 function Vagas() {
   const [v, setV] = useState(null);
   const [err, setErr] = useState('');
   useEffect(() => { api('/documents/slots').then(setV).catch(() => {}); }, []);
-  async function liberar(k) {
-    if (!window.confirm(`Liberar a vaga de ${TIPOS[k].toLowerCase()}? Os modelos ficam guardados, mas este tipo só volta a ser usado se houver vaga livre.`)) return;
+  async function parar(k) {
+    if (!window.confirm(`Parar de usar ${TIPOS[k].toLowerCase()}? Os modelos ficam guardados, mas este tipo só volta a ser usado se houver espaço no plano.`)) return;
     try { setV(await api('/documents/slots/release', { method: 'POST', body: { kind: k } })); } catch (e) { setErr(e.message); }
   }
   if (!v || v.total === null) return null;
   return (
     <div className="card" style={{ marginBottom: 12 }}>
-      <strong>Vagas de documento: {v.ativos.length} de {v.total} em uso</strong>
-      <p className="muted" style={{ margin: '4px 0 8px' }}>Seu plano permite usar {v.total} tipo{v.total === 1 ? '' : 's'} de documento ao mesmo tempo. Para trocar de tipo, libere uma vaga. Precisa de mais? Fale com a M2.</p>
+      <strong>Tipos de documento do seu plano: {v.ativos.length} de {v.total} em uso</strong>
+      <p className="muted" style={{ margin: '4px 0 8px' }}>
+        Seu plano permite usar {v.total} tipo{v.total === 1 ? '' : 's'} de documento ao mesmo tempo{v.nivel === 'simples' ? `, de texto simples (até ${v.limite_texto.toLocaleString('pt-BR')} caracteres)` : v.nivel === 'completo' ? ', inclusive documentos completos, como contratos' : ''}.
+        Você pode editar os modelos quantas vezes quiser. Para trocar de tipo, pare de usar um. Precisa de mais? Peça um tipo de documento adicional à M2.
+      </p>
       {err && <div className="error">{err}</div>}
-      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-        {v.ativos.map((k) => <span key={k} className="row" style={{ gap: 6, alignItems: 'center' }}><strong>{TIPOS[k]}</strong><button className="btn sm" onClick={() => liberar(k)}>Liberar vaga</button></span>)}
-        {v.ativos.length === 0 && <span className="muted">Nenhum tipo em uso ainda. O primeiro documento que você criar ou gerar ocupa uma vaga.</span>}
+      <div className="row" style={{ gap: 14, flexWrap: 'wrap' }}>
+        {v.ativos.map((k) => (
+          <span key={k} className="row" style={{ gap: 8, alignItems: 'center' }}>
+            <strong>{TIPOS[k]}</strong>
+            <button className="btn sm" onClick={() => parar(k)}>Parar de usar</button>
+          </span>
+        ))}
+        {v.ativos.length === 0 && <span className="muted">Nenhum tipo em uso ainda. O primeiro documento que você criar ou gerar passa a ocupar um lugar do plano.</span>}
       </div>
     </div>
   );
@@ -195,11 +203,13 @@ function Modelos({ admin }) {
   const [logo, setLogo] = useState(null);
   const [fixas, setFixas] = useState([]);
   const [avancado, setAvancado] = useState(false);
+  const [limite, setLimite] = useState(null);
   const carregar = () => api('/documents/templates').then(setLista).catch((e) => setErr(e.message));
   useEffect(() => {
     carregar();
     api('/documents/logo').then((r) => setLogo(r.logo)).catch(() => {});
     api('/documents/settings').then((r) => setFixas(Object.keys(r.vars || {}))).catch(() => {});
+    api('/documents/slots').then((r) => setLimite(r.limite_texto || null)).catch(() => {});
   }, []);
   const variaveis = [
     ...['nome', 'telefone', 'empresa', 'data', 'hora', 'evento', 'evento_data', 'abertura', 'local', 'endereco', 'setor', 'mesa', 'lugares_mesa', 'comprador', 'pessoa', 'numero', 'numero_curto', 'codigo'].map((n) => ({ nome: n, rotulo: ROTULOS[n] })),
@@ -267,7 +277,7 @@ function Modelos({ admin }) {
         </div>
         {lista.length > 0 && (
           <table style={{ marginTop: 10 }}><tbody>{lista.map((t) => (
-            <tr key={t.id}><td><strong>{t.name}</strong> {t.is_default && <span className="muted">· padrão</span>}</td><td>{TIPOS[t.kind]}{t.sem_vaga && <span className="muted"> · sem vaga</span>}</td>
+            <tr key={t.id}><td><strong>{t.name}</strong> {t.is_default && <span className="muted">· padrão</span>}</td><td>{TIPOS[t.kind]}{t.sem_vaga && <span className="muted"> · fora do plano</span>}</td>
               <td style={{ textAlign: 'right' }}><button className="btn sm" onClick={() => abrir(t.id)}>Editar</button></td></tr>
           ))}</tbody></table>
         )}
@@ -282,7 +292,7 @@ function Modelos({ admin }) {
           </div>
           {m.blocks ? (
             <>
-              <EditorBlocos doc={m.blocks} onChange={(d) => setM({ ...m, blocks: d })} variaveis={variaveis} logo={logo} />
+              <EditorBlocos doc={m.blocks} onChange={(d) => setM({ ...m, blocks: d })} variaveis={variaveis} logo={logo} limiteTexto={limite} />
               <p className="muted" style={{ marginTop: 8 }}>Prefere escrever em código? <button type="button" className="btn sm" onClick={irParaCodigo}>Modo avançado (HTML)</button></p>
             </>
           ) : (

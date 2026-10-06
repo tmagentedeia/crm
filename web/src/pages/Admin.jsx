@@ -42,6 +42,7 @@ export default function Admin() {
   const verAcessos = () => (acessos ? setAcessos(null) : api('/admin/access-log').then(setAcessos).catch((e) => setErr(e.message)));
   const [ct, setCt] = useState({});
   const [vg, setVg] = useState({});
+  const [ex, setEx] = useState({});
   const salvarCt = async (s) => {
     setErr(''); setMsg('');
     try {
@@ -121,7 +122,17 @@ export default function Admin() {
     try {
       await api('/admin/companies/' + s.id, { method: 'PUT', body: { doc_slots: vg[s.id] === '' ? null : Number(vg[s.id]) } });
       setVg(({ [s.id]: _, ...rest }) => rest);
-      setMsg(`Vagas de documento de "${s.name}" atualizadas.`);
+      setMsg(`Documentos do plano de "${s.name}" atualizados.`);
+      load();
+    } catch (e) { setErr(e.message); }
+  }
+
+  async function salvarExtras(s) {
+    setErr(''); setMsg('');
+    try {
+      await api('/admin/companies/' + s.id, { method: 'PUT', body: { doc_extras: Number(ex[s.id] || 0) } });
+      setEx(({ [s.id]: _, ...rest }) => rest);
+      setMsg(`Tipos de documento adicionais de "${s.name}" atualizados.`);
       load();
     } catch (e) { setErr(e.message); }
   }
@@ -187,7 +198,7 @@ export default function Admin() {
   }
 
   async function aplicarPlano(s, p) {
-    if (!confirm(`Aplicar o plano ${p.nome} a ${s.name}?\n\nIsso liga os módulos do plano, desliga os demais e deixa os que ficam de fora à vista, apagados, com o convite de upgrade. O limite de profissionais não muda.`)) return;
+    if (!confirm(`Aplicar o plano ${p.nome} a ${s.name}?\n\nIsso liga os módulos do plano, desliga os demais e deixa os que ficam de fora à vista, apagados, com o convite de upgrade. O limite de profissionais não muda. Os tipos de documento e o nível voltam ao padrão do plano; os tipos adicionais contratados continuam.`)) return;
     setErr(''); setMsg('');
     try { await api(`/admin/companies/${s.id}/plan`, { method: 'PUT', body: { plan: p.id } }); setMsg(`Plano ${p.nome} aplicado a ${s.name}`); load(); } catch (e) { setErr(e.message); }
   }
@@ -429,10 +440,20 @@ export default function Admin() {
             <div style={{ flex: '1 1 560px', display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
               <div style={{ display: 'flex', gap: 22, flexWrap: 'wrap', alignItems: 'flex-end' }}>
                 <Campo rotulo="Ativos">{s.ativos}</Campo>
-                <Campo rotulo="Vagas de documento">
+                <Campo rotulo="Tipos de documento do plano">
                   <input type="number" min="0" max="4" placeholder="—" value={s.id in vg ? vg[s.id] : s.doc_slots ?? ''} style={{ width: 50, minWidth: 50 }}
                     onChange={(e) => setVg({ ...vg, [s.id]: e.target.value })} />
                   {s.id in vg && <button className="btn sm primary" onClick={() => salvarVagas(s)}>Salvar</button>}
+                </Campo>
+                <Campo rotulo="Tipos adicionais">
+                  <input type="number" min="0" max="20" value={s.id in ex ? ex[s.id] : s.doc_extras ?? 0} style={{ width: 50, minWidth: 50 }}
+                    onChange={(e) => setEx({ ...ex, [s.id]: e.target.value })} />
+                  {s.id in ex && <button className="btn sm primary" onClick={() => salvarExtras(s)}>Salvar</button>}
+                </Campo>
+                <Campo rotulo="Nível dos documentos">
+                  <select value={s.doc_nivel || ''} onChange={(e) => api('/admin/companies/' + s.id, { method: 'PUT', body: { doc_nivel: e.target.value } }).then(load).catch((x) => setErr(x.message))}>
+                    <option value="">Sem limite</option><option value="simples">Simples (texto curto)</option><option value="completo">Completo (contratos)</option>
+                  </select>
                 </Campo>
                 <Campo rotulo="Limite">
                   <input type="number" min="0" placeholder="—" value={shown(s)} style={{ width: 50, minWidth: 50 }}

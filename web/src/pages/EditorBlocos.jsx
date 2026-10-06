@@ -54,15 +54,16 @@ const Cor = ({ rotulo, valor, aoMudar, padrao }) => (
 const Marca = ({ rotulo, valor, aoMudar }) => <label style={{ display: 'flex', gap: 6, alignItems: 'center', paddingBottom: 8 }}><input type="checkbox" checked={!!valor} onChange={(e) => aoMudar(e.target.checked)} /> {rotulo}</label>;
 
 
-export default function EditorBlocos({ doc, onChange, variaveis, logo }) {
+export default function EditorBlocos({ doc, onChange, variaveis, logo, limiteTexto }) {
   const foco = useRef(null);          // último campo de texto em que a pessoa clicou: é nele que a variável entra
   const [html, setHtml] = useState('');
+  const [chars, setChars] = useState(0);
   const [erro, setErro] = useState('');
   const [erroFundo, setErroFundo] = useState('');
 
   useEffect(() => {
     const t = setTimeout(() => {
-      api('/documents/preview', { method: 'POST', body: { blocks: doc } }).then((r) => { setHtml(r.html); setErro(''); }).catch((e) => setErro(e.message));
+      api('/documents/preview', { method: 'POST', body: { blocks: doc } }).then((r) => { setHtml(r.html); setChars(r.chars || 0); setErro(''); }).catch((e) => setErro(e.message));
     }, 450);
     return () => clearTimeout(t);
   }, [doc, logo]);
@@ -241,7 +242,7 @@ export default function EditorBlocos({ doc, onChange, variaveis, logo }) {
         {doc.blocos.length === 0 && <p className="muted">O documento está vazio. Use “Adicionar bloco…”.</p>}
       </div>
       <div>
-        <div className="muted" style={{ marginBottom: 6 }}>Prévia com dados de exemplo</div>
+        <div className="muted" style={{ marginBottom: 6 }}>Prévia com dados de exemplo{limiteTexto ? <> · texto do documento: <strong style={{ color: chars > limiteTexto ? '#b3261e' : 'inherit' }}>{chars.toLocaleString('pt-BR')} de {limiteTexto.toLocaleString('pt-BR')} caracteres</strong></> : null}</div>
         {erro && <div className="error">{erro}</div>}
         <iframe title="Prévia do documento" sandbox="" srcDoc={html} style={{ width: '100%', height: 640, border: '1px solid #ccc', background: '#fff' }} />
       </div>
