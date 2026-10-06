@@ -529,7 +529,8 @@ export function buildRouter() {
                 FROM customers c LEFT JOIN loyalty_levels l ON l.id=c.club_level_id`;
   // filtros da listagem: tipo, busca, situação no Clube ('member','former','supporter','none') e nível
   const FILTRO = `($1::text IS NULL OR c.status=$1)
-       AND ($2::text IS NULL OR c.name ILIKE '%'||$2||'%' OR c.phone LIKE '%'||$2||'%' OR c.subject ILIKE '%'||$2||'%')
+       AND ($2::text IS NULL OR NOT EXISTS (SELECT 1 FROM unnest(regexp_split_to_array(btrim($2), '\\s+')) AS t(w)
+            WHERE concat_ws(' ', c.name, c.last_name, c.phone, c.subject, c.city) NOT ILIKE '%'||t.w||'%'))
        AND ($3::text IS NULL OR ($3='none' AND c.club_status IS NULL) OR c.club_status=$3)
        AND ($4::bigint IS NULL OR c.club_level_id=$4)
        AND ($5::text IS NULL OR $5 = ANY(c.client_kinds))`;
@@ -760,7 +761,7 @@ export function buildRouter() {
   }));
   // Só os assinantes (membros), com nível; ?search= filtra por nome ou telefone
   r.get('/club/members', wrap(async (req, res) => {
-    const { rows } = await q(`${CUST} WHERE c.club_status = 'member' AND ($1::text IS NULL OR c.name ILIKE '%'||$1||'%' OR c.phone LIKE '%'||$1||'%') ORDER BY lower(NULLIF(btrim(c.name),'')) NULLS LAST, c.created_at DESC LIMIT 1000`, [String(req.query.search || '').trim() || null]);
+    const { rows } = await q(`${CUST} WHERE c.club_status = 'member' AND ($1::text IS NULL OR concat_ws(' ', c.name, c.last_name) ILIKE '%'||$1||'%' OR c.phone LIKE '%'||$1||'%') ORDER BY lower(NULLIF(btrim(c.name),'')) NULLS LAST, c.created_at DESC LIMIT 1000`, [String(req.query.search || '').trim() || null]);
     res.json(rows);
   }));
   r.put('/club', wrap(async (req, res) => {
