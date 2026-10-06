@@ -204,7 +204,7 @@ export async function runImport(companyId, data, dryRun) {
     const custRows = data.customers || [];
     if (custRows.length) {
       // colunas que o painel entende (as outras são ignoradas e aparecem no relatório)
-      const CONHECIDAS = ['nome', 'cliente', 'nome completo', 'full name', 'sobrenome', 'telefone', 'celular', 'whatsapp', 'tipo', 'situacao', 'programa', 'plano', 'nivel',
+      const CONHECIDAS = ['assunto', 'nome', 'cliente', 'nome completo', 'full name', 'sobrenome', 'telefone', 'celular', 'whatsapp', 'tipo', 'situacao', 'programa', 'plano', 'nivel',
         'aniversario', 'nascimento', 'data de nascimento', 'cidade', 'estado', 'uf', 'genero', 'sexo', 'data do cadastro', 'cadastro', 'observacoes', 'obs', 'recados'];
       const vistas = new Set();
       custRows.forEach((r) => Object.keys(r || {}).forEach((k) => vistas.add(k)));
@@ -253,8 +253,8 @@ export async function runImport(companyId, data, dryRun) {
         const created = parseDateTimeBr(cad);
         if (cad && !created) rep.warnings.push(`${line}: data do cadastro "${cad}" não entendida — usei a data de hoje`);
         const r = await q(
-          `INSERT INTO customers (name,last_name,phone,status,source,city,state,birth_day,birth_month,birth_year,gender,club_status,club_level_id,notes,created_at,client_kinds,extra)
-           VALUES ($1,$2,$3,$4,'manual',$5,$6,$7,$8,$9,$10,$11,$12,$13,COALESCE($14::timestamptz, now()),$15::text[],$16::jsonb)
+          `INSERT INTO customers (name,last_name,phone,status,source,city,state,birth_day,birth_month,birth_year,gender,club_status,club_level_id,notes,created_at,client_kinds,extra,subject,subject_at)
+           VALUES ($1,$2,$3,$4,'manual',$5,$6,$7,$8,$9,$10,$11,$12,$13,COALESCE($14::timestamptz, now()),$15::text[],$16::jsonb,$17::text,CASE WHEN $17::text IS NULL THEN NULL ELSE now() END)
            ON CONFLICT (phone) DO UPDATE SET
              name=COALESCE(NULLIF(EXCLUDED.name,''),customers.name),
              last_name=COALESCE(EXCLUDED.last_name,customers.last_name),
@@ -266,11 +266,13 @@ export async function runImport(companyId, data, dryRun) {
              notes=COALESCE(EXCLUDED.notes,customers.notes),
              client_kinds=(SELECT COALESCE(array_agg(DISTINCT x), '{}') FROM unnest(customers.client_kinds || EXCLUDED.client_kinds) x),
              status=CASE WHEN cardinality(EXCLUDED.client_kinds) > 0 THEN 'client' ELSE customers.status END,
-             extra=customers.extra || EXCLUDED.extra,
+             extra=(customers.extra - 'Assunto' - 'assunto') || EXCLUDED.extra,
+             subject_at=CASE WHEN EXCLUDED.subject IS NOT NULL AND EXCLUDED.subject IS DISTINCT FROM customers.subject THEN now() ELSE customers.subject_at END,
+             subject=COALESCE(EXCLUDED.subject,customers.subject),
              updated_at=now()
            RETURNING (xmax = 0) AS inserted`,
           [name || null, txt(rowGet(row, 'sobrenome')) || null, phone, status, cs.city, cs.state || uf || null,
-           b.birth_day, b.birth_month, b.birth_year ?? null, gender, club, levelId, txt(rowGet(row, 'observacoes', 'obs', 'recados')) || null, created, perfil ? [perfil] : [], JSON.stringify(valoresExtras(row, extras))]);
+           b.birth_day, b.birth_month, b.birth_year ?? null, gender, club, levelId, txt(rowGet(row, 'observacoes', 'obs', 'recados')) || null, created, perfil ? [perfil] : [], JSON.stringify(valoresExtras(row, extras)), txt(rowGet(row, 'assunto')).slice(0, 300) || null]);
         r.rows[0].inserted ? rep.customers.created++ : rep.customers.updated++;
       }
     }

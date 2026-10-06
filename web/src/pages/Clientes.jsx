@@ -43,6 +43,10 @@ export default function Clientes({ company }) {
   const [search, setSearch] = useState('');
   const [ordem, setOrdem] = useState('');   // '', name-asc, name-desc, city-asc, city-desc
   const [list, setList] = useState([]);
+  // a tabela mostra só as colunas que têm informação; os campos personalizados (colunas extras da planilha) viram colunas
+  const algum = (f) => !list.length || list.some(f);
+  const col = { assunto: algum((c) => c.subject), clube: algum((c) => c.club_status), cidade: algum((c) => c.city || c.state), visita: algum((c) => c.last_visit_at) };
+  const extrasCols = (() => { const n = {}; list.forEach((c) => Object.entries(c.extra || {}).forEach(([k, v]) => { if (v) n[k] = (n[k] || 0) + 1; })); return Object.keys(n).sort((a, b) => n[b] - n[a]).slice(0, 5); })();
   const [detail, setDetail] = useState(null);
   const [adding, setAdding] = useState(false);
   const sel = useSelecao(list);
@@ -125,7 +129,7 @@ export default function Clientes({ company }) {
         descreve={(i) => <p>Também serão apagados {i.appointments} agendamento(s) e {i.orders} pedido(s) de música desses contatos, além do lugar deles na fila de espera.</p>} />
       <div className="card table-wrap">
         <table>
-          <thead><tr><CelulaTodos s={sel} /><th>Nome</th><th>Telefone</th><th>Tipo</th><th>{rotuloAssunto}</th>{clube && <th>{club?.program_name || 'Programa de assinaturas'}</th>}<th>Cidade</th><th>Última visita</th></tr></thead>
+          <thead><tr><CelulaTodos s={sel} /><th>Nome</th><th>Telefone</th><th>Tipo</th>{col.assunto && <th>{rotuloAssunto}</th>}{clube && col.clube && <th>{club?.program_name || 'Programa de assinaturas'}</th>}{col.cidade && <th>Cidade</th>}{col.visita && <th>Última visita</th>}{extrasCols.map((k) => <th key={k}>{k}</th>)}</tr></thead>
           <tbody>
             {list.map((c) => (
               <tr key={c.id} className="click" onClick={() => open(c.id)}>
@@ -133,13 +137,14 @@ export default function Clientes({ company }) {
                 <td>{nomeCompleto(c) || <span className="muted">Sem nome</span>}</td>
                 <td>{fmtPhone(c.phone)}</td>
                 <td><span className={'badge ' + c.status}>{c.status === 'client' ? 'Cliente' : 'Lead'}</span>{(c.client_kinds || []).map((k) => <span key={k} className="muted"> · {PERFIL[k] || k}</span>)}</td>
-                <td title={c.subject || ''}>{c.subject ? (c.subject.length > 50 ? c.subject.slice(0, 50) + '…' : c.subject) : <span className="muted">—</span>}</td>
-                {clube && <td>{c.club_status ? <span className="badge">{SITUACAO[c.club_status]}{c.club_level_name ? ' · ' + c.club_level_name : ''}</span> : <span className="muted">—</span>}</td>}
-                <td>{[c.city, c.state].filter(Boolean).join(' / ') || <span className="muted">—</span>}</td>
-                <td>{fmtDate(c.last_visit_at)}</td>
+                {col.assunto && <td title={c.subject || ''}>{c.subject ? (c.subject.length > 50 ? c.subject.slice(0, 50) + '…' : c.subject) : <span className="muted">—</span>}</td>}
+                {clube && col.clube && <td>{c.club_status ? <span className="badge">{SITUACAO[c.club_status]}{c.club_level_name ? ' · ' + c.club_level_name : ''}</span> : <span className="muted">—</span>}</td>}
+                {col.cidade && <td>{[c.city, c.state].filter(Boolean).join(' / ') || <span className="muted">—</span>}</td>}
+                {col.visita && <td>{fmtDate(c.last_visit_at)}</td>}
+                {extrasCols.map((k) => <td key={k} title={c.extra?.[k] || ''}>{c.extra?.[k] ? (c.extra[k].length > 40 ? c.extra[k].slice(0, 40) + '…' : c.extra[k]) : <span className="muted">—</span>}</td>)}
               </tr>
             ))}
-            {!list.length && <tr><td colSpan="8" className="muted">Nada encontrado.</td></tr>}
+            {!list.length && <tr><td colSpan="12" className="muted">Nada encontrado.</td></tr>}
           </tbody>
         </table>
       </div>
