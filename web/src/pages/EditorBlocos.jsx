@@ -73,6 +73,14 @@ export default function EditorBlocos({ doc, onChange, variaveis, logo, limiteTex
     const j = i + d; if (j < 0 || j >= doc.blocos.length) return;
     const l = [...doc.blocos]; [l[i], l[j]] = [l[j], l[i]]; onChange({ ...doc, blocos: l });
   };
+  const [arrasta, setArrasta] = useState(null);   // bloco sendo arrastado
+  const [sobre, setSobre] = useState(null);       // posição onde vai cair
+  const soltar = () => {
+    if (arrasta !== null && sobre !== null && arrasta !== sobre) {
+      const l = [...doc.blocos]; const [b] = l.splice(arrasta, 1); l.splice(sobre, 0, b); onChange({ ...doc, blocos: l });
+    }
+    setArrasta(null); setSobre(null);
+  };
   const tirar = (i) => onChange({ ...doc, blocos: doc.blocos.filter((_, j) => j !== i) });
   const duplicar = (i) => { const l = [...doc.blocos]; l.splice(i + 1, 0, JSON.parse(JSON.stringify(l[i]))); onChange({ ...doc, blocos: l }); };
   const incluir = (tipo) => { if (tipo) onChange({ ...doc, blocos: [...doc.blocos, JSON.parse(JSON.stringify(PADRAO[tipo]))] }); };
@@ -228,8 +236,13 @@ export default function EditorBlocos({ doc, onChange, variaveis, logo, limiteTex
           </select>
         </div>
         {doc.blocos.map((b, i) => (
-          <div className="card" key={i} style={{ marginBottom: 8, padding: 10 }}>
+          <div className="card" key={i} draggable={arrasta === i}
+            onDragOver={(e) => { if (arrasta !== null) { e.preventDefault(); if (sobre !== i) setSobre(i); } }}
+            onDrop={(e) => { e.preventDefault(); soltar(); }}
+            onDragEnd={() => { setArrasta(null); setSobre(null); }}
+            style={{ marginBottom: 8, padding: 10, opacity: arrasta === i ? 0.45 : 1, boxShadow: arrasta !== null && sobre === i && arrasta !== i ? (arrasta < i ? '0 3px 0 0 var(--accent, #6366f1)' : '0 -3px 0 0 var(--accent, #6366f1)') : undefined }}>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6 }}>
+              <span title="Arraste para mudar de lugar" onMouseDown={() => setArrasta(i)} onMouseUp={() => { if (sobre === null) setArrasta(null); }} style={{ cursor: 'grab', color: '#999', fontSize: 18, lineHeight: 1, padding: '0 4px', userSelect: 'none' }}>⠿</span>
               <strong style={{ flex: 1 }}>{NOMES[b.tipo]}</strong>
               <button type="button" className="btn sm" disabled={i === 0} onClick={() => mover(i, -1)} title="Subir">↑</button>
               <button type="button" className="btn sm" disabled={i === doc.blocos.length - 1} onClick={() => mover(i, 1)} title="Descer">↓</button>
