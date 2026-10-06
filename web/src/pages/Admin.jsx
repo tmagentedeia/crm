@@ -82,13 +82,14 @@ export default function Admin() {
       const { [s.id]: _, ...resto } = esp; setEsp(resto); setMsg(aviso); load(); espAtualiza(s);
     } catch (e) { setErr(e.message); }
   };
+  const [confTodos, setConfTodos] = useState(null); // empresa à espera da confirmação de "copiar todos"
   const espTodos = async (s) => {
-    if (!confirm('Copiar TODOS os contatos de ' + s.name + ' para a planilha? Vai devagar, em segundo plano, e pode levar um bom tempo se a base for grande.')) return;
     setErr(''); setMsg('');
     try {
       const r = await api(`/admin/companies/${s.id}/contact-mirror/send-all`, { method: 'POST' });
+      setConfTodos(null);
       setMsg(`${r.total} contatos entraram na fila (cerca de ${r.minutos} min).`); espAtualiza(s);
-    } catch (e) { setErr(e.message); }
+    } catch (e) { setConfTodos(null); setErr(e.message); }
   };
   const [wa, setWa] = useState({}); // conexão do WhatsApp para avisos, em edição por empresa: { id: { u: endereço, t: chave } }
   const salvarWa = async (s) => {
@@ -405,6 +406,19 @@ export default function Admin() {
         </div>
       )}
 
+      {confTodos && (
+        <div className="modal-bg" onClick={() => setConfTodos(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>Tem certeza que deseja copiar todos?</h2>
+            <p>Todos os contatos de <strong>{confTodos.name}</strong> serão enviados de novo para a planilha, um por um. Se a planilha já tiver dados, as linhas com o mesmo telefone serão atualizadas com o que está no painel.</p>
+            <p className="muted">Só faça isso se a planilha estiver vazia ou desatualizada. Se ela já tem os contatos, não é preciso: o que for criado ou alterado daqui em diante já vai sozinho.</p>
+            <div className="row">
+              <button className="btn primary" onClick={() => espTodos(confTodos)}>Sim, copiar todos</button>
+              <button className="btn" autoFocus onClick={() => setConfTodos(null)}>Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
       {trocaEmail && (
         <div className="modal-bg" onClick={() => setTrocaEmail(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -507,7 +521,7 @@ export default function Admin() {
                       onChange={(e) => espSalvar(s, { on: e.target.checked }, e.target.checked ? 'Cópia ligada: valem os contatos criados ou alterados daqui em diante.' : 'Cópia desligada.')} /> Ligada
                   </label>
                   {s.contact_mirror_on && <>
-                    <button className="btn sm" style={{ marginLeft: 8 }} onClick={() => espTodos(s)}>Copiar todos agora</button>
+                    <button className="btn sm" style={{ marginLeft: 8 }} onClick={() => setConfTodos(s)}>Copiar todos agora</button>
                     <button className="btn sm" onClick={() => espAtualiza(s)} title="Ver quantos faltam">Faltam{espFalta[s.id] != null ? `: ${espFalta[s.id]}` : ''}</button>
                   </>}
                 </Campo>
