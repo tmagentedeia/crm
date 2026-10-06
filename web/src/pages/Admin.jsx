@@ -491,7 +491,7 @@ export default function Admin() {
                     onChange={(e) => setCt({ ...ct, [s.id]: e.target.value })} />
                   {s.id in ct && <button className="btn sm primary" onClick={() => salvarCt(s)}>Salvar</button>}
                 </Campo>
-                <Campo rotulo="Envio de campanhas (endereço do fluxo)">
+                <Campo rotulo="Envio de campanhas (endereço do fluxo; vazio = o painel envia direto pelo WhatsApp da empresa)">
                   <input placeholder="https://…/webhook/campanhas-envio" style={{ width: 300 }} value={wh[s.id] ?? s.campaign_webhook_url ?? ''}
                     onChange={(e) => setWh({ ...wh, [s.id]: e.target.value })} />
                   {s.id in wh && <button className="btn sm primary" onClick={() => salvarWh(s)}>Salvar</button>}

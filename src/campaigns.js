@@ -1,5 +1,8 @@
 // Campanhas: envio em lote com ritmo controlado. Todas as regras de segurança valem aqui no servidor,
 // independentemente do que a tela mostrar.
+import { conexaoWhats } from './lista_evento.js';
+import { msgPool } from './indicacoes.js';
+import { nomeTabelaValido } from './conversas.js';
 import { q, qg, tx, currentCompany } from './db.js';
 import { normPhone } from './phone.js';
 
@@ -220,6 +223,35 @@ export async function reportResult(companyId, recipientId, ok, errorText) {
   });
 }
 
+// Envio direto: o painel manda pela conexão de WhatsApp da própria empresa (sem fluxo no N8N) e registra o resultado sozinho.
+async function enviarDireto(companyId, con, job) {
+  let resp = null;
+  try {
+    const r = await fetch(con.base + '/send/text', {
+      method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json', token: con.token },
+      body: JSON.stringify({ number: job.phone, text: job.text, readchat: true, delay: 3000 }), signal: AbortSignal.timeout(30000),
+    });
+    if (!r.ok) { await reportResult(companyId, job.recipient_id, false, `O WhatsApp respondeu ${r.status}`); return; }
+    resp = await r.json().catch(() => null);
+  } catch (e) {
+    await reportResult(companyId, job.recipient_id, false, e?.name === 'TimeoutError' ? 'O WhatsApp não respondeu a tempo' : 'Não foi possível falar com o WhatsApp');
+    return;
+  }
+  await reportResult(companyId, job.recipient_id, true);
+  await gravarNaConversa(companyId, job, resp);
+}
+// A mensagem enviada entra no histórico da conversa do agente (mesma tabela e formato que o agente usa), para ele saber o que foi dito.
+async function gravarNaConversa(companyId, job, resp) {
+  try {
+    const c = (await qg('SELECT chat_table, whatsapp_instance FROM companies WHERE id=$1', [companyId])).rows[0];
+    const pool = msgPool();
+    if (!pool || !c?.chat_table || !nomeTabelaValido(c.chat_table) || !c.whatsapp_instance) return;
+    const chat = String(resp?.chatid || job.chat_id || job.phone).replace(/@.*$/, '');
+    await pool.query(`INSERT INTO "${c.chat_table}" (session_id, message) VALUES ($1, $2::jsonb)`,
+      [`${c.whatsapp_instance} ${chat} chats`, JSON.stringify({ type: 'human', content: job.text, additional_kwargs: {}, response_metadata: {} })]);
+  } catch (e) { console.error('campanhas: histórico da conversa:', e.message); }
+}
+
 // Modo "empurrar": o painel tem o relógio e aciona o N8N (webhook) na hora de cada envio.
 // Cada empresa tem o seu endereço (definido na Administração). O N8N só executa quando há mensagem para mandar.
 let ticking = false;
@@ -231,7 +263,8 @@ export async function dispatchDue() {
     for (const { id, campaign_webhook_url } of rows) {
       // endereço da empresa; se não tiver, vale o padrão da variável de ambiente (opcional)
       const url = campaign_webhook_url || process.env.CAMPAIGN_WEBHOOK_URL;
-      if (!url) continue;
+      const con = url ? null : await conexaoWhats(id); // sem endereço de fluxo, o painel envia direto pela conexão do WhatsApp da empresa
+      if (!url && !con) continue;
       let due;
       try {
         due = (await tx(id, async (t) => (await t(
@@ -240,6 +273,7 @@ export async function dispatchDue() {
       if (!due) continue;
       const job = await claimNext(id);
       if (!job) continue;
+      if (con) { await enviarDireto(id, con, job); continue; }
       const payload = { company_id: Number(id), ...job };
       try {
         const r = await fetch(url, {
