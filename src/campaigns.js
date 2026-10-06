@@ -241,15 +241,19 @@ async function enviarDireto(companyId, con, job) {
   await gravarNaConversa(companyId, job, resp);
 }
 // A mensagem enviada entra no histórico da conversa do agente (mesma tabela e formato que o agente usa), para ele saber o que foi dito.
-async function gravarNaConversa(companyId, job, resp) {
+// Entra como mensagem DO AGENTE (ele é quem escreveu); o motivo de qualquer falha fica no registro do servidor.
+export async function gravarNaConversa(companyId, job, resp) {
   try {
     const c = (await qg('SELECT chat_table, whatsapp_instance FROM companies WHERE id=$1', [companyId])).rows[0];
     const pool = msgPool();
-    if (!pool || !c?.chat_table || !nomeTabelaValido(c.chat_table) || !c.whatsapp_instance) return;
+    const falta = !pool ? 'sem ligação com o histórico do atendimento (N8N_DATABASE_URL)' : !c?.chat_table ? 'empresa sem tabela de conversas' : !nomeTabelaValido(c.chat_table) ? 'nome de tabela inválido' : !c.whatsapp_instance ? 'empresa sem instância do WhatsApp' : '';
+    if (falta) { console.error(`campanhas: histórico NÃO gravado (empresa ${companyId}): ${falta}`); return false; }
     const chat = String(resp?.chatid || job.chat_id || job.phone).replace(/@.*$/, '');
     await pool.query(`INSERT INTO "${c.chat_table}" (session_id, message) VALUES ($1, $2::jsonb)`,
-      [`${c.whatsapp_instance} ${chat} chats`, JSON.stringify({ type: 'human', content: job.text, additional_kwargs: {}, response_metadata: {} })]);
-  } catch (e) { console.error('campanhas: histórico da conversa:', e.message); }
+      [`${c.whatsapp_instance} ${chat} chats`, JSON.stringify({ type: 'ai', content: job.text, tool_calls: [], additional_kwargs: {}, response_metadata: {}, invalid_tool_calls: [] })]);
+    console.log(`campanhas: histórico gravado (empresa ${companyId}, ${c.whatsapp_instance} ${chat})`);
+    return true;
+  } catch (e) { console.error('campanhas: histórico da conversa:', e.message); return false; }
 }
 
 // O painel tem o relógio e envia direto pela conexão de WhatsApp de cada empresa (configurada na Administração).
