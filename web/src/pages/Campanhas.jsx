@@ -294,11 +294,11 @@ function Form({ id, voltar, abrir, frases }) {
                 {clientes.filter((c) => {
                   const t = busca.trim().toLowerCase(); if (!t) return true;
                   const d = t.replace(/\D/g, '');
-                  return (c.name || '').toLowerCase().includes(t) || (d && String(c.phone || '').includes(d));
+                  return [c.name, c.last_name].filter(Boolean).join(' ').toLowerCase().includes(t) || (d && String(c.phone || '').includes(d));
                 }).map((c) => (
                   <tr key={c.id} onClick={() => alternar(c.id)} style={{ cursor: 'pointer' }}>
                     <td><input type="checkbox" style={{ width: 'auto' }} readOnly checked={f.ids.includes(c.id)} /></td>
-                    <td>{c.name || 'Sem nome'}</td><td className="muted">{fmtPhone(c.phone)}</td><td className="muted">{c.tipo}{c.campaign_excluded ? ' · não recebe campanhas' : ''}</td>
+                    <td>{[c.name, c.last_name].filter(Boolean).join(' ') || 'Sem nome'}</td><td className="muted">{fmtPhone(c.phone)}</td><td className="muted">{c.tipo}{c.campaign_excluded ? ' · não recebe campanhas' : ''}</td>
                   </tr>
                 ))}
               </tbody>

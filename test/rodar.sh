@@ -148,12 +148,6 @@ BASE=http://localhost:3999 node test/aniversario.mjs || R=1
 BASE=http://localhost:3999 node test/excecoes.mjs || R=1
 BASE=http://localhost:3999 node test/exclusao.mjs || R=1
 BASE=http://localhost:3999 node test/apagar_massa.mjs || R=1
-# campanhas no modo "painel aciona o fluxo": o endereço é definido pela empresa (Administração) durante o teste
-PORT=3996 CAMPAIGN_TICK_MS=1000 node src/index.js > /tmp/crm-test3.log 2>&1 &
-PID3=$!
-sleep 2
-BASE=http://localhost:3996 node test/campanhas_push.mjs || R=1
-kill $PID3 2>/dev/null
 BASE=http://localhost:3998 node test/chave_global.mjs || R=1
 kill $PID $PID2 $PIDG
 redis-cli -p 56379 shutdown nosave 2>/dev/null || true

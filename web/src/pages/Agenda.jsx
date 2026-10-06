@@ -129,7 +129,7 @@ function NewAppointment({ init, date, professionals, onClose, onSaved }) {
         <div className="field"><label>Cliente</label>
           <select value={f.customer_id} onChange={set('customer_id')} required><option value="">Selecione…</option>
             <option value="new">➕ Novo cliente (presencial)</option>
-            {customers.map((c) => <option key={c.id} value={c.id}>{c.name || 'Sem nome'} — {c.phone}</option>)}</select></div>
+            {customers.map((c) => <option key={c.id} value={c.id}>{[c.name, c.last_name].filter(Boolean).join(' ') || 'Sem nome'} — {c.phone}</option>)}</select></div>
         {f.customer_id === 'new' && (
           <div className="row">
             <div className="field"><label>Nome</label><input value={f.name} onChange={set('name')} required /></div>

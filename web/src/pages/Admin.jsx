@@ -64,14 +64,6 @@ export default function Admin() {
   const [abertas, setAbertas] = useState({});
   const [em, setEm] = useState({}); // id -> e-mail do responsável em edição
   const [trocaEmail, setTrocaEmail] = useState(null); // { id, empresa, de, para, senha }
-  const [wh, setWh] = useState({}); // endereço do fluxo de campanhas em edição, por empresa
-  const salvarWh = async (s) => {
-    setErr(''); setMsg('');
-    try {
-      await api(`/admin/companies/${s.id}/campaign-webhook`, { method: 'PUT', body: { url: wh[s.id] } });
-      const { [s.id]: _, ...resto } = wh; setWh(resto); setMsg('Endereço do envio de campanhas de ' + s.name + ' atualizado.'); load();
-    } catch (e) { setErr(e.message); }
-  };
   const [esp, setEsp] = useState({}); // endereço do espelho dos contatos em edição, por empresa
   const espSalvar = async (s, corpo, aviso) => {
     setErr(''); setMsg('');
@@ -490,11 +482,6 @@ export default function Admin() {
                   <input placeholder="ex.: chat_vendas" style={{ width: 170 }} value={ct[s.id] ?? s.chat_table ?? ''}
                     onChange={(e) => setCt({ ...ct, [s.id]: e.target.value })} />
                   {s.id in ct && <button className="btn sm primary" onClick={() => salvarCt(s)}>Salvar</button>}
-                </Campo>
-                <Campo rotulo="Envio de campanhas (endereço do fluxo; vazio = o painel envia direto pelo WhatsApp da empresa)">
-                  <input placeholder="https://…/webhook/campanhas-envio" style={{ width: 300 }} value={wh[s.id] ?? s.campaign_webhook_url ?? ''}
-                    onChange={(e) => setWh({ ...wh, [s.id]: e.target.value })} />
-                  {s.id in wh && <button className="btn sm primary" onClick={() => salvarWh(s)}>Salvar</button>}
                 </Campo>
                 <Campo rotulo="Planilha de contatos: cópia (endereço do fluxo) e importação (link; a planilha precisa estar com “qualquer pessoa com o link pode ver”)">
                   <input placeholder="https://…/webhook/contatos-planilha" style={{ width: 300 }} value={esp[s.id] ?? s.contact_mirror_url ?? ''}

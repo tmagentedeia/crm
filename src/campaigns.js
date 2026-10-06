@@ -252,19 +252,16 @@ async function gravarNaConversa(companyId, job, resp) {
   } catch (e) { console.error('campanhas: histórico da conversa:', e.message); }
 }
 
-// Modo "empurrar": o painel tem o relógio e aciona o N8N (webhook) na hora de cada envio.
-// Cada empresa tem o seu endereço (definido na Administração). O N8N só executa quando há mensagem para mandar.
+// O painel tem o relógio e envia direto pela conexão de WhatsApp de cada empresa (configurada na Administração).
 let ticking = false;
 export async function dispatchDue() {
   if (ticking) return;
   ticking = true;
   try {
-    const { rows } = await qg('SELECT id, campaign_webhook_url FROM companies ORDER BY id');
-    for (const { id, campaign_webhook_url } of rows) {
-      // endereço da empresa; se não tiver, vale o padrão da variável de ambiente (opcional)
-      const url = campaign_webhook_url || process.env.CAMPAIGN_WEBHOOK_URL;
-      const con = url ? null : await conexaoWhats(id); // sem endereço de fluxo, o painel envia direto pela conexão do WhatsApp da empresa
-      if (!url && !con) continue;
+    const { rows } = await qg('SELECT id FROM companies ORDER BY id');
+    for (const { id } of rows) {
+      const con = await conexaoWhats(id);
+      if (!con) continue;
       let due;
       try {
         due = (await tx(id, async (t) => (await t(
@@ -273,19 +270,7 @@ export async function dispatchDue() {
       if (!due) continue;
       const job = await claimNext(id);
       if (!job) continue;
-      if (con) { await enviarDireto(id, con, job); continue; }
-      const payload = { company_id: Number(id), ...job };
-      try {
-        const r = await fetch(url, {
-          method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(payload), signal: AbortSignal.timeout(15000),
-        });
-        if (!r.ok) await reportResult(id, job.recipient_id, false, `O fluxo de envio respondeu ${r.status}`);
-      } catch (e) {
-        // sem resposta no prazo: o envio pode ter acontecido, então fica "enviando" (o resultado chega pelo fluxo)
-        if (e?.name !== 'TimeoutError' && e?.name !== 'AbortError')
-          await reportResult(id, job.recipient_id, false, 'Não foi possível acionar o fluxo de envio');
-      }
+      await enviarDireto(id, con, job);
     }
   } catch (e) { console.error('campanhas:', e.message); }
   finally { ticking = false; }
@@ -293,7 +278,7 @@ export async function dispatchDue() {
 export function startCampaignScheduler() {
   const ms = Math.max(Number(process.env.CAMPAIGN_TICK_MS) || 15000, 500);
   setInterval(() => { dispatchDue(); }, ms).unref();
-  console.log('Campanhas: painel aciona o fluxo de envio a cada', ms / 1000, 's');
+  console.log('Campanhas: painel confere os envios a cada', ms / 1000, 's');
 }
 
 export function registerCampaignRoutes(r, wrap) {
@@ -305,10 +290,10 @@ export function registerCampaignRoutes(r, wrap) {
     let todos = [];
     if (mode === 'selected') {
       const ids = (sel.ids || []).map(Number).filter(Number.isInteger);
-      if (ids.length) todos = (await q('SELECT id,name,phone,chat_id FROM customers WHERE id = ANY($1) AND phone IS NOT NULL', [ids])).rows;
+      if (ids.length) todos = (await q("SELECT id, btrim(concat_ws(' ', name, last_name)) AS name, phone, chat_id FROM customers WHERE id = ANY($1) AND phone IS NOT NULL", [ids])).rows;
     } else {
       const where = mode === 'clients' ? "WHERE phone IS NOT NULL AND status='client'" : mode === 'leads' ? "WHERE phone IS NOT NULL AND status='lead'" : mode === 'all' ? 'WHERE phone IS NOT NULL' : null;
-      if (where !== null) todos = (await q(`SELECT id,name,phone,chat_id FROM customers ${where}`)).rows;
+      if (where !== null) todos = (await q(`SELECT id, btrim(concat_ws(' ', name, last_name)) AS name, phone, chat_id FROM customers ${where}`)).rows;
     }
     if (!todos.length) return Object.assign([], { ignorados: 0 });
     const fora = new Set(sel?.allow_excluded ? [] : (await q('SELECT phone FROM campaign_exclusions WHERE phone = ANY($1)', [todos.map((x) => x.phone)])).rows.map((x) => x.phone));
