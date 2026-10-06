@@ -68,11 +68,12 @@ export const limparHtml = (h) => String(h ?? '')
   .replace(/javascript\s*:/gi, '');
 const NOME_VAR = '[A-Za-z_][A-Za-z0-9_]*';
 export const variaveisDe = (html) => [...new Set([...String(html).matchAll(new RegExp(`\\{\\{\\{?\\s*(${NOME_VAR})\\s*\\}?\\}\\}`, 'g'))].map((m) => m[1]))];
-export function renderizar(html, vars) {
+export function renderizar(html, vars, { previa = false } = {}) {
   return String(html)
     .replace(new RegExp(`\\{\\{\\{\\s*(${NOME_VAR})\\s*\\}\\}\\}`, 'g'), (_, k) => limparHtml(vars[k]))
     .replace(new RegExp(`\\{\\{\\s*(${NOME_VAR})\\s*\\}\\}`, 'g'), (_, k) => esc(vars[k]))
-    .replace(/<img\b[^>]*\ssrc=""[^>]*>/gi, '');   // logotipo ainda não enviado: o espaço some em vez de mostrar uma imagem quebrada
+    // logotipo ainda não enviado: a área continua reservada (na prévia aparece tracejada), sem imagem quebrada
+    .replace(/<img\b[^>]*\ssrc=""[^>]*>/gi, previa ? '<div style="height:100%;box-sizing:border-box;border:2px dashed #bbb;color:#999;font:12px sans-serif;display:flex;align-items:center;justify-content:center;line-height:1.2;text-align:center">Seu logotipo aqui</div>' : '');
 }
 const partes = (d = new Date()) => Object.fromEntries(new Intl.DateTimeFormat('pt-BR', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
   .formatToParts(d).filter((p) => p.type !== 'literal').map((p) => [p.type, p.value === '24' ? '00' : p.value]));
@@ -342,7 +343,7 @@ export function registerDocumentRoutes(r, wrap) {
     const vars = { ...variaveisBase(), nome: 'Maria da Silva', telefone: '5532999990000', empresa: 'Sua empresa', qrcode: await qrHtml('TMI-0-0-0-000000000000', 120), codigo: 'TMI-0-0-0-000000000000', evento: 'Show de exemplo', evento_data: '10/10/2026 21:00', abertura: '10/10/2026 19:00', local: 'Casa de exemplo', endereco: 'Rua Exemplo, 100 - Centro', lugares_mesa: '4', comprador: 'João da Silva', setor: 'Pista', mesa: '1 × Mesa 4 lugares', pessoa: '1 de 4', text: '<ul><li>Item de exemplo: valor</li><li>Outro item: valor</li></ul>', ...(await varsLogo()), ...(await varsFixas()), ...lerVars(req.body?.vars) };
     const usadas = variaveisDe(html);
     const vazias = usadas.filter((k) => !(k in vars));
-    res.json({ html: renderizar(html, vars), missing: vazias, chars: contarTexto(req.body?.blocks && typeof req.body.blocks === 'object' ? { blocks: req.body.blocks } : { html }) });
+    res.json({ html: renderizar(html, vars, { previa: true }), missing: vazias, chars: contarTexto(req.body?.blocks && typeof req.body.blocks === 'object' ? { blocks: req.body.blocks } : { html }) });
   }));
 
   // Gera o PDF: template = 'ingresso' | 'contrato' | 'proposta' | 'outro' (usa o modelo padrão do tipo) ou o id de um modelo
