@@ -35,6 +35,18 @@ if (S.body?.token) {
   r = await call('PUT', '/api/agent-guidelines', { token: S.body.token, body: { global: 'hack' } });
   check('não-admin é barrado (gravar)', r.status === 403);
 } else console.log('aviso: signup indisponível', JSON.stringify(S));
+// administrador visitando o painel de outra empresa continua vendo e editando
+const V = await call('POST', '/api/auth/register', { body: { company_name: 'Visitada', name: 'V', email: `v${Date.now()}@x.com`, password: 'senhasenha' } });
+const vid = V.body?.company?.id;
+const vis = vid && await call('POST', `/api/admin/companies/${vid}/impersonate`, { token: t });
+if (vis?.body?.token) {
+  r = await call('GET', '/api/me', { token: vis.body.token });
+  check('em visita: platform_admin verdadeiro', r.body.platform_admin === true && r.body.impersonating === true, JSON.stringify(r.body));
+  r = await call('GET', '/api/agent-guidelines', { token: vis.body.token });
+  check('em visita: lê as diretrizes', r.status === 200);
+} else console.log('aviso: rota de visita não encontrada', JSON.stringify(vis?.body));
+r = await call('GET', '/api/me', { token: S.body.token });
+check('usuário comum: platform_admin falso', r.body.platform_admin === false);
 await call('PUT', '/api/agent-guidelines', { token: t, body: { global: '', company: '' } });
 r = await call('GET', '/n8n/agent/prompt', { h });
 check('vazio some do prompt', !r.body.prompt.includes('DIRETRIZES'));

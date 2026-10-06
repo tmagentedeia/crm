@@ -202,7 +202,7 @@ app.put('/api/admin/companies/:id/whatsapp', requireUser, requireAdmin, async (r
 // ---------- Administração da plataforma (só e-mails em ADMIN_EMAILS) ----------
 app.get('/api/me', requireUser, async (req, res) => {
   const acc = req.user.role === 'staff' && !req.user.imp ? await acessoDe(req.user.id) : null;
-  res.json({ admin: await isAdmin(req.user.id), impersonating: !!req.user.imp, equipe: acc ? { telas: acc.telas, inicio: acc.inicio, funcao: acc.funcao } : null });
+  res.json({ admin: await isAdmin(req.user.id), platform_admin: await isAdmin(req.user.imp || req.user.id), impersonating: !!req.user.imp, equipe: acc ? { telas: acc.telas, inicio: acc.inicio, funcao: acc.funcao } : null });
 });
 
 // Versão no ar: início do servidor (= hora do deploy) e, se a hospedagem informar, o código da versão.

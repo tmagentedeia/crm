@@ -502,7 +502,7 @@ export default function Atendente({ company }) {
   const [quem, setQuem] = useState('agent');
   const [upg, setUpg] = useState(false);
   const [ehAdmin, setEhAdmin] = useState(false);
-  useEffect(() => { api('/me').then((m) => setEhAdmin(!!m.admin)).catch(() => {}); }, []);
+  useEffect(() => { api('/me').then((m) => setEhAdmin(!!m.platform_admin)).catch(() => {}); }, []);
   // sem o assistente no plano, a aba aparece sempre apagada, com cadeado e convite de upgrade (serve a qualquer negócio)
   const assistenteBloqueado = !temAssistente;
   const P = temAssistente ? quem : 'agent';
