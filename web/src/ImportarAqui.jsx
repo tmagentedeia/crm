@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { api } from './api.js';
 
@@ -91,6 +91,8 @@ export default function ImportarAqui({ tipo, onFeito }) {
     } catch (e2) { setErr(e2.message); }
   }
   const [prog, setProg] = useState('');
+  const fim = useRef(null);
+  useEffect(() => { if (rep || err) fim.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, [rep, err]);
   async function rodar(dry) {
     setBusy(true); setErr(''); setProg('');
     try {
@@ -142,7 +144,7 @@ export default function ImportarAqui({ tipo, onFeito }) {
               <textarea rows="4" value={paste} onChange={(e) => setPaste(e.target.value)} />
               <button className="btn sm" style={{ marginTop: 6 }} onClick={usarColado} disabled={!paste.trim()}>Usar o que colei</button>
             </div>
-            {err && <div className="error">{err}</div>}
+            {err && <div className="error" ref={fim}>{err}</div>}
             {rows.length > 0 && <p><strong>{rows.length}</strong> linha(s) prontas. <button className="btn sm" onClick={() => { setRows([]); setRep(null); }}>Limpar</button></p>}
             {colunas.length > 0 && (
               <div className="field">
@@ -162,12 +164,12 @@ export default function ImportarAqui({ tipo, onFeito }) {
             </div>
             {prog && <p><strong>{prog}</strong> <span className="muted">Não feche esta janela.</span></p>}
             {rep && (
-              <div style={{ marginTop: 12 }}>
+              <div style={{ marginTop: 12 }} ref={fim}>
                 <p><strong>{rep.dry_run ? 'SIMULAÇÃO — nada foi gravado ainda. Se estiver certo, clique em "2. Importar de verdade".' : 'Importação concluída (gravado)'}</strong>: {resumo}</p>
                 {rep.extra_columns?.length > 0 && <p className="muted">Campos personalizados (vão para a ficha do contato): {rep.extra_columns.join(', ')}.</p>}
                 {rep.ignored_columns?.length > 0 && <p className="muted">Colunas não usadas: {rep.ignored_columns.join(', ')}.</p>}
-                {rep.errors?.length > 0 && <div className="error"><strong>Linhas ignoradas ({rep.errors.length}):</strong><ul>{rep.errors.map((x, i) => <li key={i}>{x}</li>)}</ul></div>}
-                {rep.warnings?.length > 0 && <div className="muted"><strong>Avisos:</strong><ul>{rep.warnings.map((x, i) => <li key={i}>{x}</li>)}</ul></div>}
+                {rep.errors?.length > 0 && <div className="error"><strong>Linhas ignoradas ({rep.errors.length}):</strong><ul>{rep.errors.slice(0, 15).map((x, i) => <li key={i}>{x}</li>)}{rep.errors.length > 15 && <li>… e mais {rep.errors.length - 15} linha(s) com o mesmo tipo de problema.</li>}</ul></div>}
+                {rep.warnings?.length > 0 && <div className="muted"><strong>Avisos:</strong><ul>{rep.warnings.slice(0, 15).map((x, i) => <li key={i}>{x}</li>)}{rep.warnings.length > 15 && <li>… e mais {rep.warnings.length - 15} aviso(s).</li>}</ul></div>}
               </div>
             )}
           </div>
