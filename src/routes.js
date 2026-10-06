@@ -1054,9 +1054,9 @@ export function buildRouter() {
   // ---------- IMPORTAR PLANILHA ----------
   // body: { services:[...], professionals:[...], customers:[...], dry_run: true|false }
   r.post('/import', wrap(async (req, res) => {
-    const { services, professionals, customers, dry_run } = req.body || {};
+    const { services, professionals, customers, dry_run, offset, tipos } = req.body || {};
     const cap = (a) => (Array.isArray(a) ? a.slice(0, 2000) : []);
-    res.json(await runImport(req.user.companyId, { services: cap(services), professionals: cap(professionals), customers: cap(customers) }, !!dry_run));
+    res.json(await runImport(req.user.companyId, { services: cap(services), professionals: cap(professionals), customers: cap(customers), offset: Math.max(0, Number(offset) || 0), tipos: Array.isArray(tipos) ? tipos.slice(0, 200).map(String) : null }, !!dry_run));
   }));
 
   // ---------- HORÁRIOS LIVRES (usado pelo agente de IA) ----------

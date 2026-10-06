@@ -90,18 +90,36 @@ export default function ImportarAqui({ tipo, onFeito }) {
       setRows(r); setPaste('');
     } catch (e2) { setErr(e2.message); }
   }
+  const [prog, setProg] = useState('');
   async function rodar(dry) {
-    setBusy(true); setErr('');
+    setBusy(true); setErr(''); setProg('');
     try {
-      const r = T.chave
-        ? await api('/casa-de-shows/import', { method: 'POST', body: { [T.chave]: rowsSel(), dry_run: dry } })
-        : tipo === 'menu'
-        ? await api('/delivery/import', { method: 'POST', body: { rows: rowsSel(), dry_run: dry } })
-        : await api('/import', { method: 'POST', body: { [tipo]: rowsSel(), dry_run: dry } });
+      const todas = rowsSel();
+      let r;
+      if (tipo === 'customers' && todas.length > 200) {
+        // planilhas grandes vão em lotes, mostrando o andamento
+        const tiposCol = [...new Set(todas.map((x) => { const k = Object.keys(x).find((c) => /^(tipo|situacao|situação|programa)$/i.test(c.trim())); return k ? String(x[k]) : ''; }))];
+        const LOTE = 200;
+        r = { dry_run: dry, customers: { created: 0, updated: 0 }, errors: [], warnings: [], extra_columns: [], ignored_columns: [] };
+        const avisos = new Set(), cols = new Set();
+        for (let i = 0; i < todas.length; i += LOTE) {
+          setProg(`${dry ? 'Conferindo' : 'Importando'}… ${Math.min(i + LOTE, todas.length)} de ${todas.length}`);
+          const p = await api('/import', { method: 'POST', body: { customers: todas.slice(i, i + LOTE), dry_run: dry, offset: i, tipos: tiposCol } });
+          r.customers.created += p.customers.created; r.customers.updated += p.customers.updated;
+          r.errors.push(...p.errors); p.warnings.forEach((w) => avisos.add(w)); (p.extra_columns || []).forEach((c) => cols.add(c));
+        }
+        r.warnings = [...avisos]; r.extra_columns = [...cols];
+      } else {
+        r = T.chave
+          ? await api('/casa-de-shows/import', { method: 'POST', body: { [T.chave]: todas, dry_run: dry } })
+          : tipo === 'menu'
+          ? await api('/delivery/import', { method: 'POST', body: { rows: todas, dry_run: dry } })
+          : await api('/import', { method: 'POST', body: { [tipo]: todas, dry_run: dry } });
+      }
       setRep(r);
       if (!dry) { setRows([]); onFeito?.(); }
     } catch (e2) { setErr(e2.message); }
-    setBusy(false);
+    setProg(''); setBusy(false);
   }
   const resumo = rep && (T.chave
     ? `${rep[T.chave].created} novos, ${rep[T.chave].updated} atualizados`
@@ -142,6 +160,7 @@ export default function ImportarAqui({ tipo, onFeito }) {
               <button className="btn" disabled={!rows.length || busy} onClick={() => rodar(true)}>1. Conferir (só simula, não grava)</button>
               <button className="btn primary" disabled={!rows.length || busy || !rep?.dry_run} onClick={() => rodar(false)}>2. Importar de verdade</button>
             </div>
+            {prog && <p><strong>{prog}</strong> <span className="muted">Não feche esta janela.</span></p>}
             {rep && (
               <div style={{ marginTop: 12 }}>
                 <p><strong>{rep.dry_run ? 'SIMULAÇÃO — nada foi gravado ainda. Se estiver certo, clique em "2. Importar de verdade".' : 'Importação concluída (gravado)'}</strong>: {resumo}</p>

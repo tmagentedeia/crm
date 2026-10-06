@@ -217,17 +217,18 @@ export async function runImport(companyId, data, dryRun) {
       const SIT = { clube: 'member', membro: 'member', 'ex clube': 'former', 'ex-clube': 'former', 'ex membro': 'former', 'ex-membro': 'former', contribuinte: 'supporter', apoiador: 'supporter' };
       const tipoDe = (row) => norm(rowGet(row, 'tipo', 'situacao', 'programa')).replace(/\s+/g, ' ');
       // se a planilha usa a coluna de situação, quem está sem nada é só um contato (lead)
-      const usaPrograma = custRows.some((r) => SIT[tipoDe(r)]);
+      const tiposDaPlanilha = data.tipos ? data.tipos.map((t) => norm(t).replace(/\s+/g, ' ')) : custRows.map(tipoDe); // importação em lotes: vale a planilha inteira, não só o lote
+      const usaPrograma = tiposDaPlanilha.some((t) => SIT[t]);
       // perfis do cliente (Casa de Shows): "Comprador" e "Contratante" na coluna Tipo; quem não tem nada é só um contato (lead)
       const PERFIS_TIPO = { comprador: 'buyer', contratante: 'hirer' };
-      const usaPerfis = custRows.some((r) => PERFIS_TIPO[tipoDe(r)]);
+      const usaPerfis = tiposDaPlanilha.some((t) => PERFIS_TIPO[t]);
       const nivelAvisado = new Set();
       const valoresExtras = (row, cols) => Object.fromEntries(cols.map((k) => [String(k).trim(), txt(row?.[k])]).filter(([, v]) => v !== ''));
       for (const [i, row] of custRows.entries()) {
         const name = txt(rowGet(row, 'nome', 'cliente', 'nome completo', 'full name'));
         const rawPhone = rowGet(row, 'telefone', 'celular', 'whatsapp');
         if (!name && !rawPhone) continue;
-        const line = `Clientes, linha ${i + 2}${name ? ` (${name})` : ''}`;
+        const line = `Clientes, linha ${i + 2 + (data.offset || 0)}${name ? ` (${name})` : ''}`;
         const phone = normPhone(rawPhone);
         if (phone.length < 12) { rep.errors.push(`${line}: telefone inválido (use DDD + número)`); continue; }
 
