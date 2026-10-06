@@ -496,7 +496,7 @@ export default function Admin() {
                     onChange={(e) => setWh({ ...wh, [s.id]: e.target.value })} />
                   {s.id in wh && <button className="btn sm primary" onClick={() => salvarWh(s)}>Salvar</button>}
                 </Campo>
-                <Campo rotulo="Cópia dos contatos na planilha (endereço do fluxo)">
+                <Campo rotulo="Planilha de contatos: cópia (endereço do fluxo) e importação (link; a planilha precisa estar com “qualquer pessoa com o link pode ver”)">
                   <input placeholder="https://…/webhook/contatos-planilha" style={{ width: 300 }} value={esp[s.id] ?? s.contact_mirror_url ?? ''}
                     onChange={(e) => setEsp({ ...esp, [s.id]: e.target.value })} />
                   {s.id in esp && <button className="btn sm primary" onClick={() => espSalvar(s, { url: esp[s.id] }, 'Endereço da cópia de ' + s.name + ' atualizado.')}>Salvar</button>}
@@ -504,12 +504,9 @@ export default function Admin() {
                     <input type="checkbox" checked={!!s.contact_mirror_on} disabled={!(s.contact_mirror_url || esp[s.id]) || s.id in esp}
                       onChange={(e) => espSalvar(s, { on: e.target.checked }, e.target.checked ? 'Cópia ligada: valem os contatos criados ou alterados daqui em diante.' : 'Cópia desligada.')} /> Ligada
                   </label>
-                </Campo>
-                <Campo rotulo="Planilha de contatos para importar (link do Google Planilhas)">
-                  <input placeholder="https://docs.google.com/spreadsheets/d/…" style={{ width: 300 }} value={pl[s.id] ?? s.contact_sheet_url ?? ''}
+                  <input placeholder="https://docs.google.com/spreadsheets/d/…" style={{ width: 300, marginLeft: 12 }} value={pl[s.id] ?? s.contact_sheet_url ?? ''}
                     onChange={(e) => setPl({ ...pl, [s.id]: e.target.value })} />
                   {s.id in pl && <button className="btn sm primary" onClick={() => salvarPl(s)}>Salvar</button>}
-                  <span className="muted" style={{ marginLeft: 8 }}>A planilha precisa estar com “qualquer pessoa com o link pode ver”. Importe em Clientes → Importar planilha.</span>
                 </Campo>
                 <Campo rotulo="WhatsApp para avisos do painel (endereço e chave)">
                   <input placeholder="https://…" style={{ width: 240 }} value={wa[s.id]?.u ?? s.wa_api_url ?? ''}
