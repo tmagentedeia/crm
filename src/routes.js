@@ -638,6 +638,25 @@ export function buildRouter() {
     await gravarFicha(rows[0].id, f.campos);
     res.status(201).json((await q(`${CUST} WHERE c.id=$1`, [rows[0].id])).rows[0]);
   }));
+  // A agente avisa que alguém conversou com ela: cria o contato (como lead) se ainda não existe.
+  // Quem já está no cadastro não é alterado (nome, tipo e observações continuam como estão); só completa o que estiver vazio.
+  r.post('/customers/contact', wrap(async (req, res) => {
+    const b = req.body || {};
+    const phone = custPhone(b.phone);
+    if (digits(phone).length < 10) return res.status(400).json({ error: 'Telefone inválido (use DDD + número)' });
+    const completo = String(b.name ?? '').trim().replace(/\s+/g, ' ');
+    if (completo.length > 120 || /[\u0000-\u001f<>]/.test(completo)) return res.status(400).json({ error: 'Nome inválido' });
+    const [primeiro, ...resto] = completo.split(' ');
+    const { rows } = await q(
+      `INSERT INTO customers (name,last_name,phone,chat_id,source,status) VALUES (NULLIF($1,''),NULLIF($2,''),$3,$4,'ia','lead')
+       ON CONFLICT (phone) DO UPDATE SET
+         last_name = CASE WHEN COALESCE(customers.name,'') = '' THEN COALESCE(customers.last_name, EXCLUDED.last_name) ELSE customers.last_name END,
+         name = COALESCE(NULLIF(customers.name,''), EXCLUDED.name),
+         chat_id = COALESCE(customers.chat_id, EXCLUDED.chat_id)
+       RETURNING id, (xmax = 0) AS created`,
+      [primeiro || '', resto.join(' '), phone, b.chat_id ? String(b.chat_id).slice(0, 80) : null]);
+    res.status(rows[0].created ? 201 : 200).json({ ok: true, id: rows[0].id, created: rows[0].created });
+  }));
   r.get('/customers/by-phone/:phone', wrap(async (req, res) => {
     const { rows } = await q(`${CUST} WHERE c.phone=$1`, [digits(req.params.phone)]);
     rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Não encontrado' });
