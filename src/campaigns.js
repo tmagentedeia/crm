@@ -287,6 +287,10 @@ export function registerCampaignRoutes(r, wrap) {
   // devolve os contatos escolhidos, sem os da lista de exceções (a quantidade deixada de fora vai em .ignorados)
   async function pickRecipients(sel) {
     const mode = sel?.mode;
+    if (mode === 'exceptions') { // campanha de teste: só quem está na lista "Não enviar para" (com ou sem cadastro de contato)
+      const ex = (await q(`SELECT e.phone, e.note, c.id, btrim(concat_ws(' ', c.name, c.last_name)) AS name, c.chat_id FROM campaign_exclusions e LEFT JOIN customers c ON c.phone=e.phone ORDER BY e.id`)).rows;
+      return Object.assign(ex.map((x) => ({ id: x.id || null, name: x.name || x.note || '', phone: x.phone, chat_id: x.chat_id || null })), { ignorados: 0 });
+    }
     let todos = [];
     if (mode === 'selected') {
       const ids = (sel.ids || []).map(Number).filter(Number.isInteger);
@@ -296,7 +300,7 @@ export function registerCampaignRoutes(r, wrap) {
       if (where !== null) todos = (await q(`SELECT id, btrim(concat_ws(' ', name, last_name)) AS name, phone, chat_id FROM customers ${where}`)).rows;
     }
     if (!todos.length) return Object.assign([], { ignorados: 0 });
-    const fora = new Set(sel?.allow_excluded ? [] : (await q('SELECT phone FROM campaign_exclusions WHERE phone = ANY($1)', [todos.map((x) => x.phone)])).rows.map((x) => x.phone));
+    const fora = new Set((await q('SELECT phone FROM campaign_exclusions WHERE phone = ANY($1)', [todos.map((x) => x.phone)])).rows.map((x) => x.phone));
     return Object.assign(todos.filter((x) => !fora.has(x.phone)), { ignorados: fora.size ? todos.filter((x) => fora.has(x.phone)).length : 0 });
   }
 
@@ -433,14 +437,14 @@ export function registerCampaignRoutes(r, wrap) {
         if (cur.status !== 'draft') return { code: 409, error: 'Só dá para editar uma campanha que ainda não começou' };
         await t(`UPDATE campaigns SET name=$2,messages=$3,greeting_random=$4,interval_min=$5,interval_max=$6,
                  batch_size=$7,batch_pause_min=$8,daily_limit=$9,allow_excluded=$10 WHERE id=$1`,
-          [cid, c.name, JSON.stringify(c.messages), c.greeting_random, c.interval_min, c.interval_max, c.batch_size, c.batch_pause_min, c.daily_limit, req.body?.recipients?.allow_excluded === true]);
+          [cid, c.name, JSON.stringify(c.messages), c.greeting_random, c.interval_min, c.interval_max, c.batch_size, c.batch_pause_min, c.daily_limit, req.body?.recipients?.mode === 'exceptions']);
         await t('DELETE FROM campaign_recipients WHERE campaign_id=$1', [cid]);
       } else {
         const lotado = await cheio(t);
         if (lotado) return { code: 409, error: lotado };
         cid = (await t(`INSERT INTO campaigns (name,messages,greeting_random,interval_min,interval_max,batch_size,batch_pause_min,daily_limit,allow_excluded)
                         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
-          [c.name, JSON.stringify(c.messages), c.greeting_random, c.interval_min, c.interval_max, c.batch_size, c.batch_pause_min, c.daily_limit, req.body?.recipients?.allow_excluded === true])).rows[0].id;
+          [c.name, JSON.stringify(c.messages), c.greeting_random, c.interval_min, c.interval_max, c.batch_size, c.batch_pause_min, c.daily_limit, req.body?.recipients?.mode === 'exceptions'])).rows[0].id;
       }
       for (const p of recips) {
         await t(`INSERT INTO campaign_recipients (campaign_id,customer_id,name,phone,chat_id) VALUES ($1,$2,$3,$4,$5)

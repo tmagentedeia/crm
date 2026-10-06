@@ -90,8 +90,9 @@ function Form({ id, voltar, abrir, frases }) {
   };
   const usarGrupo = (g) => { mexeu.current = true; setF((x) => ({ ...x, mode: 'selected', ids: g.ids, allow_excluded: false })); setMsgGrupo(''); };
   // grupo pronto "Não enviar para": serve para testar a campanha só com os contatos que ficam de fora das campanhas de verdade
-  const excecoes = clientes.filter((c) => c.campaign_excluded);
-  const usarExcecoes = () => { mexeu.current = true; setF((x) => ({ ...x, mode: 'selected', ids: excecoes.map((c) => c.id), allow_excluded: true })); setMsgGrupo(''); };
+  const [nExcecoes, setNExcecoes] = useState(0);
+  useEffect(() => { api('/campaigns/exclusions').then((l) => setNExcecoes((l || []).length)).catch(() => {}); }, []);
+  const usarExcecoes = () => { mexeu.current = true; setF((x) => ({ ...x, mode: 'exceptions', ids: [] })); setMsgGrupo(''); };
   const [sim, setSim] = useState(null);
   const [erro, setErro] = useState('');
   const [salvando, setSalvando] = useState(false);
@@ -105,7 +106,7 @@ function Form({ id, voltar, abrir, frases }) {
     name: c.name, messages: c.messages,
     interval_min: c.interval_min, interval_max: c.interval_max, batch_size: c.batch_size,
     batch_pause_min: c.batch_pause_min, daily_limit: c.daily_limit,
-    mode: 'selected', ids: c.recipients.map((r) => r.customer_id).filter(Boolean), allow_excluded: !!c.allow_excluded,
+    mode: c.allow_excluded ? 'exceptions' : 'selected', ids: c.recipients.map((r) => r.customer_id).filter(Boolean), allow_excluded: !!c.allow_excluded,
   }));
 
   useEffect(() => {
@@ -133,19 +134,20 @@ function Form({ id, voltar, abrir, frases }) {
   const setMsg = (i, v) => { mexeu.current = true; setF((x) => ({ ...x, messages: x.messages.map((m, j) => (j === i ? v : m)) })); };
   // quem está na lista de exceções não recebe: fica fora da contagem
   const { total, ignorados } = useMemo(() => {
-    const no = (c) => c.campaign_excluded && !(f.mode === 'selected' && f.allow_excluded);
+    const no = (c) => c.campaign_excluded;
     const base = f.mode === 'selected' ? clientes.filter((c) => f.ids.includes(c.id))
       : f.mode === 'clients' ? clientes.filter((c) => c.tipo === 'Cliente')
       : f.mode === 'leads' ? clientes.filter((c) => c.tipo === 'Lead') : clientes;
     const fora = base.filter(no).length;
+    if (f.mode === 'exceptions') return { total: nExcecoes, ignorados: 0 };
     return { total: f.mode === 'selected' && !clientes.length ? f.ids.length : base.length - fora, ignorados: fora };
-  }, [f.mode, f.ids, f.allow_excluded, clientes]);
+  }, [f.mode, f.ids, clientes, nExcecoes]);
 
   const body = () => ({
     name: f.name, messages: f.messages,
     interval_min: Number(f.interval_min), interval_max: Number(f.interval_max),
     batch_size: Number(f.batch_size), batch_pause_min: Number(f.batch_pause_min), daily_limit: Number(f.daily_limit),
-    recipients: { mode: f.mode, ids: f.ids, allow_excluded: f.mode === 'selected' && !!f.allow_excluded },
+    recipients: { mode: f.mode, ids: f.ids },
   });
 
   useEffect(() => {
@@ -260,12 +262,12 @@ function Form({ id, voltar, abrir, frases }) {
             <label key={v}><input type="radio" style={{ width: 'auto' }} checked={f.mode === v} onChange={() => set('mode', v)} /> {r}</label>
           ))}
         </div>
-        {(grupos.length > 0 || excecoes.length > 0) && (
+        {(grupos.length > 0 || nExcecoes > 0) && (
           <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
             <span className="muted">Grupos salvos:</span>
-            {excecoes.length > 0 && (
+            {nExcecoes > 0 && (
               <span className="badge" title="Contatos da lista “Não enviar para”. Use para testar a campanha só com eles.">
-                <a href="#" onClick={(e) => { e.preventDefault(); usarExcecoes(); }}>Não enviar para (teste) · {excecoes.length}</a>
+                <a href="#" onClick={(e) => { e.preventDefault(); usarExcecoes(); }}>Não enviar para (teste) · {nExcecoes}</a>
               </span>
             )}
             {grupos.map((g) => (
@@ -305,7 +307,7 @@ function Form({ id, voltar, abrir, frases }) {
             </table>
           </div>
         )}
-        {f.mode === 'selected' && f.allow_excluded && <p className="muted" style={{ color: 'var(--bad)' }}>Esta campanha é de teste: vai enviar para contatos que ficam de fora das campanhas normais (lista “Não enviar para”) e pode enviar a qualquer hora do dia.</p>}
+        {f.mode === 'exceptions' && <p className="muted" style={{ color: 'var(--bad)' }}>Esta campanha é de teste: vai enviar para contatos que ficam de fora das campanhas normais (lista “Não enviar para”) e pode enviar a qualquer hora do dia.</p>}
         <p className="muted">{total} contato{total === 1 ? '' : 's'} selecionado{total === 1 ? '' : 's'}.{ignorados > 0 && <> {ignorados} ficam de fora por estarem na lista “Não enviar para”.</>}</p>
       </div>
 
