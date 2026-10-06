@@ -125,6 +125,7 @@ BASE=http://localhost:3999 node test/shows_midia_envio.mjs || R=1
 FAKE_GOTENBERG_PORT=${FAKE_GOTENBERG_PORT:-53000} BASE=http://localhost:3999 node test/shows_venda_ia.mjs || R=1
 BASE=http://localhost:3999 node test/contatos_agente.mjs || R=1
 BASE=http://localhost:3999 node test/contatos_assunto.mjs || R=1
+BASE=http://localhost:3999 node test/diretrizes.mjs || R=1
 BASE=http://localhost:3999 node test/delivery.mjs || R=1
 BASE=http://localhost:3999 node test/equipe.mjs || R=1
 BASE=http://localhost:3999 node test/restaurante.mjs || R=1

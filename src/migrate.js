@@ -43,6 +43,7 @@ try {
     await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS api_key_hash TEXT');
     await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS api_key_hint TEXT');
     await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS api_key_created_at TIMESTAMPTZ');
+    await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS agent_guidelines TEXT');
     await pool.query(`CREATE TABLE IF NOT EXISTS platform_settings (
       key TEXT PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
     await pool.query(`CREATE TABLE IF NOT EXISTS company_templates (
