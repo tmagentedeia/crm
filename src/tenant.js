@@ -204,6 +204,10 @@ export const TENANT_STEPS = [
   { version: 48, sql: CONTATOS_SQL },
   // 49: espelho dos contatos numa planilha (marca de pendente + gatilho)
   { version: 49, sql: ESPELHO_SQL },
+  // 50: o espelho também acompanha o aniversário (refaz o gatilho)
+  { version: 50, sql: ESPELHO_SQL },
+  // 51: o espelho também acompanha o plano do Clube
+  { version: 51, sql: ESPELHO_SQL },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 

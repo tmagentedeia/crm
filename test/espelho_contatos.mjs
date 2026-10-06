@@ -40,6 +40,23 @@ await call('POST', '/n8n/customers/update-contact', { h, body: { phone: novo.bod
 await dorme(1500);
 got = recebidos.filter((x) => x.id === Number(novo.body.id)).pop();
 check('alteração reenvia (assunto)', got && got.subject === 'Quer orçamento de show', JSON.stringify(got));
+psql(`update ${T} set birth_day=7, birth_month=3, birth_year=1985 where id=${novo.body.id}`);
+await dorme(1500);
+got = recebidos.filter((x) => x.id === Number(novo.body.id)).pop();
+check('data de nascimento vai no envio com o ano e a mudança reenvia', got && got.birth_date === '07/03/1985', JSON.stringify(got));
+const nv = psql(`select id from company_${cid}.loyalty_levels order by id limit 1`);
+if (nv) {
+  psql(`update ${T} set club_status='member', club_level_id=${nv} where id=${novo.body.id}`);
+  await dorme(1500);
+  got = recebidos.filter((x) => x.id === Number(novo.body.id)).pop();
+  const nome = psql(`select name from company_${cid}.loyalty_levels where id=${nv}`);
+  check('plano do Clube vai no envio e a mudança reenvia', got && got.plan === nome, JSON.stringify(got));
+  psql(`update ${T} set club_status=null, club_level_id=null where id=${novo.body.id}`);
+  await dorme(800);
+}
+psql(`update ${T} set birth_year=null where id=${novo.body.id}`); await dorme(1500);
+got = recebidos.filter((x) => x.id === Number(novo.body.id)).pop();
+check('sem ano vai só dd/MM', got && got.birth_date === '07/03', JSON.stringify(got));
 // falha: continua pendente e repete
 falhar = true;
 psql(`update ${T} set city='Juiz de Fora' where id=${novo.body.id}`);

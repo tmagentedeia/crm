@@ -12,12 +12,19 @@ export const ESPELHO_SQL = `
   CREATE OR REPLACE FUNCTION customers_mirror_flag() RETURNS trigger AS $f$
   BEGIN NEW.mirror_pending := true; RETURN NEW; END $f$ LANGUAGE plpgsql;
   DROP TRIGGER IF EXISTS customers_mirror ON customers;
-  CREATE TRIGGER customers_mirror BEFORE INSERT OR UPDATE OF name, last_name, phone, status, client_kinds, subject, city, notes, club_status
+  CREATE TRIGGER customers_mirror BEFORE INSERT OR UPDATE OF name, last_name, phone, status, client_kinds, subject, city, notes, club_status, club_level_id, birth_day, birth_month, birth_year
     ON customers FOR EACH ROW EXECUTE FUNCTION customers_mirror_flag();
 `;
 
 const POR_VEZ = () => Math.max(Number(process.env.ESPELHO_POR_VEZ) || 4, 1);   // envios por rodada (rodada = 15 s → ~16/min, abaixo do limite do Google)
 const urlOk = (u) => { try { const x = new URL(u); return u.length <= 500 && (x.protocol === 'https:' || x.protocol === 'http:'); } catch { return false; } };
+
+// dd/MM/aaaa; sem o ano (nem todo mundo informa), só dd/MM
+const nascimento = (c) => {
+  if (!c.birth_day || !c.birth_month) return '';
+  const base = `${String(c.birth_day).padStart(2, '0')}/${String(c.birth_month).padStart(2, '0')}`;
+  return c.birth_year ? `${base}/${c.birth_year}` : base;
+};
 
 function payload(companyId, c, cfg) {
   const rotulo = Object.fromEntries(cfg.kinds.map((k) => [k.key, k.label]));
@@ -27,7 +34,7 @@ function payload(companyId, c, cfg) {
     name: c.name || '', last_name: c.last_name || '', full_name: [c.name, c.last_name].filter(Boolean).join(' '),
     status: c.status === 'client' ? 'Cliente' : 'Lead', types: tipos,
     subject_label: cfg.subject_label, subject: c.subject || '', city: c.city || '', notes: c.notes || '',
-    club_status: c.club_status || '', created_at: c.created_at, updated_at: c.updated_at,
+    club_status: c.club_status || '', plan: c.plan || '', birth_date: nascimento(c), created_at: c.created_at, updated_at: c.updated_at,
   };
 }
 
@@ -43,8 +50,11 @@ export async function espelharPendentes() {
           const t = q;
           const cfg = await configContatos();
           // marca como enviado antes de mandar; se falhar, volta a marcar (assim uma edição no meio do envio não se perde)
-          const lote = (await t(`SELECT id, name, last_name, phone, status, client_kinds, subject, city, notes, club_status, created_at, updated_at
-                                 FROM customers WHERE mirror_pending AND phone IS NOT NULL ORDER BY id LIMIT $1`, [POR_VEZ()])).rows;
+          const lote = (await t(`SELECT c.id, c.name, c.last_name, c.phone, c.status, c.client_kinds, c.subject, c.city, c.notes, c.club_status,
+                                        c.birth_day, c.birth_month, c.birth_year, c.created_at, c.updated_at,
+                                        CASE WHEN c.club_status = 'member' THEN lv.name END AS plan
+                                 FROM customers c LEFT JOIN loyalty_levels lv ON lv.id = c.club_level_id
+                                 WHERE c.mirror_pending AND c.phone IS NOT NULL ORDER BY c.id LIMIT $1`, [POR_VEZ()])).rows;
           for (const c of lote) {
             await t('UPDATE customers SET mirror_pending=false WHERE id=$1', [c.id]);
             let ok = false;
