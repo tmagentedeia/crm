@@ -78,7 +78,7 @@ export function blocosParaHtml(entrada, titulo = 'Documento') {
   let corpo;
   // bilhete recortado: os quatro cantos ganham um arco para dentro (fundo escuro por baixo faz o contorno)
   const recorte = (r, cor) => ['0 0', '100% 0', '0 100%', '100% 100%'].map((c) => `radial-gradient(circle at ${c}, transparent ${r - 1}px, ${cor} ${r}px) ${c.replace('0 ', 'left ').replace('100% 0', 'right top').replace('0 100%', 'left bottom').replace('100% 100%', 'right bottom')}/51% 51% no-repeat`).join(',');
-  if (config.moldura === 'bilhete') corpo = `<div style="${largura}background:${recorte(22, '#222')};padding:3px"><div style="background:${recorte(28, config.corMoldura)};padding:14px"><div style="${base};border:1px solid #222">\n${miolo}\n</div></div></div>`;
+  if (config.moldura === 'bilhete') corpo = `<div style="${largura}background:${recorte(22, '#222')};padding:3px"><div style="background:${recorte(19, config.corMoldura)};padding:22px"><div style="${base};border:1px solid #222">\n${miolo}\n</div></div></div>`;
   else   if (config.moldura === 'ingresso') corpo = `<div style="${largura}background:${config.corMoldura};border:3px solid #222;border-radius:26px;padding:14px"><div style="${base};border:1px solid #222">\n${miolo}\n</div></div>`;
   else corpo = `<div style="${largura}${base}${config.moldura === 'simples' ? ';border:1px solid #d8d8d8;border-radius:14px' : ''}">\n${miolo}\n</div>`;
   return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>${esc(titulo)}</title><style>body{margin:0;padding:24px;background:${config.moldura === 'nenhuma' ? config.fundo : '#ffffff'}}</style></head><body>${corpo}</body></html>`;
