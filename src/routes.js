@@ -615,7 +615,7 @@ export function buildRouter() {
       city: `lower(NULLIF(btrim(c.city),'')) ${dir} NULLS LAST, lower(c.name) ASC NULLS LAST, c.created_at DESC`,
     };
     const ordem = ORDEM[req.query.sort] || 'c.created_at DESC';
-    const { rows } = await q(`${CUST} WHERE ${FILTRO} ORDER BY ${ordem} LIMIT 500`, filtroArgs(req.query));
+    const { rows } = await q(`${CUST} WHERE ${FILTRO} ORDER BY ${ordem}`, filtroArgs(req.query));
     res.json(rows);
   }));
   // Todos os clientes e leads (sem o limite da listagem), para baixar ou copiar para uma planilha. Mesmos filtros da listagem.
