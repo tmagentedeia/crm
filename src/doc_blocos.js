@@ -5,6 +5,9 @@ const FONTES = {
   serif: 'Georgia,"Times New Roman",serif',
   mono: '"Courier New",monospace',
 };
+const IMG_MAX = 1024 * 1024 * 1.4;   // texto da imagem em base64 (~1 MB de arquivo)
+const imagemOk = (v) => (typeof v === 'string' && v.length <= IMG_MAX && /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(v) ? v : '');
+const AJUSTES = { cobrir: 'cover', conter: 'contain', esticar: '100% 100%' };
 const MOLDURAS = ['nenhuma', 'simples', 'ingresso', 'bilhete'];
 const ALINHA = ['left', 'center', 'right'];
 export const TIPOS_BLOCO = ['logo', 'titulo', 'texto', 'faixa', 'dados', 'lista', 'qrcode', 'atendente', 'espaco', 'linha'];
@@ -29,6 +32,9 @@ export function normalizarDoc(d) {
     fundo: cor(cfg.fundo, '#ffffff'),
     moldura: MOLDURAS.includes(cfg.moldura) ? cfg.moldura : cfg.borda === false ? 'nenhuma' : 'simples',
     corMoldura: cor(cfg.corMoldura, '#e6e6e6'),
+    fundoImagem: imagemOk(cfg.fundoImagem),
+    fundoAjuste: AJUSTES[cfg.fundoAjuste] ? cfg.fundoAjuste : 'cobrir',
+    alturaMin: num(cfg.alturaMin, 0, 1800, 0),
     largura: cfg.largura === 0 || cfg.largura === '0' ? 0 : num(cfg.largura, 260, 900, 0),
     margem: num(cfg.margem, 0, 80, 28),
   };
@@ -73,7 +79,8 @@ function htmlDoBloco(b, config) {
 export function blocosParaHtml(entrada, titulo = 'Documento') {
   const { config, blocos } = normalizarDoc(entrada);
   const miolo = blocos.map((b) => htmlDoBloco(b, config)).join('\n');
-  const base = `font-family:${FONTES[config.fonte]};color:${config.cor};background:${config.fundo};padding:${config.margem}px`;
+  const arte = config.fundoImagem ? `;background-image:url('${config.fundoImagem}');background-size:${AJUSTES[config.fundoAjuste]};background-position:center;background-repeat:no-repeat` : '';
+  const base = `font-family:${FONTES[config.fonte]};color:${config.cor};background:${config.fundo};padding:${config.margem}px${arte}${config.alturaMin ? `;min-height:${config.alturaMin}px;box-sizing:border-box` : ''}`;
   const largura = config.largura ? `max-width:${config.largura}px;margin:0 auto;` : '';
   let corpo;
   // bilhete recortado: os quatro cantos ganham um arco para dentro (fundo escuro por baixo faz o contorno)

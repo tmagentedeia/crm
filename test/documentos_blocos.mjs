@@ -89,6 +89,14 @@ check('cores da moldura, do miolo e do texto', pvv.html.includes('#ffcc00 19px')
 check('logotipo em área fixa sem distorcer', pvv.html.includes('object-fit:contain') && pvv.html.includes('width:240px'));
 check('endereço, comprador e lugares da mesa na prévia', pvv.html.includes('Rua Exemplo, 100') && pvv.html.includes('João da Silva') && pvv.html.includes('Mesa para 4 lugares'));
 
+// imagem de fundo (arte do designer)
+const fundoOk = await api('POST', '/documents/preview', { blocks: { config: { fundoImagem: PNG, fundoAjuste: 'esticar', alturaMin: 700 }, blocos: [{ tipo: 'titulo', texto: 'Oi' }] } });
+check('imagem de fundo entra atrás dos blocos', fundoOk.body.html.includes("background-image:url('data:image/png;base64,") && fundoOk.body.html.includes('background-size:100% 100%') && fundoOk.body.html.includes('min-height:700px'), fundoOk.body.html);
+const fundoRuim = await api('POST', '/documents/preview', { blocks: { config: { fundoImagem: 'data:image/svg+xml;base64,PHN2Zz4=' }, blocos: [{ tipo: 'titulo', texto: 'Oi' }] } });
+check('imagem de fundo inválida é descartada', !fundoRuim.body.html.includes('background-image'));
+const cf = await api('POST', '/documents/templates', { name: 'Com arte', kind: 'ingresso', blocks: { config: { fundoImagem: PNG }, blocos: [{ tipo: 'titulo', texto: 'Oi' }] } });
+check('a imagem de fundo fica guardada no modelo', (await api('GET', `/documents/templates/${cf.body.id}`)).body.blocks.config.fundoImagem === PNG);
+
 // PDF gerado usa o logotipo
 const g = await api('POST', '/documents/generate', { template: String(ing.id), name: 'Joana' });
 check('gera PDF do modelo por blocos', g.status === 201, JSON.stringify(g.body));

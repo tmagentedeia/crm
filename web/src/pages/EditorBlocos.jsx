@@ -58,6 +58,7 @@ export default function EditorBlocos({ doc, onChange, variaveis, logo }) {
   const foco = useRef(null);          // último campo de texto em que a pessoa clicou: é nele que a variável entra
   const [html, setHtml] = useState('');
   const [erro, setErro] = useState('');
+  const [erroFundo, setErroFundo] = useState('');
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -76,6 +77,15 @@ export default function EditorBlocos({ doc, onChange, variaveis, logo }) {
   const incluir = (tipo) => { if (tipo) onChange({ ...doc, blocos: [...doc.blocos, JSON.parse(JSON.stringify(PADRAO[tipo]))] }); };
   const setCfg = (patch) => onChange({ ...doc, config: { ...doc.config, ...patch } });
 
+  function enviarFundo(e) {
+    const arq = e.target.files?.[0]; e.target.value = '';
+    if (!arq) return;
+    setErroFundo('');
+    if (!/^image\/(png|jpe?g|webp)$/.test(arq.type) || arq.size > 1024 * 1024) { setErroFundo('Use uma imagem PNG, JPG ou WebP de até 1 MB.'); return; }
+    const rd = new FileReader();
+    rd.onload = () => setCfg({ fundoImagem: rd.result });
+    rd.readAsDataURL(arq);
+  }
   function inserirVariavel(nome) {
     const f = foco.current;
     if (!nome || !f?.el) return;
@@ -190,6 +200,21 @@ export default function EditorBlocos({ doc, onChange, variaveis, logo }) {
                 <option value="nenhuma">Sem moldura</option><option value="simples">Simples</option><option value="ingresso">Bilhete arredondado</option><option value="bilhete">Bilhete recortado</option></select></div>
             <Num rotulo="Largura (px, 0 = toda)" valor={doc.config.largura || 0} min={0} max={900} aoMudar={(v) => setCfg({ largura: v && v < 260 ? 260 : v })} />
           </div>
+          <div style={{ ...cx, marginTop: 8 }}>
+            <label className="btn sm">{doc.config.fundoImagem ? 'Trocar imagem de fundo' : 'Imagem de fundo'}<input type="file" accept="image/png,image/jpeg,image/webp" onChange={enviarFundo} style={{ display: 'none' }} /></label>
+            {doc.config.fundoImagem && (
+              <>
+                <img src={doc.config.fundoImagem} alt="" style={{ height: 36, border: '1px solid #ddd', background: '#fff' }} />
+                <div className="field"><label>Ajuste</label>
+                  <select value={doc.config.fundoAjuste || 'cobrir'} onChange={(e) => setCfg({ fundoAjuste: e.target.value })}>
+                    <option value="cobrir">Cobrir tudo (pode cortar as bordas)</option><option value="conter">Mostrar inteira</option><option value="esticar">Esticar até as bordas</option></select></div>
+                <Num rotulo="Altura mínima (px)" valor={doc.config.alturaMin || 0} min={0} max={1800} aoMudar={(v) => setCfg({ alturaMin: v })} />
+                <button type="button" className="btn sm" onClick={() => setCfg({ fundoImagem: '' })}>Remover imagem</button>
+              </>
+            )}
+          </div>
+          {erroFundo && <div className="error" style={{ marginTop: 6 }}>{erroFundo}</div>}
+          <p className="muted" style={{ margin: '6px 0 0', fontSize: 13 }}>A imagem de fundo (PNG, JPG ou WebP, até 1 MB) fica atrás de todos os blocos. Serve para uma arte feita por um designer: o texto e o QR Code entram por cima. Prefira uma arte clara onde vai texto, para a leitura não ficar prejudicada.</p>
         </div>
         <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 8, alignItems: 'center' }}>
           <select value="" onChange={(e) => { inserirVariavel(e.target.value); e.target.value = ''; }} title="Clique antes em um campo de texto">
