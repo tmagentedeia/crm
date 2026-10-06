@@ -93,7 +93,7 @@ export function blocosParaHtml(entrada, titulo = 'Documento') {
 
 // Quantidade de caracteres do texto fixo do modelo (o que o cliente escreve), sem contar as variáveis nem o código.
 // Define se o documento é "simples" ou "completo" no plano.
-export const LIMITE_TEXTO_SIMPLES = 1500;
+export const LIMITE_TEXTO_SIMPLES = 500;
 const semVariaveis = (t) => String(t ?? '').replace(/\{\{\{?[^}]*\}?\}\}/g, '');
 export function contarTexto({ blocks, html }) {
   let partes = [];
