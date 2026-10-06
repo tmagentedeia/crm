@@ -14,7 +14,7 @@ import { aplicacaoDoPlano } from './plans.js';
 import { listar as listarBloqueios, bloquear, liberar, numeroDoContato, nomeValido, prefixoValido, redisDisponivel } from './blocks.js';
 import { requireUser, requireN8n, requireAdmin, isAdmin, signToken, signImpersonationToken } from './auth.js';
 import { buildRouter } from './routes.js';
-import { startCampaignScheduler } from './campaigns.js';
+import { startCampaignScheduler, verificarHistorico } from './campaigns.js';
 import { registerEspelhoAdmin, startEspelhoContatos } from './espelho_contatos.js';
 import { registerPlanilhaAdmin } from './planilha_contatos.js';
 import { startListaScheduler } from './lista_evento.js';
@@ -213,6 +213,13 @@ app.get('/api/admin/access-log', requireUser, requireAdmin, async (req, res) => 
 registerIndicacoesAdmin(app, requireUser, requireAdmin);
 registerEspelhoAdmin(app, requireUser, requireAdmin);
 registerPlanilhaAdmin(app, requireUser, requireAdmin);
+app.post('/api/admin/companies/:id/check-history', requireUser, requireAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || id <= 0) return res.status(404).json({ error: 'Empresa não encontrada' });
+    res.json(await verificarHistorico(id));
+  } catch (e) { res.json({ ok: false, motivo: e.message || 'Erro ao testar.' }); }
+});
 registerEquipeRoutes(app, requireUser);
 // Conferência de quem é quem: para cada empresa, o responsável (e-mail do login), o nome do agente e o manual publicado no banco.
 // Serve para apontar de onde vem um dado que parece estar na empresa errada.

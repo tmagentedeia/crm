@@ -547,3 +547,24 @@ export function registerCampaignRoutes(r, wrap) {
     res.json(out);
   }));
 }
+
+// Confere, sem deixar rastro, se o painel consegue gravar no histórico de conversas do agente desta empresa.
+// Devolve { ok, motivo }: o motivo é uma frase pronta para a Administração mostrar.
+export async function verificarHistorico(companyId) {
+  const c = (await qg('SELECT chat_table, whatsapp_instance FROM companies WHERE id=$1', [companyId])).rows[0];
+  if (!c) return { ok: false, motivo: 'Empresa não encontrada.' };
+  if (!process.env.N8N_DATABASE_URL) return { ok: false, motivo: 'O servidor do painel está sem a ligação com o banco de conversas do agente (variável N8N_DATABASE_URL). Cadastre no servidor e faça um novo deploy.' };
+  if (!c.whatsapp_instance) return { ok: false, motivo: 'Falta o nome da instância do WhatsApp desta empresa (campo "instância do WhatsApp").' };
+  if (!c.chat_table) return { ok: false, motivo: 'Falta a tabela das conversas do agente desta empresa (campo "Conversas do agente").' };
+  if (!nomeTabelaValido(c.chat_table)) return { ok: false, motivo: 'O nome da tabela das conversas é inválido.' };
+  const client = await msgPool().connect().catch((e) => { throw Object.assign(new Error('Não consegui conectar ao banco de conversas do agente: ' + e.message), { aviso: true }); });
+  try {
+    await client.query('BEGIN');
+    await client.query(`INSERT INTO "${c.chat_table}" (session_id, message) VALUES ($1, $2::jsonb)`, ['teste-painel ' + c.whatsapp_instance + ' chats', JSON.stringify({ type: 'ai', content: 'teste', additional_kwargs: {}, response_metadata: {} })]);
+    await client.query('ROLLBACK');
+    return { ok: true, motivo: `Tudo certo: o painel grava na tabela ${c.chat_table} (instância ${c.whatsapp_instance}).` };
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    return { ok: false, motivo: `Não consegui gravar na tabela ${c.chat_table}: ${e.message}` };
+  } finally { client.release(); }
+}

@@ -43,6 +43,13 @@ export default function Admin() {
   const [ct, setCt] = useState({});
   const [vg, setVg] = useState({});
   const [ex, setEx] = useState({});
+  const testarConversas = async (s) => {
+    setErr(''); setMsg('');
+    try {
+      const r = await api(`/admin/companies/${s.id}/check-history`, { method: 'POST', body: {} });
+      if (r.ok) setMsg(s.name + ': ' + r.motivo); else setErr(s.name + ': ' + r.motivo);
+    } catch (e) { setErr(e.message); }
+  };
   const salvarCt = async (s) => {
     setErr(''); setMsg('');
     try {
@@ -482,6 +489,7 @@ export default function Admin() {
                   <input placeholder="ex.: chat_vendas" style={{ width: 170 }} value={ct[s.id] ?? s.chat_table ?? ''}
                     onChange={(e) => setCt({ ...ct, [s.id]: e.target.value })} />
                   {s.id in ct && <button className="btn sm primary" onClick={() => salvarCt(s)}>Salvar</button>}
+                  <button className="btn sm" disabled={s.id in ct || s.id in cx} onClick={() => testarConversas(s)}>Testar ligação</button>
                 </Campo>
                 <Campo rotulo="Planilha de contatos: cópia (endereço do fluxo) e importação (link; a planilha precisa estar com “qualquer pessoa com o link pode ver”)">
                   <input placeholder="https://…/webhook/contatos-planilha" style={{ width: 300 }} value={esp[s.id] ?? s.contact_mirror_url ?? ''}
