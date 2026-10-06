@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { lerCaixas, juntarCaixas, tituloDe, acharCaixa, temSeparador } from './manualCaixas.js';
 import { q, qg, tx, currentCompany } from './db.js';
 import { runImport } from './importer.js';
+import { registerContatosRoutes, chavesDePerfil, definirAssunto, textoDeCadastroContato } from './contatos.js';
 import { registerCampaignRoutes } from './campaigns.js';
 import { registerBirthdayRoutes } from './aniversario.js';
 import { registerDocumentRoutes } from './documentos.js';
@@ -20,7 +21,7 @@ import { registerCommissionRoutes } from './comissoes.js';
 import { registerListaEventoRoutes } from './lista_evento.js';
 import { contarConversas } from './conversas.js';
 import { registerParceriasRoutes, textoDeParcerias } from './parcerias.js';
-import { registerCasaDeShowsRoutes, historicoCasaDeShows, KINDS as PERFIS } from './casa_de_shows.js';
+import { registerCasaDeShowsRoutes, historicoCasaDeShows } from './casa_de_shows.js';
 
 const digits = (s) => String(s || '').replace(/\D/g, '');
 const custPhone = normPhone;
@@ -315,7 +316,8 @@ export function buildRouter() {
       const semLembrete = lembreteCliente ? '' :
         'LEMBRETES PEDIDOS PELO CLIENTE — NÃO DISPONÍVEL. Esta empresa não oferece lembrete a pedido do cliente. Se o cliente pedir para ser lembrado de algo, não agende nem prometa nenhum lembrete e não use a ferramenta de lembrete para clientes; explique com gentileza que não consegue fazer isso. Os avisos automáticos de horário marcado continuam funcionando normalmente.';
       const parcerias = ehAssistente ? '' : await textoDeParcerias();
-      const corpo = [semLembrete, avisos, parcerias, prompt].filter(Boolean);
+      const cadastroContato = ehAssistente ? '' : await textoDeCadastroContato();
+      const corpo = [semLembrete, avisos, parcerias, cadastroContato, prompt].filter(Boolean);
       prompt = (corpo.length ? [abertura, ...corpo] : []).filter(Boolean).join('\n\n');
       res.json({ enabled: true, prompt, client_reminders: lembreteCliente, agent_name: agentName || null, adm_name: admName || null, manual: man ? semSeparadores(man.content) : '', updates, published_at: man ? man.published_at : null });
     }));
@@ -523,12 +525,12 @@ export function buildRouter() {
                 FROM customers c LEFT JOIN loyalty_levels l ON l.id=c.club_level_id`;
   // filtros da listagem: tipo, busca, situação no Clube ('member','former','supporter','none') e nível
   const FILTRO = `($1::text IS NULL OR c.status=$1)
-       AND ($2::text IS NULL OR c.name ILIKE '%'||$2||'%' OR c.phone LIKE '%'||$2||'%')
+       AND ($2::text IS NULL OR c.name ILIKE '%'||$2||'%' OR c.phone LIKE '%'||$2||'%' OR c.subject ILIKE '%'||$2||'%')
        AND ($3::text IS NULL OR ($3='none' AND c.club_status IS NULL) OR c.club_status=$3)
        AND ($4::bigint IS NULL OR c.club_level_id=$4)
        AND ($5::text IS NULL OR $5 = ANY(c.client_kinds))`;
   const filtroArgs = (qs) => [qs.status || null, qs.search || null, qs.club || null,
-    /^\d+$/.test(String(qs.level || '')) ? qs.level : null, PERFIS.includes(qs.kind) ? qs.kind : null];
+    /^\d+$/.test(String(qs.level || '')) ? qs.level : null, /^[A-Za-z0-9_]{1,40}$/.test(String(qs.kind || '')) ? qs.kind : null];
 
   // Campos da ficha (aniversário, cidade, Clube). Devolve { erro } ou { campos } só com o que veio no corpo.
   async function lerFicha(body, atual = null) {
@@ -577,6 +579,7 @@ export function buildRouter() {
     await q(`UPDATE customers SET ${cols.map((c, i) => `${c}=$${i + 2}`).join(', ')}, updated_at=now() WHERE id=$1`, [id, ...cols.map((c) => campos[c])]);
   }
 
+  registerContatosRoutes(r, wrap, { custPhone, digits }); // antes de /customers/:id
   // Cadastro de assinante pela agente: cria o cliente se precisar, marca como membro e põe o nível (número ou nome do nível).
   r.post('/club/member', wrap(async (req, res) => {
     const b = req.body || {};
@@ -680,7 +683,8 @@ export function buildRouter() {
     // perfis do cliente (comprador, contratante): quem tem algum perfil é cliente
     let perfis = null;
     if (req.body.client_kinds !== undefined) {
-      if (!Array.isArray(req.body.client_kinds) || req.body.client_kinds.some((k) => !PERFIS.includes(k))) return res.status(400).json({ error: 'Perfil inválido' });
+      const validos = await chavesDePerfil();
+      if (!Array.isArray(req.body.client_kinds) || req.body.client_kinds.some((k) => !validos.includes(k))) return res.status(400).json({ error: 'Perfil inválido' });
       perfis = [...new Set(req.body.client_kinds)];
     }
     const { rows } = await q(
@@ -689,16 +693,17 @@ export function buildRouter() {
        WHERE id=$1 RETURNING id`,
       [req.params.id, name, phone ? custPhone(phone) : null, notes, status ?? null]);
     await gravarFicha(rows[0].id, f.campos);
-    if (perfis) await q(`UPDATE customers SET client_kinds=$2::text[], status = CASE WHEN cardinality($2::text[]) > 0 THEN 'client' ELSE status END WHERE id=$1`, [rows[0].id, perfis]);
+    if (perfis) await q(`UPDATE customers SET client_kinds=$2::text[], status = CASE WHEN $2::text[] && ARRAY['buyer','hirer'] THEN 'client' ELSE status END WHERE id=$1`, [rows[0].id, perfis]);
+    if (req.body.subject !== undefined) await definirAssunto(rows[0].id, req.body.subject, 'Equipe');
     res.json((await q(`${CUST} WHERE c.id=$1`, [rows[0].id])).rows[0]);
   }));
   // Liga ou desliga um perfil do cliente sem mexer nos outros (o atendente usa quando fecha uma contratação, por exemplo).
   r.post('/customers/:id/kinds', wrap(async (req, res) => {
     const { kind, on = true } = req.body || {};
-    if (!PERFIS.includes(kind) || typeof on !== 'boolean') return res.status(400).json({ error: 'Perfil inválido' });
+    if (!(await chavesDePerfil()).includes(kind) || typeof on !== 'boolean') return res.status(400).json({ error: 'Perfil inválido' });
     const { rows } = await q(
       `UPDATE customers SET client_kinds = CASE WHEN $3::boolean THEN (CASE WHEN $2::text = ANY(client_kinds) THEN client_kinds ELSE array_append(client_kinds, $2::text) END) ELSE array_remove(client_kinds, $2::text) END,
-              status = CASE WHEN $3::boolean THEN 'client' ELSE status END, updated_at = now() WHERE id=$1 RETURNING id`, [req.params.id, kind, on]);
+              status = CASE WHEN $3::boolean AND $2::text IN ('buyer','hirer') THEN 'client' ELSE status END, updated_at = now() WHERE id=$1 RETURNING id`, [req.params.id, kind, on]);
     if (!rows[0]) return res.status(404).json({ error: 'Não encontrado' });
     res.json((await q(`${CUST} WHERE c.id=$1`, [rows[0].id])).rows[0]);
   }));

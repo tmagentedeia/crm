@@ -11,6 +11,7 @@ import { COMISSOES_SQL } from './comissoes.js';
 import { SHOWS_LISTA_SQL, SHOWS_LISTA_ENVIO_SQL, SHOWS_LISTA_QR_SQL } from './lista_evento.js';
 import { CASA_DE_SHOWS_SQL, SHOWS_MEDIA_SQL, SHOWS_PAGAMENTOS_SQL, SHOWS_RENOMEAR_SQL, SHOWS_LOCAIS_SQL, SHOWS_LOCAL_PADRAO_SQL, SHOWS_PIX_EVENTO_SQL, SHOWS_LOTES_SQL, SHOWS_VENDAS_SQL, SHOWS_MESA_RESERVADA_SQL, SHOWS_CLUBE_SQL, SHOWS_FICHA_SETOR_SQL } from './casa_de_shows.js';
 import { ANIVERSARIO_SQL } from './aniversario.js';
+import { CONTATOS_SQL } from './contatos.js';
 import { DOCUMENTOS_SQL, DOC_FILES_VENDA_SQL, DOC_BLOCOS_SQL, DOC_VAGAS_SQL } from './documentos.js';
 import { DELIVERY_SQL } from './delivery.js';
 import { RESTAURANTE_SQL } from './restaurante.js';
@@ -198,6 +199,8 @@ export const TENANT_STEPS = [
   { version: 46, sql: DOC_VAGAS_SQL },
   // 47: versão do QR Code de cada pessoa (ingresso substituído deixa de valer)
   { version: 47, sql: SHOWS_LISTA_QR_SQL },
+  // 48: assunto do contato e tipos de cliente da empresa
+  { version: 48, sql: CONTATOS_SQL },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 
@@ -246,6 +249,7 @@ export async function createCompanySchema(cx, companyId) {
   await cx.query(SHOWS_LISTA_ENVIO_SQL);
   await cx.query(SHOWS_FICHA_SETOR_SQL);
   await cx.query(SHOWS_LISTA_QR_SQL);
+  await cx.query(CONTATOS_SQL);
   await cx.query('SET LOCAL search_path TO public');
   await cx.query('INSERT INTO tenant_versions (company_id, version) VALUES ($1, 1)', [companyId]);
 }

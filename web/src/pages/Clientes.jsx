@@ -15,12 +15,12 @@ const dataBr = (d) => (d ? new Date(d).toLocaleDateString('pt-BR') : '');
 const SITUACAO = { member: 'Membro', former: 'Ex-membro', supporter: 'Contribuinte' };
 const GENERO = { female: 'Feminino', male: 'Masculino', other: 'Outro' };
 const dm = (d, m, y) => (d && m ? String(d).padStart(2, '0') + '/' + String(m).padStart(2, '0') + (y ? '/' + y : '') : '');
-const COLUNAS = ['Nome', 'Sobrenome', 'Telefone', 'Tipo', 'Origem', 'Cidade', 'Estado', 'Data de nascimento', 'Gênero', 'Situação no programa', 'Nível', 'Última visita', 'Cadastrado em', 'Atualizado em', 'Observações'];
-const linhas = (rows) => rows.map((c) => [c.name, c.last_name, c.phone, c.status === 'client' ? 'Cliente' : 'Lead', c.source === 'ia' ? 'Agente IA' : 'Manual', c.city, c.state, dm(c.birth_day, c.birth_month, c.birth_year), GENERO[c.gender], SITUACAO[c.club_status], c.club_level_name, dataBr(c.last_visit_at), dataBr(c.created_at), dataBr(c.updated_at), c.notes].map(cel));
+const COLUNAS = ['Nome', 'Sobrenome', 'Telefone', 'Tipo', 'Origem', 'Cidade', 'Estado', 'Data de nascimento', 'Gênero', 'Situação no programa', 'Nível', 'Última visita', 'Cadastrado em', 'Atualizado em', 'Observações', 'Assunto'];
+const linhas = (rows) => rows.map((c) => [c.name, c.last_name, c.phone, c.status === 'client' ? 'Cliente' : 'Lead', c.source === 'ia' ? 'Agente IA' : 'Manual', c.city, c.state, dm(c.birth_day, c.birth_month, c.birth_year), GENERO[c.gender], SITUACAO[c.club_status], c.club_level_name, dataBr(c.last_visit_at), dataBr(c.created_at), dataBr(c.updated_at), c.notes, c.subject].map(cel));
 // aceita 25/09 ou 25/09/1990; devolve o que o servidor entende
 const nomeCompleto = (c) => [c.name, c.last_name].filter(Boolean).join(' ');
 
-const PERFIL = { buyer: 'Comprador', hirer: 'Contratante' };
+const PERFIL_PADRAO = { buyer: 'Comprador', hirer: 'Contratante' };
 
 const STATUS = { pending: 'Aguardando confirmação', scheduled: 'Agendado', attended: 'Compareceu', no_show: 'Faltou', cancelled: 'Cancelado' };
 
@@ -28,6 +28,13 @@ export default function Clientes({ company }) {
   const clube = moduleOn(company?.modules, 'clube');
   const shows = moduleOn(company?.modules, 'casa_de_shows');
   const [perfil, setPerfil] = useState('');
+  const [cfg, setCfg] = useState(null);   // nome do campo de assunto e tipos de cliente da empresa
+  const carregarCfg = () => api('/customers/settings').then(setCfg).catch(() => {});
+  useEffect(() => { carregarCfg(); }, []);
+  const PERFIL = Object.fromEntries((cfg?.kinds || Object.entries(PERFIL_PADRAO).map(([key, label]) => ({ key, label }))).map((k) => [k.key, k.label]));
+  const rotuloAssunto = cfg?.subject_label || 'Assunto';
+  const temTipos = shows || !!cfg?.kinds?.some((k) => !k.auto);
+  const [personalizando, setPersonalizando] = useState(false);
   const [club, setClub] = useState(null);
   const [sit, setSit] = useState('');
   const [nivel, setNivel] = useState('');
@@ -43,7 +50,7 @@ export default function Clientes({ company }) {
   const qs = `status=${tab}&search=${encodeURIComponent(search)}&club=${sit}&level=${nivel}&kind=${perfil}`;
   const [campo, sentido] = ordem.split('-');
   const load = () => api(`/customers?${qs}${campo ? `&sort=${campo}&dir=${sentido}` : ''}`).then(setList);
-  useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [tab, search, sit, nivel, ordem]);
+  useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [tab, search, sit, nivel, ordem, perfil]);
 
   const [aviso, setAviso] = useState('');
   const exportar = () => api(`/customers/export?${qs}`);
@@ -75,13 +82,13 @@ export default function Clientes({ company }) {
     <>
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: 16 }}>
         <div><h1><Nome id="clientes">Clientes e Leads</Nome></h1><p className="muted">Lead = só conversou · Cliente = já comprou / contratou / compareceu</p></div>
-        <div className="row"><ImportarAqui tipo="customers" onFeito={load} /><button className="btn primary" onClick={() => setAdding(true)}>+ Cadastrar cliente ou lead</button></div>
+        <div className="row"><ImportarAqui tipo="customers" onFeito={load} /><button className="btn" onClick={() => setPersonalizando(true)} title="Nome do campo de assunto, tipos de cliente e registro pela atendente"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: '-2px', marginRight: 6 }}><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>Personalizar</button><button className="btn primary" onClick={() => setAdding(true)}>+ Cadastrar cliente ou lead</button></div>
       </div>
       <div className="row" style={{ marginBottom: 12 }}>
         {[['', 'Todos'], ['lead', 'Leads'], ['client', 'Clientes']].map(([v, l]) => (
           <button key={v} className={'btn' + (tab === v ? ' primary' : '')} onClick={() => setTab(v)}>{l}</button>
         ))}
-        {shows && (
+        {temTipos && (
           <select value={perfil} onChange={(e) => setPerfil(e.target.value)} style={{ maxWidth: 170 }} title="Perfil do cliente">
             <option value="">Perfil: todos</option>
             {Object.entries(PERFIL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
@@ -118,24 +125,26 @@ export default function Clientes({ company }) {
         descreve={(i) => <p>Também serão apagados {i.appointments} agendamento(s) e {i.orders} pedido(s) de música desses contatos, além do lugar deles na fila de espera.</p>} />
       <div className="card table-wrap">
         <table>
-          <thead><tr><CelulaTodos s={sel} /><th>Nome</th><th>Telefone</th><th>Tipo</th>{clube && <th>{club?.program_name || 'Programa de assinaturas'}</th>}<th>Cidade</th><th>Última visita</th></tr></thead>
+          <thead><tr><CelulaTodos s={sel} /><th>Nome</th><th>Telefone</th><th>Tipo</th><th>{rotuloAssunto}</th>{clube && <th>{club?.program_name || 'Programa de assinaturas'}</th>}<th>Cidade</th><th>Última visita</th></tr></thead>
           <tbody>
             {list.map((c) => (
               <tr key={c.id} className="click" onClick={() => open(c.id)}>
                 <CelulaLinha s={sel} id={c.id} />
                 <td>{nomeCompleto(c) || <span className="muted">Sem nome</span>}</td>
                 <td>{fmtPhone(c.phone)}</td>
-                <td><span className={'badge ' + c.status}>{c.status === 'client' ? 'Cliente' : 'Lead'}</span>{(c.client_kinds || []).map((k) => <span key={k} className="muted"> · {PERFIL[k]}</span>)}</td>
+                <td><span className={'badge ' + c.status}>{c.status === 'client' ? 'Cliente' : 'Lead'}</span>{(c.client_kinds || []).map((k) => <span key={k} className="muted"> · {PERFIL[k] || k}</span>)}</td>
+                <td title={c.subject || ''}>{c.subject ? (c.subject.length > 50 ? c.subject.slice(0, 50) + '…' : c.subject) : <span className="muted">—</span>}</td>
                 {clube && <td>{c.club_status ? <span className="badge">{SITUACAO[c.club_status]}{c.club_level_name ? ' · ' + c.club_level_name : ''}</span> : <span className="muted">—</span>}</td>}
                 <td>{[c.city, c.state].filter(Boolean).join(' / ') || <span className="muted">—</span>}</td>
                 <td>{fmtDate(c.last_visit_at)}</td>
               </tr>
             ))}
-            {!list.length && <tr><td colSpan="7" className="muted">Nada encontrado.</td></tr>}
+            {!list.length && <tr><td colSpan="8" className="muted">Nada encontrado.</td></tr>}
           </tbody>
         </table>
       </div>
-      {detail && <Detail c={detail} perfis={shows || !!detail.client_kinds?.length} nomePedidos={rotulosDe(company, 'pedidos').items} clube={clube} club={club} onClose={() => setDetail(null)} onSaved={() => { setDetail(null); load(); }} onDeleted={() => { setDetail(null); load(); }} />}
+      {detail && <Detail c={detail} PERFIL={PERFIL} rotuloAssunto={rotuloAssunto} perfis={temTipos || !!detail.client_kinds?.length} nomePedidos={rotulosDe(company, 'pedidos').items} clube={clube} club={club} onClose={() => setDetail(null)} onSaved={() => { setDetail(null); load(); }} onDeleted={() => { setDetail(null); load(); }} />}
+      {personalizando && <PersonalizarContatos cfg={cfg} onClose={() => setPersonalizando(false)} onSaved={(c2) => { setCfg(c2); setPersonalizando(false); }} />}
       {adding && <AddCustomer clube={clube} club={club} onClose={() => setAdding(false)} onSaved={() => { setAdding(false); load(); }} />}
     </>
   );
@@ -181,8 +190,10 @@ const fichaCorpo = (f, clube) => ({
   ...(clube ? { club_status: f.club_status || null, club_level_id: f.club_status === 'member' && f.club_level_id ? Number(f.club_level_id) : null } : {}),
 });
 
-function Detail({ c, perfis, nomePedidos, clube, club, onClose, onSaved, onDeleted }) {
-  const [f, setF] = useState({ name: c.name || '', last_name: c.last_name || '', phone: c.phone || '', status: c.status, notes: c.notes || '', ...fichaInicial(c) });
+function Detail({ c, PERFIL, rotuloAssunto, perfis, nomePedidos, clube, club, onClose, onSaved, onDeleted }) {
+  const [f, setF] = useState({ name: c.name || '', last_name: c.last_name || '', phone: c.phone || '', status: c.status, notes: c.notes || '', subject: c.subject || '', ...fichaInicial(c) });
+  const [hist, setHist] = useState(null);
+  const verHistorico = () => api(`/customers/${c.id}/subjects`).then(setHist).catch((e) => setErr(e.message));
   const [kinds, setKinds] = useState(c.client_kinds || []);
   const alternarPerfil = (k) => setKinds(kinds.includes(k) ? kinds.filter((x) => x !== k) : [...kinds, k]);
   const [err, setErr] = useState('');
@@ -190,7 +201,7 @@ function Detail({ c, perfis, nomePedidos, clube, club, onClose, onSaved, onDelet
   const future = c.history.filter((h) => h.status === 'scheduled' && new Date(h.starts_at) > new Date()).length;
   const save = async () => {
     setErr('');
-    try { await api('/customers/' + c.id, { method: 'PUT', body: { name: f.name, last_name: f.last_name, phone: f.phone, status: f.status, notes: f.notes, ...fichaCorpo(f, clube), ...(perfis ? { client_kinds: kinds } : {}) } }); onSaved(); } catch (e) { setErr(e.message); }
+    try { await api('/customers/' + c.id, { method: 'PUT', body: { name: f.name, last_name: f.last_name, phone: f.phone, status: f.status, notes: f.notes, subject: f.subject, ...fichaCorpo(f, clube), ...(perfis ? { client_kinds: kinds } : {}) } }); onSaved(); } catch (e) { setErr(e.message); }
   };
   const [semCamp, setSemCamp] = useState(!!c.campaign_excluded);
   const alternarCampanhas = async () => {
@@ -235,6 +246,11 @@ function Detail({ c, perfis, nomePedidos, clube, club, onClose, onSaved, onDelet
             </div>
           </div>
         )}
+        <div className="field"><label>{rotuloAssunto}{c.subject_at ? <span className="muted"> · atualizado em {fmtDate(c.subject_at)}</span> : ''}</label>
+          <input value={f.subject} onChange={(e) => setF({ ...f, subject: e.target.value })} maxLength={300} />
+          {c.subject && !hist && <button type="button" className="btn sm" style={{ marginTop: 6 }} onClick={verHistorico}>Ver anteriores</button>}
+          {hist && <ul className="muted" style={{ margin: '6px 0 0', paddingLeft: 18 }}>{hist.length ? hist.map((h, i) => <li key={i}>{fmtDate(h.at)} · {h.subject}</li>) : <li>Sem anteriores.</li>}</ul>}
+        </div>
         <FichaCampos f={f} setF={setF} clube={clube} club={club} />
         <div className="field"><label>Observações</label><textarea rows={3} value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} /></div>
         <div className="row" style={{ marginBottom: 14 }}>
@@ -353,5 +369,59 @@ function Contratacoes({ c }) {
         <button className="btn">Adicionar</button>
       </form>
     </>
+  );
+}
+
+// Nome do campo de assunto, tipos de cliente da empresa e registro pela atendente
+function PersonalizarContatos({ cfg, onClose, onSaved }) {
+  const auto = (cfg?.kinds || []).filter((k) => k.auto);
+  const [campo, setCampo] = useState(cfg?.subject_label || 'Assunto');
+  const [nomesAuto, setNomesAuto] = useState(Object.fromEntries(auto.map((k) => [k.key, k.label])));
+  const [tipos, setTipos] = useState((cfg?.kinds || []).filter((k) => !k.auto).map((k) => ({ key: k.key, label: k.label })));
+  const [novo, setNovo] = useState('');
+  const [atendente, setAtendente] = useState(!!cfg?.agent_registers);
+  const [err, setErr] = useState('');
+  const add = () => { const t = novo.trim(); if (t) { setTipos([...tipos, { label: t }]); setNovo(''); } };
+  const salvar = async () => {
+    setErr('');
+    try { onSaved(await api('/customers/settings', { method: 'PUT', body: { subject_label: campo, labels: nomesAuto, kinds: tipos, agent_registers: atendente } })); }
+    catch (e) { setErr(e.message); }
+  };
+  return (
+    <div className="modal-bg" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 520 }} onClick={(e) => e.stopPropagation()}>
+        <h2>Personalizar clientes e leads</h2>
+        {err && <div className="error">{err}</div>}
+        <div className="field"><label>Nome do campo que diz o que o contato quer</label>
+          <input value={campo} maxLength={40} onChange={(e) => setCampo(e.target.value)} placeholder="Assunto" />
+          <span className="muted">Exemplos: Assunto, Interesse, Observação.</span></div>
+        <div className="field"><label>Tipos que o painel marca sozinho</label>
+          {auto.map((k) => (
+            <div key={k.key} className="row" style={{ marginBottom: 6, flexWrap: 'nowrap', alignItems: 'center' }}>
+              <input style={{ flex: 1, minWidth: 0 }} value={nomesAuto[k.key] || ''} maxLength={40} onChange={(e) => setNomesAuto({ ...nomesAuto, [k.key]: e.target.value })} />
+              <span className="muted" style={{ whiteSpace: 'nowrap' }}>{k.key === 'buyer' ? 'quando há uma compra' : 'quando há uma contratação'}</span>
+            </div>
+          ))}
+        </div>
+        <div className="field"><label>Seus tipos de cliente</label>
+          {tipos.length === 0 && <p className="muted">Nenhum ainda. Crie os que fizerem sentido para a sua empresa, como Membro, Ex-membro ou Parceiro.</p>}
+          {tipos.map((t, i) => (
+            <div key={t.key || 'n' + i} className="row" style={{ marginBottom: 6, flexWrap: 'nowrap', alignItems: 'center' }}>
+              <input style={{ flex: 1, minWidth: 0 }} value={t.label} maxLength={40} onChange={(e) => setTipos(tipos.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))} />
+              <button type="button" className="btn sm" onClick={() => setTipos(tipos.filter((_, j) => j !== i))}>Remover</button>
+            </div>
+          ))}
+          <div className="row" style={{ flexWrap: 'nowrap', alignItems: 'center' }}>
+            <input style={{ flex: 1, minWidth: 0 }} value={novo} maxLength={40} placeholder="Novo tipo" onChange={(e) => setNovo(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }} />
+            <button type="button" className="btn sm" onClick={add}>Adicionar</button>
+          </div>
+        </div>
+        <label style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14, flexWrap: 'nowrap' }}>
+          <input type="checkbox" style={{ width: 16, height: 16, flex: 'none' }} checked={atendente} onChange={(e) => setAtendente(e.target.checked)} />
+          A atendente registra o que o contato quer e o tipo, durante a conversa
+        </label>
+        <div className="row"><button className="btn primary" onClick={salvar}>Salvar</button><button className="btn" onClick={onClose}>Cancelar</button></div>
+      </div>
+    </div>
   );
 }
