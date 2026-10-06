@@ -516,11 +516,13 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     const at = (await q('SELECT entered_at FROM shows_attendees WHERE sale_id=$1 AND seq=$2', [v.id, seq])).rows[0];
     if (at?.entered_at) return nao(`${nome} já entrou na casa, então o nome não pode mais ser trocado por aqui.`);
     await q('INSERT INTO shows_attendees (sale_id, seq) VALUES ($1,$2) ON CONFLICT DO NOTHING', [v.id, seq]);
-    await q('UPDATE shows_attendees SET name=$3 WHERE sale_id=$1 AND seq=$2', [v.id, seq, novo]);
+    // o ingresso emitido para o nome antigo deixa de valer: o QR Code ganha nova versão e o PDF antigo é apagado
+    await q('UPDATE shows_attendees SET name=$3, qr_ver = qr_ver + 1 WHERE sale_id=$1 AND seq=$2', [v.id, seq, novo]);
+    await q("DELETE FROM doc_files WHERE kind='ingresso' AND sale_id=$1 AND seq=$2", [v.id, seq]);
     const linhas = nomesDe(v.guests);
     if (linhas[seq - 1] !== undefined) { linhas[seq - 1] = novo; await q('UPDATE shows_sales SET guests=$2 WHERE id=$1', [v.id, linhas.join('\n')]); }
     if (v.event_id) await q('INSERT INTO shows_attendee_log (event_id, sale_id, seq, person, actor, action, detail) VALUES ($1,$2,$3,$4,$5,$6,$7)', [v.event_id, v.id, seq, nome, 'IA', 'edicao', `nome: ${novo} (pedido pelo comprador, antes: ${nome})`]);
-    res.json({ ok: true, sale_id: v.id, from: nome, to: novo, message: `Troquei "${nome}" por "${novo}" na lista (${onde({ v })}). Se o cliente quiser o ingresso com o nome novo, use Enviar Ingressos; o PDF antigo continua com o nome antigo, mas na portaria vale o nome da lista.` });
+    res.json({ ok: true, sale_id: v.id, from: nome, to: novo, message: `Troquei "${nome}" por "${novo}" na lista (${onde({ v })}). Se o cliente quiser o ingresso com o nome novo, use Enviar Ingressos; o ingresso antigo (PDF e QR Code) deixou de valer.` });
   }));
 
   // O que o cliente já comprou (pelo telefone): serve para o atendente conferir uma compra ou ver os nomes da lista

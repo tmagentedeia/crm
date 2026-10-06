@@ -23,6 +23,8 @@ const porta = fake.address().port;
 const A = (await call('POST', '/api/auth/login', { body: { email: 'demo@demo.com', password: 'demo1234' } })).body;
 const api = (m, p, body) => call(m, '/api' + p, { token: A.token, body });
 const ia = (m, p, body) => call(m, '/n8n' + p, { body, headers: { 'x-api-key': 'k', 'x-company-id': String(A.company.id) } });
+process.env.JWT_SECRET = process.env.JWT_SECRET || 'x';
+const { codigoIngresso } = await import('../src/ingresso_qr.js');
 const marca = Date.now() % 100000;
 psql(`update public.companies set wa_api_url='http://127.0.0.1:${porta}', wa_api_token='tok-teste' where id=1`);
 psql("delete from company_1.events where title like 'Show IA %'");
@@ -91,6 +93,15 @@ r = await ia('POST', '/casa-de-shows/sales/rename', { phone: fone, old_name: 'An
 check('o comprador troca o próprio nome da lista', r.body.ok === true && r.body.to === 'Ana Paula Souza', JSON.stringify(r.body));
 const lista2 = (await api('GET', `/event-list?event_id=${ev.id}`)).body.rows.map((x) => x.name);
 check('trocou só na compra dele', lista2.includes('Ana Paula Souza') && lista2.filter((n) => n === 'Ana Souza').length === 1 && lista2.includes('Duda Lima'), JSON.stringify(lista2));
+// o ingresso antigo (QR Code) deixa de valer; o novo vale
+const qrAntigo = codigoIngresso(A.company.id, sid, 1), qrNovo = codigoIngresso(A.company.id, sid, 1, 1);
+let sc = (await api('POST', '/event-list-comment/scan', { code: qrAntigo })).body;
+check('QR do nome antigo não dá baixa', sc.result === 'substituido', JSON.stringify(sc));
+check('e a entrada não foi marcada', psql(`select coalesce(entered_at::text,'') from company_1.shows_attendees where sale_id=${sid} and seq=1`) === '');
+sc = (await api('POST', '/event-list-comment/scan', { code: qrNovo })).body;
+check('QR novo dá baixa no nome novo', sc.result === 'ok' && sc.name === 'Ana Paula Souza', JSON.stringify(sc));
+psql(`update company_1.shows_attendees set entered_at = null where sale_id=${sid} and seq=1`);
+check('PDF antigo apagado', psql(`select count(*) from company_1.doc_files where kind='ingresso' and sale_id=${sid} and seq=1`) === '0');
 r = await ia('GET', `/casa-de-shows/sales/by-phone?phone=${fone}`);
 check('a consulta mostra o nome novo', /Ana Paula Souza/.test(r.body.message) && !/Ana Souza,/.test(r.body.message), r.body.message);
 r = await ia('GET', `/casa-de-shows/sales/by-phone?phone=${fone2}`);

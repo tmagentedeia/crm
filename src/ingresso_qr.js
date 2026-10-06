@@ -6,16 +6,19 @@ import QRCode from 'qrcode';
 import { q, qg, currentCompany } from './db.js';
 
 const segredo = () => process.env.QR_SECRET || process.env.JWT_SECRET || 'dev-qr';
-const assina = (c, s, n) => crypto.createHmac('sha256', segredo()).update(`ingresso:${c}:${s}:${n}`).digest('hex').slice(0, 12);
+const assina = (c, s, n, v = 0) => crypto.createHmac('sha256', segredo()).update(v ? `ingresso:${c}:${s}:${n}:v${v}` : `ingresso:${c}:${s}:${n}`).digest('hex').slice(0, 12);
 
-export const codigoIngresso = (company, sale, seq) => `TMI-${company}-${sale}-${seq}-${assina(company, sale, seq)}`;
+// ver = versão do ingresso daquela pessoa (0 até o primeiro ingresso substituído; o código da versão 0 é o original)
+export const codigoIngresso = (company, sale, seq, ver = 0) => (ver ? `TMI-${company}-${sale}-${seq}-v${ver}-${assina(company, sale, seq, ver)}` : `TMI-${company}-${sale}-${seq}-${assina(company, sale, seq)}`);
 
 export function lerCodigo(texto) {
-  const m = String(texto ?? '').trim().match(/^TMI-(\d+)-(\d+)-(\d+)-([0-9a-f]{12})$/);
+  const m = String(texto ?? '').trim().match(/^TMI-(\d+)-(\d+)-(\d+)(?:-v(\d+))?-([0-9a-f]{12})$/);
   if (!m) return null;
-  const esperado = Buffer.from(assina(m[1], m[2], m[3])), veio = Buffer.from(m[4]);
+  const ver = m[4] ? Number(m[4]) : 0;
+  if (m[4] && ver < 1) return null;
+  const esperado = Buffer.from(assina(m[1], m[2], m[3], ver)), veio = Buffer.from(m[5]);
   if (esperado.length !== veio.length || !crypto.timingSafeEqual(esperado, veio)) return null;
-  return { company: Number(m[1]), sale: m[2], seq: Number(m[3]) };
+  return { company: Number(m[1]), sale: m[2], seq: Number(m[3]), ver };
 }
 
 export async function qrHtml(codigo, lado = 180) {
@@ -40,11 +43,11 @@ export async function variaveisDoIngresso(saleId, seq) {
   if (!s) return { erro: [404, 'Venda não encontrada'] };
   if (!Number.isInteger(n) || n < 1 || n > s.people) return { erro: [404, 'Pessoa não encontrada nessa venda'] };
   if (!OCUPAM.includes(s.status)) return { erro: [409, 'Essa venda está cancelada'] };
-  const a = (await q('SELECT name FROM shows_attendees WHERE sale_id=$1 AND seq=$2', [s.id, n])).rows[0] || {};
+  const a = (await q('SELECT name, qr_ver FROM shows_attendees WHERE sale_id=$1 AND seq=$2', [s.id, n])).rows[0] || {};
   const nomes = String(s.guests || '').split('\n').map((l) => l.trim()).filter(Boolean);
   const nome = a.name || nomes[n - 1] || (n === 1 ? s.name : `Acompanhante de ${s.name}`);
   const tz = (await qg('SELECT timezone FROM companies WHERE id=$1', [currentCompany()])).rows[0]?.timezone || 'America/Sao_Paulo';
-  const codigo = codigoIngresso(currentCompany(), s.id, n);
+  const codigo = codigoIngresso(currentCompany(), s.id, n, a.qr_ver || 0);
   return {
     nome, event_id: s.event_id || null,
     vars: {

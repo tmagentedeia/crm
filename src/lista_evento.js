@@ -7,6 +7,9 @@ import { gerarRef, htmlParaPdf, gotenbergLigado } from './documentos.js';
 import { lerCodigo } from './ingresso_qr.js';
 import { podeVerTelefone } from './funcoes.js';
 
+// Versão do QR Code de cada pessoa: quando o ingresso é substituído (troca de nome), o código antigo deixa de valer
+export const SHOWS_LISTA_QR_SQL = `ALTER TABLE shows_attendees ADD COLUMN IF NOT EXISTS qr_ver INT NOT NULL DEFAULT 0;`;
+
 export const SHOWS_LISTA_SQL = `
   CREATE TABLE IF NOT EXISTS shows_attendees (
     sale_id    BIGINT NOT NULL REFERENCES shows_sales(id) ON DELETE CASCADE,
@@ -263,7 +266,7 @@ export function registerListaEventoRoutes(r, wrap) {
     res.json({ ok: true });
   }));
   // Leitura do QR Code na portaria. Corpo: { code, event_id? }. Sempre responde 200 com { result }:
-  // ok (entrada marcada agora) · ja_entrou · outro_evento · cancelado · invalido
+  // ok (entrada marcada agora) · ja_entrou · outro_evento · cancelado · substituido (ingresso trocado) · invalido
   r.post('/event-list-comment/scan', tratar(async (req, res) => {
     const c = lerCodigo(req.body?.code);
     if (!c) return res.json({ result: 'invalido', message: 'QR Code não reconhecido' });
@@ -280,6 +283,7 @@ export function registerListaEventoRoutes(r, wrap) {
       return res.json({ result: 'outro_evento', message: `Ingresso de outro evento: ${ev?.title || ''}`, name: p.nome, event: ev?.title || null });
     const linha = (await linhas(p.s.event_id)).find((x) => String(x.sale_id) === String(p.s.id) && x.seq === p.seq) || {};
     const dados = { name: p.nome, sector: linha.sector, table: linha.table, payment: linha.payment, payment_label: linha.payment_label, note: linha.note || '', door_note: linha.door_note || '' };
+    if ((c.ver || 0) !== (p.a.qr_ver || 0)) return res.json({ result: 'substituido', message: 'Este ingresso foi substituído por outro (troca de nome). Confira o nome na lista.', name: p.nome, ...dados });
     if (p.a.entered_at) return res.json({ result: 'ja_entrou', message: 'Esta pessoa já entrou', entered_at: p.a.entered_at, entered_by: p.a.entered_by, ...dados });
     const por = await ator(req);
     await garantir(p);
