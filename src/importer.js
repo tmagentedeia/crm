@@ -204,12 +204,12 @@ export async function runImport(companyId, data, dryRun) {
     const custRows = data.customers || [];
     if (custRows.length) {
       // colunas que o painel entende (as outras são ignoradas e aparecem no relatório)
-      const CONHECIDAS = ['nome', 'cliente', 'sobrenome', 'telefone', 'celular', 'whatsapp', 'tipo', 'situacao', 'programa', 'plano', 'nivel',
+      const CONHECIDAS = ['nome', 'cliente', 'nome completo', 'full name', 'sobrenome', 'telefone', 'celular', 'whatsapp', 'tipo', 'situacao', 'programa', 'plano', 'nivel',
         'aniversario', 'nascimento', 'data de nascimento', 'cidade', 'estado', 'uf', 'genero', 'sexo', 'data do cadastro', 'cadastro', 'observacoes', 'obs', 'recados'];
       const vistas = new Set();
       custRows.forEach((r) => Object.keys(r || {}).forEach((k) => vistas.add(k)));
       // colunas que o painel não conhece viram campos personalizados do contato (a planilha é a referência da estrutura)
-      const IGNORAR = ['id', 'nome completo', 'full name', 'atualizado em', 'atualizado', 'criado em', 'ultima visita', 'updated at', 'created at'];
+      const IGNORAR = ['id', 'atualizado em', 'atualizado', 'criado em', 'ultima visita', 'updated at', 'created at'];
       const extras = [...vistas].filter((k) => { const c = chave(k); return c && !CONHECIDAS.includes(c) && !IGNORAR.includes(c); });
       rep.extra_columns = extras.map((k) => String(k).trim());
       rep.ignored_columns = [];
@@ -224,7 +224,7 @@ export async function runImport(companyId, data, dryRun) {
       const nivelAvisado = new Set();
       const valoresExtras = (row, cols) => Object.fromEntries(cols.map((k) => [String(k).trim(), txt(row?.[k])]).filter(([, v]) => v !== ''));
       for (const [i, row] of custRows.entries()) {
-        const name = txt(rowGet(row, 'nome', 'cliente'));
+        const name = txt(rowGet(row, 'nome', 'cliente', 'nome completo', 'full name'));
         const rawPhone = rowGet(row, 'telefone', 'celular', 'whatsapp');
         if (!name && !rawPhone) continue;
         const line = `Clientes, linha ${i + 2}${name ? ` (${name})` : ''}`;
