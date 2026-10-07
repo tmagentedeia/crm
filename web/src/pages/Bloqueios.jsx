@@ -12,7 +12,7 @@ const fmtResta = (s) => {
 const MOTIVO = {
   manual: 'Bloqueado por você',
   pausa: 'Atendimento pausado (você assumiu a conversa)',
-  automatico: 'Bloqueado automaticamente (conversa repetitiva com outro robô)',
+  automatico: 'Bloqueio por loop (conversa repetitiva com outro robô)',
 };
 
 export default function Bloqueios() {
