@@ -8,7 +8,7 @@ import { q, qg, runAs, schemaOf } from './db.js';
 import { createCompany } from './companies.js';
 import { snapshotCompany } from './templates.js';
 import { pool } from './db.js';
-import { newApiKey } from './apikeys.js';
+import { newApiKey, matchesMirrorKey } from './apikeys.js';
 import { cleanModules, cleanMenuCustom, cleanModuleLabels } from './modules.js';
 import { aplicacaoDoPlano } from './plans.js';
 import { listar as listarBloqueios, bloquear, liberar, numeroDoContato, nomeValido, prefixoValido, redisDisponivel } from './blocks.js';
@@ -519,6 +519,20 @@ registerDocumentoPublico(app);
 registerMidiaPublica(app);
 
 // ---------- API do painel (JWT) e do N8N (x-api-key + x-company-id) ----------
+// Espelho com a agenda do Google: o fluxo do N8N devolve o ID do evento criado (ou limpa o ID ao apagar).
+// Aceita a chave global (a mesma que o painel usa ao avisar o fluxo) e só pode fazer isto, na empresa indicada.
+app.patch('/n8n/espelho/appointments/:id', async (req, res) => {
+  const key = req.headers['x-api-key'];
+  const companyId = Number(req.headers['x-company-id']);
+  if (!key || !matchesMirrorKey(key) || !Number.isSafeInteger(companyId) || companyId <= 0) return res.status(401).json({ error: 'API key inválida' });
+  try {
+    if (!(await qg('SELECT 1 FROM companies WHERE id=$1', [companyId])).rows[0]) return res.status(401).json({ error: 'API key inválida' });
+    const ev = req.body?.google_event_id;
+    if (typeof ev !== 'string' || ev.length > 300) return res.status(400).json({ error: 'Informe google_event_id' });
+    const out = await new Promise((ok, no) => runAs(companyId, () => q("UPDATE appointments SET google_event_id=NULLIF(trim($2),'') WHERE id=$1 RETURNING id", [req.params.id, ev]).then(ok, no)));
+    out.rows[0] ? res.json({ ok: true, id: out.rows[0].id }) : res.status(404).json({ error: 'Não encontrado' });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Erro interno' }); }
+});
 app.use('/api', requireUser, buildRouter());
 app.use('/n8n', requireN8n, buildRouter());
 

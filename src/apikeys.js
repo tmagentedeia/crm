@@ -21,4 +21,6 @@ export const matchesCompanyKey = (key, hash) => !!hash && sameText(hashKey(key),
 // Chave global (variável N8N_API_KEY): vale para qualquer empresa, só durante a transição.
 // Para aposentá-la nas rotas /n8n, defina ALLOW_GLOBAL_KEY=false (a variável continua sendo usada nos avisos que o painel envia).
 export const globalKeyAllowed = () => process.env.ALLOW_GLOBAL_KEY !== 'false';
+// O espelho com a agenda do Google usa a chave global só para gravar/limpar o ID do evento, mesmo com ALLOW_GLOBAL_KEY=false.
+export const matchesMirrorKey = (key) => !!process.env.N8N_API_KEY && sameText(key, process.env.N8N_API_KEY);
 export const matchesGlobalKey = (key) => globalKeyAllowed() && !!process.env.N8N_API_KEY && sameText(key, process.env.N8N_API_KEY);
