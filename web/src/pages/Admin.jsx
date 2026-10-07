@@ -25,6 +25,11 @@ export default function Admin() {
   const [cx, setCx] = useState({}); // id -> { i: instância, p: prefixo } digitados (bloqueios)
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
+  const [onde, setOnde] = useState(null); // empresa a que a mensagem se refere (aparece no bloco dela); vazio = aparece no topo
+  const topoOk = (texto) => { setErr(''); setOnde(null); setMsg(texto); };
+  const topoErro = (texto) => { setMsg(''); setOnde(null); setErr(texto); };
+  const okEm = (id, texto) => { setErr(''); setOnde(id); setMsg(texto); };
+  const erroEm = (id, texto) => { setMsg(''); setOnde(id); setErr(texto); };
   const [versao, setVersao] = useState(null);
   const [menuPadrao, setMenuPadrao] = useState(null);
   const [origemMenu, setOrigemMenu] = useState('');
@@ -36,41 +41,45 @@ export default function Admin() {
   const [criando, setCriando] = useState(false);
   const [modelos, setModelos] = useState([]);
   const [salvarModelo, setSalvarModelo] = useState(null); // { company_id, empresa, name, description }
-  const loadModelos = () => api('/admin/templates').then(setModelos).catch((e) => setErr(e.message));
+  const formModelo = useRef(null);
+  const listaModelos = useRef(null);
+  // a janela de "Salvar como modelo" abre no alto da página: leva a tela até ela (senão parece que o botão não fez nada)
+  useEffect(() => { if (salvarModelo?.company_id) setTimeout(() => formModelo.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50); }, [salvarModelo?.company_id]);
+  const loadModelos = () => api('/admin/templates').then(setModelos).catch((e) => topoErro(e.message));
   useEffect(() => { api('/admin/version').then(setVersao).catch(() => {}); api('/admin/default-menu').then(setMenuPadrao).catch(() => {}); api('/admin/upgrade').then(setUp).catch(() => {}); }, []);
-  const definirMenuPadrao = (body, ok) => { setErr(''); setMsg(''); api('/admin/default-menu', { method: 'PUT', body }).then((r) => { setMenuPadrao(r); setMsg(ok); }).catch((e) => setErr(e.message)); };
-  const verAcessos = () => (acessos ? setAcessos(null) : api('/admin/access-log').then(setAcessos).catch((e) => setErr(e.message)));
+  const definirMenuPadrao = (body, ok) => { setErr(''); setMsg(''); setOnde(null); api('/admin/default-menu', { method: 'PUT', body }).then((r) => { setMenuPadrao(r); topoOk(ok); }).catch((e) => topoErro(e.message)); };
+  const verAcessos = () => (acessos ? setAcessos(null) : api('/admin/access-log').then(setAcessos).catch((e) => topoErro(e.message)));
   const [ct, setCt] = useState({});
   const [vg, setVg] = useState({});
   const [ex, setEx] = useState({});
   const testarConversas = async (s) => {
-    setErr(''); setMsg('');
+    setErr(''); setMsg(''); setOnde(null);
     try {
       const r = await api(`/admin/companies/${s.id}/check-history`, { method: 'POST', body: {} });
-      if (r.ok) setMsg(s.name + ': ' + r.motivo); else setErr(s.name + ': ' + r.motivo);
-    } catch (e) { setErr(e.message); }
+      if (r.ok) okEm(s.id, s.name + ': ' + r.motivo); else erroEm(s.id, s.name + ': ' + r.motivo);
+    } catch (e) { erroEm(s.id, e.message); }
   };
   const salvarCt = async (s) => {
-    setErr(''); setMsg('');
+    setErr(''); setMsg(''); setOnde(null);
     try {
       await api(`/admin/companies/${s.id}/chat-table`, { method: 'PUT', body: { chat_table: ct[s.id] } });
-      const { [s.id]: _, ...resto } = ct; setCt(resto); setMsg('Conversas de ' + s.name + ' atualizadas.'); load();
-    } catch (e) { setErr(e.message); }
+      const { [s.id]: _, ...resto } = ct; setCt(resto); okEm(s.id, 'Conversas de ' + s.name + ' atualizadas.'); load();
+    } catch (e) { erroEm(s.id, e.message); }
   };
   const salvarCx = async (s) => {
-    setErr(''); setMsg('');
+    setErr(''); setMsg(''); setOnde(null);
     try {
       await api(`/admin/companies/${s.id}/blocks-config`, { method: 'PUT', body: { whatsapp_instance: cx[s.id].i, redis_prefix: cx[s.id].p } });
-      const { [s.id]: _, ...resto } = cx; setCx(resto); setMsg('Bloqueios de ' + s.name + ' atualizados.'); load();
-    } catch (e) { setErr(e.message); }
+      const { [s.id]: _, ...resto } = cx; setCx(resto); okEm(s.id, 'Bloqueios de ' + s.name + ' atualizados.'); load();
+    } catch (e) { erroEm(s.id, e.message); }
   };
   const [lg, setLg] = useState({}); // ligações próprias em edição, por empresa: { id: { r: endereço do Redis, b: endereço do banco das conversas } }
   const salvarLg = async (s, corpo, aviso) => {
-    setErr(''); setMsg('');
+    setErr(''); setMsg(''); setOnde(null);
     try {
       await api(`/admin/companies/${s.id}/connections`, { method: 'PUT', body: corpo });
-      const { [s.id]: _, ...resto } = lg; setLg(resto); setMsg(aviso); load();
-    } catch (e) { setErr(e.message); }
+      const { [s.id]: _, ...resto } = lg; setLg(resto); okEm(s.id, aviso); load();
+    } catch (e) { erroEm(s.id, e.message); }
   };
   const [up, setUp] = useState({ phone: '', text: '' }); // contato e texto do aviso de upgrade
   const [opAgenda, setOpAgenda] = useState(null); // id da empresa cujas opções da Agenda estão abertas
@@ -81,45 +90,46 @@ export default function Admin() {
   const [trocaEmail, setTrocaEmail] = useState(null); // { id, empresa, de, para, senha }
   const [esp, setEsp] = useState({}); // endereço do espelho dos contatos em edição, por empresa
   const espSalvar = async (s, corpo, aviso) => {
-    setErr(''); setMsg('');
+    setErr(''); setMsg(''); setOnde(null);
     try {
       await api(`/admin/companies/${s.id}/contact-mirror`, { method: 'PUT', body: corpo });
-      const { [s.id]: _, ...resto } = esp; setEsp(resto); setMsg(aviso); load();
-    } catch (e) { setErr(e.message); }
+      const { [s.id]: _, ...resto } = esp; setEsp(resto); okEm(s.id, aviso); load();
+    } catch (e) { erroEm(s.id, e.message); }
   };
   const [pl, setPl] = useState({}); // link da planilha de contatos em edição, por empresa
   const salvarPl = async (s) => {
-    setErr(''); setMsg('');
+    setErr(''); setMsg(''); setOnde(null);
     try {
       await api(`/admin/companies/${s.id}/contact-sheet`, { method: 'PUT', body: { url: pl[s.id] } });
-      const { [s.id]: _, ...resto } = pl; setPl(resto); setMsg('Planilha de contatos de ' + s.name + ' atualizada.'); load();
-    } catch (e) { setErr(e.message); }
+      const { [s.id]: _, ...resto } = pl; setPl(resto); okEm(s.id, 'Planilha de contatos de ' + s.name + ' atualizada.'); load();
+    } catch (e) { erroEm(s.id, e.message); }
   };
   const [wa, setWa] = useState({}); // conexão do WhatsApp para avisos, em edição por empresa: { id: { u: endereço, t: chave } }
   const salvarWa = async (s) => {
-    setErr(''); setMsg('');
+    setErr(''); setMsg(''); setOnde(null);
     try {
       await api(`/admin/companies/${s.id}/whatsapp`, { method: 'PUT', body: { url: wa[s.id].u ?? s.wa_api_url ?? '', token: wa[s.id].t || '' } });
-      const { [s.id]: _, ...resto } = wa; setWa(resto); setMsg('Conexão do WhatsApp de ' + s.name + ' atualizada.'); load();
-    } catch (e) { setErr(e.message); }
+      const { [s.id]: _, ...resto } = wa; setWa(resto); okEm(s.id, 'Conexão do WhatsApp de ' + s.name + ' atualizada.'); load();
+    } catch (e) { erroEm(s.id, e.message); }
   };
-  const load = () => { loadModelos(); return api('/admin/companies').then(setList).catch((e) => setErr(e.message)); };
+  const load = () => { loadModelos(); return api('/admin/companies').then(setList).catch((e) => topoErro(e.message)); };
   useEffect(() => { load(); }, []);
 
   async function guardarModelo(e) {
     e.preventDefault();
-    setErr(''); setMsg('');
+    setErr(''); setMsg(''); setOnde(null);
     try {
       await api('/admin/templates', { method: 'POST', body: { company_id: salvarModelo.company_id, name: salvarModelo.name, description: salvarModelo.description } });
-      setMsg(`Modelo "${salvarModelo.name}" salvo, sem nenhum dado de clientes.`);
+      okEm('modelos', `Modelo "${salvarModelo.name}" salvo, sem nenhum dado de clientes.`);
       setSalvarModelo(null);
-      loadModelos();
-    } catch (e2) { setErr(e2.message); }
+      await loadModelos();
+      setTimeout(() => listaModelos.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100);
+    } catch (e2) { erroEm('form-modelo', e2.message); }
   }
   async function apagarModelo(m) {
     if (!window.confirm(`Apagar o modelo "${m.name}"? As empresas já criadas com ele não mudam.`)) return;
-    setErr(''); setMsg('');
-    try { await api('/admin/templates/' + m.id, { method: 'DELETE' }); loadModelos(); } catch (e2) { setErr(e2.message); }
+    setErr(''); setMsg(''); setOnde(null);
+    try { await api('/admin/templates/' + m.id, { method: 'DELETE' }); okEm('modelos', `Modelo "${m.name}" apagado.`); loadModelos(); } catch (e2) { erroEm('modelos', e2.message); }
   }
   // Escolher um modelo na tela "Nova empresa" já marca os módulos dele (dá para ajustar antes de criar)
   function escolherModelo(id) {
@@ -131,60 +141,60 @@ export default function Admin() {
   const shown = (s) => (s.id in edit ? edit[s.id] : s.max_professionals ?? '');
 
   async function save(s) {
-    setErr(''); setMsg('');
+    setErr(''); setMsg(''); setOnde(null);
     try {
       await api('/admin/companies/' + s.id, { method: 'PUT', body: { max_professionals: edit[s.id] === '' ? null : Number(edit[s.id]) } });
       setEdit(({ [s.id]: _, ...rest }) => rest);
-      setMsg(`Limite de "${s.name}" atualizado.`);
+      okEm(s.id, `Limite de "${s.name}" atualizado.`);
       load();
-    } catch (e) { setErr(e.message); }
+    } catch (e) { erroEm(s.id, e.message); }
   }
 
   async function salvarVagas(s) {
-    setErr(''); setMsg('');
+    setErr(''); setMsg(''); setOnde(null);
     try {
       await api('/admin/companies/' + s.id, { method: 'PUT', body: { doc_slots: vg[s.id] === '' ? null : Number(vg[s.id]) } });
       setVg(({ [s.id]: _, ...rest }) => rest);
-      setMsg(`Documentos do plano de "${s.name}" atualizados.`);
+      okEm(s.id, `Documentos do plano de "${s.name}" atualizados.`);
       load();
-    } catch (e) { setErr(e.message); }
+    } catch (e) { erroEm(s.id, e.message); }
   }
 
   async function salvarExtras(s) {
-    setErr(''); setMsg('');
+    setErr(''); setMsg(''); setOnde(null);
     try {
       await api('/admin/companies/' + s.id, { method: 'PUT', body: { doc_extras: Number(ex[s.id] || 0) } });
       setEx(({ [s.id]: _, ...rest }) => rest);
-      setMsg(`Tipos de documento adicionais de "${s.name}" atualizados.`);
+      okEm(s.id, `Tipos de documento adicionais de "${s.name}" atualizados.`);
       load();
-    } catch (e) { setErr(e.message); }
+    } catch (e) { erroEm(s.id, e.message); }
   }
 
   async function salvarNomes() {
-    setErr(''); setMsg('');
+    setErr(''); setMsg(''); setOnde(null);
     try {
       const atual = list.find((x) => x.id === nomes.id)?.module_labels || {};
       await api(`/admin/companies/${nomes.id}/labels`, { method: 'PUT', body: { labels: { ...atual, [nomes.modulo]: nomes.valores } } });
-      setMsg(`Nomes de "${nomes.empresa}" atualizados.`);
+      okEm(nomes.id, `Nomes de "${nomes.empresa}" atualizados.`);
       setNomes(null); load();
-    } catch (e) { setErr(e.message); }
+    } catch (e) { erroEm(nomes.id, e.message); }
   }
   async function confirmarEmail() {
-    setErr(''); setMsg('');
+    setErr(''); setMsg(''); setOnde(null);
     try {
       const r = await api(`/admin/companies/${trocaEmail.id}/owner`, { method: 'PUT', body: { email: trocaEmail.para, password: trocaEmail.senha } });
-      setMsg(`E-mail do responsável de "${trocaEmail.empresa}" agora é ${r.owner_email}, com a senha nova.`);
+      okEm(trocaEmail.id, `E-mail do responsável de "${trocaEmail.empresa}" agora é ${r.owner_email}, com a senha nova.`);
       setEm((x) => { const n = { ...x }; delete n[trocaEmail.id]; return n; });
       setTrocaEmail(null); load();
-    } catch (e) { setErr(e.message); }
+    } catch (e) { erroEm(trocaEmail.id, e.message); }
   }
   async function salvarModo(s, modo) {
-    setErr(''); setMsg('');
+    setErr(''); setMsg(''); setOnde(null);
     try {
       await api('/admin/companies/' + s.id, { method: 'PUT', body: { booking_mode: modo } });
-      setMsg(`Agendamento de "${s.name}": ${modo === 'confirm' ? 'sob confirmação' : 'automático'}.`);
+      okEm(s.id, `Agendamento de "${s.name}": ${modo === 'confirm' ? 'sob confirmação' : 'automático'}.`);
       load();
-    } catch (e) { setErr(e.message); }
+    } catch (e) { erroEm(s.id, e.message); }
   }
 
   // Entra no painel da empresa sem usar a senha dela (acesso temporário, registrado). O acesso do administrador fica guardado para voltar.
@@ -194,55 +204,55 @@ export default function Admin() {
       entrarComoEmpresa(r.token, r.company);   // vale só nesta aba; as outras abas seguem na empresa delas
       location.hash = 'dashboard';
       location.reload();
-    } catch (e) { setErr(e.message); }
+    } catch (e) { erroEm(s.id, e.message); }
   }
 
   async function gerarChave(s) {
     if (s.api_key_hint && !window.confirm(
       `Gerar uma nova chave para "${s.name}"?\n\nA chave atual deixa de funcionar na hora, e as integrações dessa empresa só voltam a funcionar quando receberem a nova.`)) return;
-    setErr(''); setMsg(''); setCopiada(false);
+    setErr(''); setMsg(''); setOnde(null); setCopiada(false);
     try {
       const r = await api(`/admin/companies/${s.id}/api-key`, { method: 'POST' });
       setNovaChave({ id: s.id, empresa: s.name, chave: r.api_key });
       load();
-    } catch (e) { setErr(e.message); }
+    } catch (e) { erroEm(s.id, e.message); }
   }
 
   async function alternarVitrine(s, key) {
-    setErr(''); setMsg('');
+    setErr(''); setMsg(''); setOnde(null);
     try {
       await api(`/admin/companies/${s.id}/locks`, { method: 'PUT', body: { locks: { [key]: !(s.locked_modules?.[key] === true) } } });
       load();
-    } catch (e) { setErr(e.message); }
+    } catch (e) { erroEm(s.id, e.message); }
   }
   async function salvarUpgrade() {
-    setErr(''); setMsg('');
-    try { setUp(await api('/admin/upgrade', { method: 'PUT', body: up })); setMsg('Aviso de upgrade salvo.'); } catch (e) { setErr(e.message); }
+    setErr(''); setMsg(''); setOnde(null);
+    try { setUp(await api('/admin/upgrade', { method: 'PUT', body: up })); topoOk('Aviso de upgrade salvo.'); } catch (e) { topoErro(e.message); }
   }
 
   async function aplicarPlano(s, p) {
     if (!confirm(`Aplicar o plano ${p.nome} a ${s.name}?\n\nIsso liga os módulos do plano, desliga os demais e deixa os que ficam de fora à vista, apagados, com o convite de upgrade. O limite de profissionais não muda. Os tipos de documento e o nível voltam ao padrão do plano; os tipos adicionais contratados continuam.`)) return;
-    setErr(''); setMsg('');
-    try { await api(`/admin/companies/${s.id}/plan`, { method: 'PUT', body: { plan: p.id } }); setMsg(`Plano ${p.nome} aplicado a ${s.name}`); load(); } catch (e) { setErr(e.message); }
+    setErr(''); setMsg(''); setOnde(null);
+    try { await api(`/admin/companies/${s.id}/plan`, { method: 'PUT', body: { plan: p.id } }); okEm(s.id, `Plano ${p.nome} aplicado a ${s.name}`); load(); } catch (e) { erroEm(s.id, e.message); }
   }
   async function alternarModulo(s, key) {
-    setErr(''); setMsg('');
+    setErr(''); setMsg(''); setOnde(null);
     try {
       await api(`/admin/companies/${s.id}/modules`, { method: 'PUT', body: { modules: { [key]: !moduleOn(s.modules, key) } } });
       load();
-    } catch (e) { setErr(e.message); }
+    } catch (e) { erroEm(s.id, e.message); }
   }
 
   async function criarEmpresa(e) {
     e.preventDefault();
-    setErr(''); setMsg(''); setCopiada(false); setCriando(true);
+    setErr(''); setMsg(''); setOnde(null); setCopiada(false); setCriando(true);
     try {
       const r = await api('/admin/companies', { method: 'POST', body: form });
       setNovaChave({ id: r.id, empresa: r.name, chave: r.api_key });
-      setMsg(`Empresa "${r.name}" criada. O responsável entra com ${r.owner_email}.`);
+      topoOk(`Empresa "${r.name}" criada. O responsável entra com ${r.owner_email}.`);
       setForm(null);
       load();
-    } catch (e2) { setErr(e2.message); } finally { setCriando(false); }
+    } catch (e2) { topoErro(e2.message); } finally { setCriando(false); }
   }
 
   // a chave nova aparece no topo da página: leva a tela até lá para não passar despercebida
@@ -253,7 +263,7 @@ export default function Admin() {
   }
 
   const [diag, setDiag] = useState(null);
-  const conferir = async () => { setErr(''); try { setDiag(await api('/admin/diagnostico')); } catch (e) { setErr(e.message); } };
+  const conferir = async () => { setErr(''); try { setDiag(await api('/admin/diagnostico')); } catch (e) { topoErro(e.message); } };
   const setF = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
   return (
@@ -287,8 +297,8 @@ export default function Admin() {
         </p>
       )}
       <p className="muted" style={{ marginBottom: 16 }}>Empresas cadastradas, limite de profissionais, módulos e chave de integração de cada uma. Deixe o limite vazio para não ter limite.</p>
-      {msg && <div className="card" style={{ marginBottom: 12, color: 'var(--ok)' }}>{msg}</div>}
-      {err && <div className="error">{err}</div>}
+      {msg && onde == null && <div className="card" style={{ marginBottom: 12, color: 'var(--ok)' }}>{msg}</div>}
+      {err && onde == null && <div className="error">{err}</div>}
 
       {form && (
         <form className="card" style={{ marginBottom: 16 }} onSubmit={criarEmpresa}>
@@ -324,11 +334,12 @@ export default function Admin() {
       )}
 
       {salvarModelo && (
-        <form className="card" style={{ marginBottom: 16 }} onSubmit={guardarModelo}>
+        <form className="card" ref={formModelo} style={{ marginBottom: 16 }} onSubmit={guardarModelo}>
           <h2 style={{ marginBottom: 6 }}>Salvar "{salvarModelo.empresa}" como modelo</h2>
           <p className="muted" style={{ marginBottom: 10 }}>Guarda módulos, configurações, categorias, serviços e o manual do atendente publicado. Não guarda clientes, agenda, profissionais, atualizações provisórias, logotipo nem dados da empresa.</p>
           <div className="field"><label>Nome do modelo</label><input value={salvarModelo.name} onChange={(e) => setSalvarModelo({ ...salvarModelo, name: e.target.value })} required /></div>
           <div className="field"><label>Descrição (opcional)</label><input value={salvarModelo.description} onChange={(e) => setSalvarModelo({ ...salvarModelo, description: e.target.value })} /></div>
+          {onde === 'form-modelo' && err && <div className="error" style={{ marginBottom: 8 }}>{err}</div>}
           <div style={{ display: 'flex', gap: 8 }}>
             <button className="btn primary">Salvar modelo</button>
             <button type="button" className="btn" onClick={() => setSalvarModelo(null)}>Cancelar</button>
@@ -361,7 +372,7 @@ export default function Admin() {
                   <option value="auto">Automático (horários fixos)</option>
                   <option value="confirm">Sob confirmação</option>
                 </select></div>
-              {err && <div className="error">{err}</div>}
+              {err && (onde == null || onde === emp.id) && <div className="error">{err}</div>}
               <div className="row"><button className="btn primary" onClick={() => setOpAgenda(null)}>Fechar</button></div>
             </div>
           </div>
@@ -383,7 +394,7 @@ export default function Admin() {
                 <input type="checkbox" style={{ width: 'auto', marginTop: 3 }} checked={moduleOn(emp.modules, 'lembrete_cliente')} onChange={() => alternarModulo(emp, 'lembrete_cliente')} />
                 <span><strong>Lembrete a pedido do cliente</strong><br /><span className="muted">O cliente pode pedir ao atendente para ser lembrado de algo, e o atendente agenda o aviso. Desligado, o atendente não oferece nem agenda esses lembretes (os avisos automáticos de horário continuam).</span></span>
               </label>
-              {err && <div className="error">{err}</div>}
+              {err && (onde == null || onde === emp.id) && <div className="error">{err}</div>}
               <div className="row"><button className="btn primary" onClick={() => setOpcoes(null)}>Fechar</button></div>
             </div>
           </div>
@@ -400,7 +411,7 @@ export default function Admin() {
                 <input maxLength={30} placeholder={v.padrao} value={nomes.valores[k] || ''}
                   onChange={(e) => setNomes({ ...nomes, valores: { ...nomes.valores, [k]: e.target.value } })} /></div>
             ))}
-            {err && <div className="error">{err}</div>}
+            {err && (onde == null || onde === nomes.id) && <div className="error">{err}</div>}
             <div className="row">
               <button className="btn primary" onClick={salvarNomes}>Salvar</button>
               <button className="btn" onClick={() => setNomes({ ...nomes, valores: {} })}>Voltar ao padrão</button>
@@ -418,7 +429,7 @@ export default function Admin() {
             <div className="field"><label>Senha nova para este login (8 ou mais caracteres)</label>
               <CampoSenha value={trocaEmail.senha} onChange={(e) => setTrocaEmail({ ...trocaEmail, senha: e.target.value })} autoFocus autoComplete="new-password" />
             </div>
-            {err && <div className="error">{err}</div>}
+            {err && (onde == null || onde === trocaEmail.id) && <div className="error">{err}</div>}
             <div className="row">
               <button className="btn primary" disabled={trocaEmail.senha.length < 8} onClick={confirmarEmail}>Trocar e-mail e senha</button>
               <button className="btn" onClick={() => setTrocaEmail(null)}>Cancelar</button>
@@ -431,6 +442,8 @@ export default function Admin() {
         const changed = s.id in edit;
         return (
           <div key={s.id} className="card" style={{ marginBottom: 12 }}>
+            {onde === s.id && msg && <div style={{ color: 'var(--ok)', marginBottom: 8 }}>{msg}</div>}
+            {onde === s.id && err && <div className="error" style={{ marginBottom: 8 }}>{err}</div>}
             <div style={{ display: 'flex', gap: 22, flexWrap: 'wrap', alignItems: 'flex-end' }}>
               <Campo rotulo=" ">
                 <button className="btn sm seta-ouro" title={abertas[s.id] ? 'Recolher' : 'Expandir'} onClick={() => setAbertas({ ...abertas, [s.id]: !abertas[s.id] })}>{abertas[s.id] ? '▾' : '▸'}</button>
@@ -474,7 +487,7 @@ export default function Admin() {
                   {s.id in ex && <button className="btn sm primary" onClick={() => salvarExtras(s)}>Salvar</button>}
                 </Campo>
                 <Campo rotulo="Nível dos documentos">
-                  <select value={s.doc_nivel || ''} onChange={(e) => api('/admin/companies/' + s.id, { method: 'PUT', body: { doc_nivel: e.target.value } }).then(load).catch((x) => setErr(x.message))}>
+                  <select value={s.doc_nivel || ''} onChange={(e) => api('/admin/companies/' + s.id, { method: 'PUT', body: { doc_nivel: e.target.value } }).then(load).catch((x) => erroEm(s.id, x.message))}>
                     <option value="">Sem limite</option><option value="simples">Simples (texto curto)</option><option value="completo">Completo (contratos)</option>
                   </select>
                 </Campo>
@@ -631,9 +644,11 @@ export default function Admin() {
         </div>
       </div>
 
-      {modelos.length > 0 && (
-        <div className="card table-wrap" style={{ marginTop: 16 }}>
+      {(modelos.length > 0 || onde === 'modelos') && (
+        <div className="card table-wrap" ref={listaModelos} style={{ marginTop: 16 }}>
           <h2 style={{ marginBottom: 10 }}>Modelos</h2>
+          {onde === 'modelos' && msg && <div style={{ color: 'var(--ok)', marginBottom: 8 }}>{msg}</div>}
+          {onde === 'modelos' && err && <div className="error" style={{ marginBottom: 8 }}>{err}</div>}
           <table>
             <thead><tr><th>Modelo</th><th>Descrição</th><th>Conteúdo</th><th></th></tr></thead>
             <tbody>
