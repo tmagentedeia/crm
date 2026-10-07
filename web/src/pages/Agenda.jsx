@@ -18,6 +18,8 @@ const gradeDe = (list) => [0, 1, 2, 3, 4, 5, 6].map((w) => {
 function HorarioEmpresa({ cfg, onChange }) {
   const [grade, setGrade] = useState(gradeDe(cfg.schedules));
   const [msg, setMsg] = useState(''); const [err, setErr] = useState(''); const [busy, setBusy] = useState(false);
+  const [aberto, setAberto] = useState(false);
+  const resumo = (cfg.schedules || []).length ? cfg.schedules.map((s) => WEEKDAYS[s.weekday].slice(0, 3)).join(' · ') : 'nenhum dia definido';
   const set = (i, k, v) => setGrade(grade.map((s, j) => (j === i ? { ...s, [k]: v } : s)));
   const salvar = async (corpo, ok) => {
     setMsg(''); setErr(''); setBusy(true);
@@ -28,12 +30,17 @@ function HorarioEmpresa({ cfg, onChange }) {
   const salvarGrade = () => salvar({ schedules: grade.filter((s) => s.on).map((s) => ({ weekday: s.weekday, start_time: s.start_time, end_time: s.end_time, break_start: s.break_start || null, break_end: s.break_end || null })) }, 'Horário de atendimento salvo.');
   return (
     <div className="card">
-      <h2>Horário de atendimento</h2>
-      <label className="row" style={{ gap: 8, marginBottom: 12 }}>
+      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <div><h2 style={{ margin: 0 }}>Horário de atendimento</h2>{!aberto && <span className="muted">{resumo}</span>}</div>
+        <button className="btn sm" onClick={() => setAberto(!aberto)}>{aberto ? 'Recolher' : 'Configurar horários'}</button>
+      </div>
+      <label className="row" style={{ gap: 8, margin: '12px 0 0' }}>
         <input type="checkbox" style={{ width: 'auto', margin: 0 }} checked={cfg.scheduling_enabled} disabled={busy}
           onChange={(e) => salvar({ scheduling_enabled: e.target.checked }, e.target.checked ? 'Agendamentos ativados.' : 'Agendamentos desativados.')} />
         <span>Fazer agendamentos</span>
       </label>
+      {msg && !aberto && <p style={{ color: 'var(--ok)', marginTop: 8 }}>{msg}</p>}
+      {aberto && <div style={{ marginTop: 12 }}>
       {!cfg.scheduling_enabled && <p className="muted" style={{ marginBottom: 10 }}>Os agendamentos estão desativados: o horário abaixo serve só para informar quando a empresa atende.</p>}
       <div className="sched-row muted"><span>Dia</span><span>Entrada</span><span>Saída</span><span>Pausa de</span><span>até</span></div>
       {grade.map((s, i) => (
@@ -53,6 +60,7 @@ function HorarioEmpresa({ cfg, onChange }) {
         {msg && <span style={{ color: 'var(--ok)' }}>{msg}</span>}
         {err && <span className="error" style={{ margin: 0 }}>{err}</span>}
       </div>
+      </div>}
     </div>
   );
 }
