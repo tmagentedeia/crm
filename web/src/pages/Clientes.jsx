@@ -412,7 +412,7 @@ function PersonalizarContatos({ cfg, onClose, onSaved }) {
           {auto.map((k) => (
             <div key={k.key} className="row" style={{ marginBottom: 6, flexWrap: 'nowrap', alignItems: 'center' }}>
               <input style={{ flex: 1, minWidth: 0 }} value={nomesAuto[k.key] || ''} maxLength={40} onChange={(e) => setNomesAuto({ ...nomesAuto, [k.key]: e.target.value })} />
-              <span className="muted" style={{ whiteSpace: 'nowrap' }}>{k.key === 'buyer' ? 'quando há uma compra' : 'quando há uma contratação'}</span>
+              <span className="muted" style={{ whiteSpace: 'nowrap' }}>{k.key === 'buyer' ? 'quando há uma compra' : 'quando há uma conversão específica'}</span>
             </div>
           ))}
         </div>
