@@ -53,8 +53,30 @@ check('pelo número resolve', (await call('PUT', '/n8n/agent-manual/caixa', { ..
 await call('PUT', '/api/agent-manual', { token: A.token, body: { content: 'rascunho novo' } });
 check('com rascunho aberto = 409', (await call('PUT', '/n8n/agent-manual/caixa', { ...M, body: { n: 1, texto: 'REGRA\nq' } })).status === 409);
 
-// o assistente não tem essas rotas (a Maria só mexe no manual do atendente)
-check('assistente sem rota de troca', (await call('PUT', '/n8n/assistant-manual/caixa', { ...M, body: { n: 1, texto: 'x' } })).status === 404);
+// manual do assistente por caixa: só com o interruptor do assistente ligado na empresa
+const modulosAntes = (await call('GET', '/api/admin/companies', { token: A.token })).body.find((x) => Number(x.id) === 1)?.modules?.assistente === true;
+const setAss = (v) => call('PUT', '/api/admin/companies/1/modules', { token: A.token, body: { modules: { assistente: v } } });
+await setAss(false);
+check('assistente desligado: sem lista de caixas (404)', (await call('GET', '/n8n/assistant-manual/caixas', M)).status === 404);
+check('assistente desligado: sem troca (404)', (await call('PUT', '/n8n/assistant-manual/caixa', { ...M, body: { n: 1, texto: 'x' } })).status === 404);
+await setAss(true);
+await call('PUT', '/api/assistant-manual', { token: A.token, body: { content: 'MARIA REGRA\nSeja breve.\n=====\nMARIA TOM\nDireta.' } });
+await call('POST', '/api/assistant-manual/publish', { token: A.token });
+const la = (await call('GET', '/n8n/assistant-manual/caixas', M)).body;
+check('assistente: lista 2 caixas', la.total === 2 && la.caixas.map((x) => x.titulo).join('|') === 'MARIA REGRA|MARIA TOM', JSON.stringify(la));
+const ca = (await call('GET', '/n8n/assistant-manual/caixa?titulo=' + encodeURIComponent('maria tom'), M)).body;
+check('assistente: lê uma caixa', ca.n === 2 && ca.texto.includes('Direta.'), JSON.stringify(ca));
+const ra = await call('PUT', '/n8n/assistant-manual/caixa', { ...M, body: { titulo: 'MARIA TOM', texto: 'MARIA TOM\nCalorosa.' } });
+check('assistente: troca uma caixa', ra.status === 200 && ra.body.antes.includes('Direta.') && ra.body.depois.includes('Calorosa.'), JSON.stringify(ra.body));
+const pas = (await call('GET', '/n8n/assistant/prompt', M)).body;
+check('assistente: a outra caixa fica e a nova entra no prompt', pas.prompt.includes('Seja breve.') && pas.prompt.includes('Calorosa.') && !pas.prompt.includes('Direta.'), pas.prompt);
+check('o manual do atendente não é afetado', !(await call('GET', '/n8n/agent/prompt', M)).body.prompt.includes('Calorosa.'));
+check('assistente: texto vazio = 400', (await call('PUT', '/n8n/assistant-manual/caixa', { ...M, body: { n: 1, texto: ' ' } })).status === 400);
+await call('PUT', '/api/assistant-manual', { token: A.token, body: { content: 'rascunho do assistente' } });
+check('assistente: rascunho aberto = 409', (await call('PUT', '/n8n/assistant-manual/caixa', { ...M, body: { n: 1, texto: 'MARIA REGRA\nq' } })).status === 409);
+await call('POST', '/api/assistant-manual/publish', { token: A.token });
+check('assistente: empresa 2 (desligado) = 404', (await call('GET', '/n8n/assistant-manual/caixas', { n8n: 2 })).status === 404);
+await setAss(modulosAntes);
 
 // outra empresa não enxerga
 check('empresa 2 não vê as caixas da 1', (await call('GET', '/n8n/agent-manual/caixas', { n8n: 2 })).body.total === 0);

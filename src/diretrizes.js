@@ -4,6 +4,7 @@
 // Variáveis: {{agente}} {{adm}} {{empresa}}
 import { qg } from './db.js';
 import { isAdmin } from './auth.js';
+import { lerCaixas, juntarCaixas, tituloDe, acharCaixa, temSeparador } from './manualCaixas.js';
 
 export const DIRETRIZES_MAX = 8000;
 const CHAVE = 'agent_guidelines';
@@ -49,5 +50,47 @@ export function registerDiretrizesRoutes(r, wrap) {
     if (b.company !== undefined)
       await qg('UPDATE companies SET agent_guidelines=$2 WHERE id=$1', [req.user.companyId, String(b.company).trim() || null]);
     res.json({ ok: true });
+  }));
+
+  // Maria (assistente pessoal): lê e troca UMA caixa das diretrizes da EMPRESA, a pedido do ADM. Só pela chave do N8N: a tela do painel
+  // continua exclusiva do administrador da plataforma. A parte GLOBAL (de todas as empresas) nunca passa por aqui.
+  const soN8n = (req, res) => {
+    if (req.user?.role === 'n8n') return true;
+    res.status(403).json({ error: 'Disponível só para o assistente pessoal' });
+    return false;
+  };
+  const textoDaEmpresa = async (id) => (await qg('SELECT agent_guidelines FROM companies WHERE id=$1', [id])).rows[0]?.agent_guidelines || '';
+  r.get('/agent-guidelines/caixas', wrap(async (req, res) => {
+    if (!soN8n(req, res)) return;
+    const t = await textoDaEmpresa(req.user.companyId);
+    const caixas = t.trim() ? lerCaixas(t) : [];
+    res.json({ total: caixas.length, caixas: caixas.map((c, i) => ({ n: i + 1, titulo: tituloDe(c) || '(vazia)' })) });
+  }));
+  r.get('/agent-guidelines/caixa', wrap(async (req, res) => {
+    if (!soN8n(req, res)) return;
+    const texto = await textoDaEmpresa(req.user.companyId);
+    if (!texto.trim()) return res.status(404).json({ error: 'Esta empresa ainda não tem diretrizes próprias' });
+    const caixas = lerCaixas(texto);
+    const a = acharCaixa(caixas, { n: req.query.n, titulo: req.query.titulo });
+    if (a.erro) return res.status(a.status).json({ error: a.erro });
+    res.json({ n: a.i + 1, titulo: tituloDe(caixas[a.i]), texto: caixas[a.i] });
+  }));
+  // Troca o texto de uma caixa; as outras não mudam. Não há versões anteriores guardadas: a resposta traz o texto de antes.
+  r.put('/agent-guidelines/caixa', wrap(async (req, res) => {
+    if (!soN8n(req, res)) return;
+    const texto = String(req.body?.texto ?? '').replace(/\r\n/g, '\n');
+    if (!texto.trim()) return res.status(400).json({ error: 'Escreva o texto da caixa' });
+    if (temSeparador(texto)) return res.status(400).json({ error: 'O texto de uma caixa não pode ter a linha de separação (=====)' });
+    const atual = await textoDaEmpresa(req.user.companyId);
+    if (!atual.trim()) return res.status(404).json({ error: 'Esta empresa ainda não tem diretrizes próprias' });
+    const caixas = lerCaixas(atual);
+    const a = acharCaixa(caixas, { n: req.body?.n, titulo: req.body?.titulo });
+    if (a.erro) return res.status(a.status).json({ error: a.erro });
+    const antes = caixas[a.i];
+    caixas[a.i] = texto;
+    const novo = juntarCaixas(caixas).trim();
+    if (novo.length > DIRETRIZES_MAX) return res.status(400).json({ error: `As diretrizes passariam do limite de ${DIRETRIZES_MAX} caracteres` });
+    await qg('UPDATE companies SET agent_guidelines=$2 WHERE id=$1', [req.user.companyId, novo]);
+    res.json({ ok: true, n: a.i + 1, antes, depois: texto });
   }));
 }
