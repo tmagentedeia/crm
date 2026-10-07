@@ -9,6 +9,7 @@
 #  - venda.mjs: venda com valor (pagamento aceito ou pedido pago) vira cliente
 #  - bloqueios.mjs: lista de atendimentos bloqueados (precisa do redis-server instalado)
 #  - conexoes.mjs: Redis e banco de conversas próprios de uma empresa (cifrados; vazio = padrão do servidor)
+#  - agenda_unica.mjs: empresa sem profissional atende por uma agenda com o nome da empresa
 #  - chave_global.mjs: chave global desligada com ALLOW_GLOBAL_KEY=false (segundo servidor, porta 3998)
 # Precisa de um Postgres de teste (PGBASE = conexão sem banco, ex.: postgres://postgres@/postgres?host=/var/tmp/pgtest&port=55432)
 set -e
@@ -82,6 +83,7 @@ node src/migrate.js
 psql "$DB" -tc "select count(*) from company_1.shows_sales" | grep -q 0 || { echo "FALHOU: troca de reserva para venda (tabela)"; exit 1; }
 psql "$DB" -tc "select count(sale_id) from company_1.shows_sale_payments" | grep -q 0 || { echo "FALHOU: troca de reserva para venda (pagamentos)"; exit 1; }
 node test/seed_extra.mjs
+node src/migrate.js   # empresa 2 criada pelo seed nasce na estrutura base: põe em dia
 # Redis de teste (bloqueios)
 redis-server --port 56379 --save '' --appendonly no --daemonize yes >/dev/null
 export REDIS_URL=redis://127.0.0.1:56379
@@ -138,6 +140,7 @@ BASE=http://localhost:3999 node test/sessao.mjs || R=1
 BASE=http://localhost:3999 node test/senha.mjs || R=1
 BASE=http://localhost:3999 node test/bloqueios.mjs || R=1
 BASE=http://localhost:3999 node test/conexoes.mjs || R=1
+BASE=http://localhost:3999 node test/agenda_unica.mjs || R=1
 BASE=http://localhost:3999 node test/confirmacao.mjs || R=1
 BASE=http://localhost:3999 node test/clube.mjs || R=1
 BASE=http://localhost:3999 node test/importar_clube.mjs || R=1

@@ -70,12 +70,24 @@ export default function ImportarAqui({ tipo, onFeito }) {
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(T.exemplo), 'Modelo');
     XLSX.writeFile(wb, T.arquivo);
   };
+  // CSV: o Excel brasileiro salva em ANSI (Windows-1252) e outros programas em UTF-8; sem decidir isso, os acentos saem trocados.
+  // Tenta UTF-8 (rígido); se o arquivo não for, lê como Windows-1252.
+  async function lerArquivo(f) {
+    const buf = await f.arrayBuffer();
+    if (/\.(csv|txt)$/i.test(f.name)) {
+      let texto;
+      try { texto = new TextDecoder('utf-8', { fatal: true }).decode(buf); }
+      catch { texto = new TextDecoder('windows-1252').decode(buf); }
+      return XLSX.read(texto.replace(/^\uFEFF/, ''), { type: 'string' });
+    }
+    return XLSX.read(buf, { type: 'array' });
+  }
   async function aoEscolher(e) {
     const f = e.target.files[0]; e.target.value = '';
     if (!f) return;
     setErr(''); setRep(null);
     try {
-      const wb = XLSX.read(await f.arrayBuffer(), { type: 'array' });
+      const wb = await lerArquivo(f);
       const r = toRows(wb.Sheets[wb.SheetNames[0]]);
       if (!r.length) throw new Error('O arquivo está vazio.');
       setRows(r);

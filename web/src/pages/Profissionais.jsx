@@ -30,7 +30,7 @@ export default function Profissionais() {
   const [max, setMax] = useState(null);
   const [services, setServices] = useState([]);
   const [cats, setCats] = useState([]);
-  const load = () => api('/professionals').then(setList);
+  const load = () => api('/professionals').then((l) => setList(l.filter((b) => !b.is_default)));
   useEffect(() => { load(); api('/company').then((s) => setMax(s.max_professionals)); api('/services').then((l) => setServices(l.filter((x) => x.active))); api('/categories').then(setCats); }, []);
   const ativos = list.filter((b) => b.active).length;
   const cheio = max !== null && ativos >= max;

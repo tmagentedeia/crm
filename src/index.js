@@ -300,7 +300,7 @@ app.get('/api/admin/companies', requireUser, requireAdmin, async (req, res) => {
     c.redis_host = servidorDe(decifrar(c.redis_url)); c.redis_set = !!c.redis_url;
     c.conv_db_host = servidorDe(decifrar(c.conv_db_url)); c.conv_db_set = !!c.conv_db_url;
     delete c.redis_url; delete c.conv_db_url;
-    c.ativos = await runAs(c.id, async () => (await q('SELECT COUNT(*)::int AS n FROM professionals WHERE active')).rows[0].n);
+    c.ativos = await runAs(c.id, async () => (await q('SELECT COUNT(*)::int AS n FROM professionals WHERE active AND NOT is_default')).rows[0].n);
   }
   res.json(rows);
 });
@@ -430,7 +430,7 @@ app.put('/api/admin/default-menu', requireUser, requireAdmin, async (req, res) =
 app.get('/api/admin/templates', requireUser, requireAdmin, async (req, res) => {
   const { rows } = await qg('SELECT id, name, description, created_at, data FROM company_templates ORDER BY name');
   res.json(rows.map(({ data, ...t }) => ({ ...t, modules: data.modules || {},
-    categorias: (data.categories || []).length, servicos: (data.services || []).length, tem_manual: !!data.manual })));
+    tem_manual: !!data.manual })));
 });
 
 // "Salvar como modelo": guarda a estrutura de uma empresa existente (sem nenhum dado de cliente)

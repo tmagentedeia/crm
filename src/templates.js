@@ -1,7 +1,7 @@
 import { schemaOf } from './db.js';
 
-// Modelo de empresa: só a ESTRUTURA (módulos, configurações, categorias, serviços e o manual do atendente publicado).
-// Nunca leva clientes, agendamentos, profissionais, atualizações provisórias, logotipo, telefone, nomes nem a chave.
+// Modelo de empresa: só a ESTRUTURA (módulos, configurações e o manual do atendente publicado).
+// Nunca leva clientes, serviços, categorias, preços, agendamentos, profissionais, atualizações provisórias, logotipo, telefone, nomes nem a chave.
 
 // Tira uma foto da estrutura de uma empresa.
 export async function snapshotCompany(companyId, cx) {
@@ -9,16 +9,11 @@ export async function snapshotCompany(companyId, cx) {
   if (!c) return null;
   await cx.query(`SET search_path TO ${schemaOf(companyId)}, public`);
   try {
-    const categories = (await cx.query('SELECT name FROM categories ORDER BY name')).rows.map((r) => r.name);
-    const services = (await cx.query(
-      `SELECT sv.name, sv.price::float AS price, sv.duration_min, sv.active, sv.kind, c.name AS category
-       FROM services sv LEFT JOIN categories c ON c.id = sv.category_id ORDER BY sv.name`)).rows;
     const man = (await cx.query('SELECT content FROM agent_manual_versions WHERE published_at IS NOT NULL ORDER BY published_at DESC, id DESC LIMIT 1')).rows[0];
     return {
       modules: c.modules || {},
       menu_custom: c.menu_custom || {},
       settings: { inactive_days: c.inactive_days, timezone: c.timezone, reminder_minutes: c.reminder_minutes },
-      categories, services,
       manual: man ? man.content : null,
     };
   } finally {
@@ -38,16 +33,7 @@ export async function applyTemplate(cx, companyId, data) {
     [companyId, s.inactive_days ?? null, s.timezone ?? null, 'reminder_minutes' in s, s.reminder_minutes ?? null,
      data.menu_custom ? JSON.stringify(data.menu_custom) : null]);
   await cx.query(`SET LOCAL search_path TO ${schemaOf(companyId)}, public`);
-  const catId = {};
-  for (const name of data.categories || []) {
-    catId[name] = (await cx.query('INSERT INTO categories (name) VALUES ($1) ON CONFLICT (name) DO UPDATE SET name=EXCLUDED.name RETURNING id', [name])).rows[0].id;
-  }
-  for (const sv of data.services || []) {
-    if (sv.category && !(sv.category in catId))
-      catId[sv.category] = (await cx.query('INSERT INTO categories (name) VALUES ($1) ON CONFLICT (name) DO UPDATE SET name=EXCLUDED.name RETURNING id', [sv.category])).rows[0].id;
-    await cx.query('INSERT INTO services (name, price, duration_min, category_id, active, kind) VALUES ($1,$2,$3,$4,$5,$6)',
-      [sv.name, sv.price ?? 0, sv.duration_min ?? 30, sv.category ? catId[sv.category] : null, sv.active !== false, sv.kind === 'product' ? 'product' : 'service']);
-  }
+  // modelos antigos podem ter serviços e categorias guardados: são dados da empresa de origem e não são aplicados
   if (data.manual && data.manual.trim())
     await cx.query('INSERT INTO agent_manual_versions (content, published_at) VALUES ($1, now())', [data.manual]);
   await cx.query('SET LOCAL search_path TO public');

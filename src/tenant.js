@@ -21,6 +21,7 @@ import { RESTAURANTE_SQL } from './restaurante.js';
 import { CONTRATACOES_SQL } from './contratacoes.js';
 import { FINANCEIRO_SQL, FINANCEIRO_ORIGEM_SQL, FINANCEIRO_DEDUP_SQL } from './financeiro.js';
 
+const AGENDA_UNICA_SQL = 'ALTER TABLE professionals ADD COLUMN IF NOT EXISTS is_default BOOLEAN NOT NULL DEFAULT false';
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const baseline = fs.readFileSync(path.join(dir, '..', 'db', 'tenant.sql'), 'utf8');
 
@@ -214,6 +215,8 @@ export const TENANT_STEPS = [
   { version: 52, sql: CAMPOS_EXTRA_SQL },
   // 53: grupos de contatos salvos para campanhas
   { version: 53, sql: GRUPOS_CAMPANHA_SQL },
+  // 54: agenda única da empresa (sem profissionais cadastrados, a agenda responde pelo nome da empresa)
+  { version: 54, sql: AGENDA_UNICA_SQL },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 
@@ -266,6 +269,7 @@ export async function createCompanySchema(cx, companyId) {
   await cx.query(ESPELHO_SQL);
   await cx.query(CAMPOS_EXTRA_SQL);
   await cx.query(GRUPOS_CAMPANHA_SQL);
+  await cx.query(AGENDA_UNICA_SQL);
   await cx.query('SET LOCAL search_path TO public');
   await cx.query('INSERT INTO tenant_versions (company_id, version) VALUES ($1, 1)', [companyId]);
 }

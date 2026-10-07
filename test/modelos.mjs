@@ -32,7 +32,7 @@ check('salva modelo', t.status === 201, JSON.stringify(t));
 check('nome repetido = 409', (await call('POST', '/api/admin/templates', { token: A.token, body: { company_id: 1, name: 'Modelo Teste' } })).status === 409);
 const lista = (await call('GET', '/api/admin/templates', { token: A.token })).body;
 const m = lista.find((x) => x.name === 'Modelo Teste');
-check('lista traz contagens', m && m.servicos === svA.length && m.categorias === catA.length && m.tem_manual === true, JSON.stringify(m));
+check('lista traz contagens', m && m.tem_manual === true && m.servicos === undefined && m.categorias === undefined, JSON.stringify(m));
 check('lista não expõe os dados', !('data' in m));
 
 // cria empresa a partir do modelo
@@ -44,10 +44,10 @@ const svN = (await call('GET', '/api/services', { token: N.token })).body;
 const catN = (await call('GET', '/api/categories', { token: N.token })).body;
 const key = (arr) => arr.map((s) => `${s.name}|${s.price}|${s.duration_min}|${s.category || ''}`).sort().join(';');
 check('menu personalizado vai junto no modelo', N.company.menu_custom?.profissionais?.label === 'Equipe' && N.company.menu_custom?.profissionais?.icon === '💇', JSON.stringify(N.company.menu_custom));
-check('serviços copiados', svN.length === svA.length && key(svN) === key(svA), key(svN) + ' <> ' + key(svA));
-check('categorias copiadas', catN.map((c) => c.name).sort().join() === catA.map((c) => c.name).sort().join());
+check('serviços NÃO vão no modelo (são dados da empresa)', svN.length === 0, key(svN));
+check('categorias NÃO vão no modelo', catN.length === 0, JSON.stringify(catN));
 check('sem clientes', (await call('GET', '/api/customers', { token: N.token })).body.length === 0);
-check('sem profissionais', (await call('GET', '/api/professionals', { token: N.token })).body.length === 0);
+check('sem profissionais (só a agenda da empresa)', (await call('GET', '/api/professionals', { token: N.token })).body.every((x) => x.is_default));
 check('sem agendamentos', (await call('GET', '/api/appointments', { token: N.token })).body.length === 0);
 await call('PUT', '/api/company', { token: A.token, body: { menu_custom: {} } });
 check('manual já publicado', (await call('GET', '/n8n/agent/prompt', { n8n: nova.body.id })).body.prompt === 'Manual do modelo');
@@ -85,7 +85,7 @@ check('depois de limpar, empresa nova nasce com o menu original', Object.keys((a
 await call('PUT', '/api/company', { token: A.token, body: { menu_custom: {} } });
 check('apagar modelo', (await call('DELETE', `/api/admin/templates/${m.id}`, { token: A.token })).status === 200
   && !(await call('GET', '/api/admin/templates', { token: A.token })).body.some((x) => x.id === m.id));
-check('empresa criada continua depois de apagar o modelo', (await call('GET', '/api/services', { token: N.token })).body.length === svA.length);
+check('empresa criada continua depois de apagar o modelo', (await call('GET', '/api/categories', { token: N.token })).body.length === catN.length);
 
 console.log(`\nmodelos: ${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);

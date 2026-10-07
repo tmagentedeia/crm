@@ -1,13 +1,66 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Nome } from '../menu.jsx';
-import { api, fmtTime, money } from '../api.js';
+import { api, fmtTime, money, WEEKDAYS } from '../api.js';
 import { useSelecao, ApagarSelecionados, resumoApagado } from '../selecao.jsx';
 
 const STATUS = { pending: 'Aguardando confirmação', scheduled: 'Agendado', attended: 'Compareceu', no_show: 'Faltou', cancelled: 'Cancelado' };
 const todayStr = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
 const shift = (s, n) => { const d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
 
+const hhmm = (t) => (t ? String(t).slice(0, 5) : '');
+const gradeDe = (list) => [0, 1, 2, 3, 4, 5, 6].map((w) => {
+  const x = (list || []).find((s) => s.weekday === w);
+  return x ? { weekday: w, on: true, start_time: hhmm(x.start_time), end_time: hhmm(x.end_time), break_start: hhmm(x.break_start), break_end: hhmm(x.break_end) }
+    : { weekday: w, on: false, start_time: '09:00', end_time: '18:00', break_start: '', break_end: '' };
+});
+
+// Empresa sem profissionais: a agenda é da própria empresa. Aqui ficam o horário de atendimento e a opção de fazer agendamentos.
+function HorarioEmpresa({ cfg, onChange }) {
+  const [grade, setGrade] = useState(gradeDe(cfg.schedules));
+  const [msg, setMsg] = useState(''); const [err, setErr] = useState(''); const [busy, setBusy] = useState(false);
+  const set = (i, k, v) => setGrade(grade.map((s, j) => (j === i ? { ...s, [k]: v } : s)));
+  const salvar = async (corpo, ok) => {
+    setMsg(''); setErr(''); setBusy(true);
+    try { await api('/agenda/config', { method: 'PUT', body: corpo }); setMsg(ok); await onChange(); }
+    catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+  const salvarGrade = () => salvar({ schedules: grade.filter((s) => s.on).map((s) => ({ weekday: s.weekday, start_time: s.start_time, end_time: s.end_time, break_start: s.break_start || null, break_end: s.break_end || null })) }, 'Horário de atendimento salvo.');
+  return (
+    <div className="card">
+      <h2>Horário de atendimento</h2>
+      <label className="row" style={{ gap: 8, marginBottom: 12 }}>
+        <input type="checkbox" style={{ width: 'auto', margin: 0 }} checked={cfg.scheduling_enabled} disabled={busy}
+          onChange={(e) => salvar({ scheduling_enabled: e.target.checked }, e.target.checked ? 'Agendamentos ativados.' : 'Agendamentos desativados.')} />
+        <span>Fazer agendamentos</span>
+      </label>
+      {!cfg.scheduling_enabled && <p className="muted" style={{ marginBottom: 10 }}>Os agendamentos estão desativados: o horário abaixo serve só para informar quando a empresa atende.</p>}
+      <div className="sched-row muted"><span>Dia</span><span>Entrada</span><span>Saída</span><span>Pausa de</span><span>até</span></div>
+      {grade.map((s, i) => (
+        <div className="sched-row" key={s.weekday} style={{ opacity: s.on ? 1 : 0.55 }}>
+          <label style={{ margin: 0, color: 'var(--text)' }}>
+            <input type="checkbox" checked={s.on} onChange={(e) => set(i, 'on', e.target.checked)} style={{ width: 'auto', marginRight: 6 }} />
+            {WEEKDAYS[s.weekday].slice(0, 3)}
+          </label>
+          <input type="time" disabled={!s.on} value={s.start_time} onChange={(e) => set(i, 'start_time', e.target.value)} />
+          <input type="time" disabled={!s.on} value={s.end_time} onChange={(e) => set(i, 'end_time', e.target.value)} />
+          <input type="time" disabled={!s.on} value={s.break_start} onChange={(e) => set(i, 'break_start', e.target.value)} />
+          <input type="time" disabled={!s.on} value={s.break_end} onChange={(e) => set(i, 'break_end', e.target.value)} />
+        </div>
+      ))}
+      <div className="row" style={{ marginTop: 14, alignItems: 'center', gap: 12 }}>
+        <button className="btn primary" onClick={salvarGrade} disabled={busy}>Salvar horário</button>
+        {msg && <span style={{ color: 'var(--ok)' }}>{msg}</span>}
+        {err && <span className="error" style={{ margin: 0 }}>{err}</span>}
+      </div>
+    </div>
+  );
+}
+
 export default function Agenda() {
+  const [cfg, setCfg] = useState(null);
+  const carregaCfg = () => api('/agenda/config').then(setCfg).catch(() => setCfg(null));
+  useEffect(() => { carregaCfg(); }, []);
   const [date, setDate] = useState(todayStr());
   const [professionals, setProfessionals] = useState([]);
   const [appts, setAppts] = useState([]);
@@ -34,15 +87,17 @@ export default function Agenda() {
   return (
     <>
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: 16 }}>
-        <div><h1><Nome id="agenda">Agenda</Nome></h1><p className="muted">Uma agenda individual por profissional</p></div>
-        <div className="row">
+        <div><h1><Nome id="agenda">Agenda</Nome></h1><p className="muted">{cfg?.solo ? 'A agenda da empresa' : 'Uma agenda individual por profissional'}</p></div>
+        {!(cfg?.solo && !cfg.scheduling_enabled) && <div className="row">
           <button className="btn" onClick={() => setDate(shift(date, -1))}>←</button>
           <input type="date" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} style={{ width: 'auto' }} />
           <button className="btn" onClick={() => setDate(shift(date, 1))}>→</button>
           <button className="btn" onClick={() => setDate(todayStr())}>Hoje</button>
           <button className="btn primary" onClick={() => setModal({ professional_id: professionals[0]?.id })}>+ Agendar</button>
-        </div>
+        </div>}
       </div>
+      {cfg?.solo && <HorarioEmpresa key={String(cfg.scheduling_enabled) + JSON.stringify(cfg.schedules)} cfg={cfg} onChange={carregaCfg} />}
+      {cfg?.solo && !cfg.scheduling_enabled ? null : <>
       {aviso && <p className="muted" style={{ marginBottom: 8 }}>{aviso}</p>}
       {appts.length > 0 && (
         <label className="row" style={{ gap: 8, marginBottom: 8 }}>
@@ -87,6 +142,7 @@ export default function Agenda() {
         })}
       </div>
       {modal && <NewAppointment init={modal} date={date} professionals={professionals} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
+      </>}
     </>
   );
 }

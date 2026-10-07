@@ -307,9 +307,9 @@ export default function Admin() {
             <label>Começar do modelo</label>
             <select value={form.template_id} onChange={(e) => escolherModelo(e.target.value)}>
               <option value="">Em branco (sem modelo)</option>
-              {modelos.map((m) => <option key={m.id} value={m.id}>{m.name} — {m.categorias} categoria(s), {m.servicos} serviço(s)</option>)}
+              {modelos.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
             </select>
-            {form.template_id && <span className="muted">Traz módulos, categorias, serviços, configurações e o manual do atendente. Não traz clientes, agenda nem profissionais.</span>}
+            {form.template_id && <span className="muted">Traz módulos, configurações e o manual do atendente. Não traz serviços, categorias, clientes, agenda nem profissionais.</span>}
           </div>
           <div className="field"><label>Nome da empresa</label><input value={form.name} onChange={setF('name')} required /></div>
           <div className="field"><label>Nome do responsável</label><input value={form.owner_name} onChange={setF('owner_name')} required /></div>
@@ -336,7 +336,7 @@ export default function Admin() {
       {salvarModelo && (
         <form className="card" ref={formModelo} style={{ marginBottom: 16 }} onSubmit={guardarModelo}>
           <h2 style={{ marginBottom: 6 }}>Salvar "{salvarModelo.empresa}" como modelo</h2>
-          <p className="muted" style={{ marginBottom: 10 }}>Guarda módulos, configurações, categorias, serviços e o manual do atendente publicado. Não guarda clientes, agenda, profissionais, atualizações provisórias, logotipo nem dados da empresa.</p>
+          <p className="muted" style={{ marginBottom: 10 }}>Guarda só a estrutura: módulos, configurações e o manual do atendente publicado. Não guarda serviços, categorias, clientes, agenda, profissionais, atualizações provisórias, logotipo nem dados da empresa.</p>
           <div className="field"><label>Nome do modelo</label><input value={salvarModelo.name} onChange={(e) => setSalvarModelo({ ...salvarModelo, name: e.target.value })} required /></div>
           <div className="field"><label>Descrição (opcional)</label><input value={salvarModelo.description} onChange={(e) => setSalvarModelo({ ...salvarModelo, description: e.target.value })} /></div>
           {onde === 'form-modelo' && err && <div className="error" style={{ marginBottom: 8 }}>{err}</div>}
@@ -656,7 +656,7 @@ export default function Admin() {
                 <tr key={m.id}>
                   <td>{m.name}</td>
                   <td>{m.description || <span className="muted">—</span>}</td>
-                  <td className="muted">{m.categorias} categoria(s) · {m.servicos} serviço(s){m.tem_manual ? ' · manual do atendente' : ''}</td>
+                  <td className="muted">{m.tem_manual ? 'manual do atendente' : 'só a estrutura'}</td>
                   <td style={{ textAlign: 'right' }}><button className="btn sm" onClick={() => apagarModelo(m)}>Apagar</button></td>
                 </tr>
               ))}

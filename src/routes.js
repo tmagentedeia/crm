@@ -110,9 +110,23 @@ const normName = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f
 async function professionalLimitReached(excludeId = null) {
   const lim = (await qg('SELECT max_professionals FROM companies WHERE id=$1', [currentCompany()])).rows[0]?.max_professionals;
   if (lim === null || lim === undefined) return null;
-  const ativos = (await q('SELECT COUNT(*)::int AS n FROM professionals WHERE active AND id IS DISTINCT FROM $1', [excludeId])).rows[0].n;
+  const ativos = (await q('SELECT COUNT(*)::int AS n FROM professionals WHERE active AND NOT is_default AND id IS DISTINCT FROM $1', [excludeId])).rows[0].n;
   return ativos >= lim ? lim : null;
 }
+
+// Agenda única: empresa sem nenhum profissional ativo atende por uma agenda com o nome da empresa (faz todos os serviços,
+// não precisa de categoria). Criada na primeira vez que a agenda é usada; quando entra o primeiro profissional de verdade, ela sai.
+async function garantirAgendaUnica() {
+  const { rows: [st] } = await q(`SELECT count(*) FILTER (WHERE active AND NOT is_default)::int AS reais,
+                                  (SELECT id FROM professionals WHERE is_default LIMIT 1) AS padrao FROM professionals`);
+  if (st.reais > 0) { await q('UPDATE professionals SET active=false WHERE is_default AND active'); return; }
+  if (st.padrao) { await q('UPDATE professionals SET active=true WHERE id=$1 AND NOT active', [st.padrao]); return; }
+  const nome = (await qg('SELECT name FROM companies WHERE id=$1', [currentCompany()])).rows[0]?.name || 'Agenda';
+  const { rows: [b] } = await q("INSERT INTO professionals (name,is_default) VALUES ($1,true) RETURNING id", [nome]);
+  for (let d = 1; d <= 6; d++)
+    await q("INSERT INTO professional_schedules (professional_id,weekday,start_time,end_time) VALUES ($1,$2,'09:00','18:00')", [b.id, d]);
+}
+const ROTAS_AGENDA = /^\/(agenda|professionals|availability|appointments|waitlist)(\/|$)/;
 
 // Serviços de cada profissional (tabela professional_services). Sem nenhuma linha = faz todos os serviços.
 async function setProfessionalServices(professionalId, ids) {
@@ -126,12 +140,13 @@ async function setProfessionalServices(professionalId, ids) {
 // (serviço sem categoria = qualquer um) e (b) se ele tiver
 // serviços específicos marcados, o serviço está entre eles.
 const PROFESSIONAL_DOES = `(
+  EXISTS (SELECT 1 FROM professionals pd WHERE pd.id=%B% AND pd.is_default) OR (
   (EXISTS (SELECT 1 FROM services sx JOIN professional_categories bc ON bc.category_id=sx.category_id
               WHERE sx.id=%S% AND bc.professional_id=%B%)
    OR EXISTS (SELECT 1 FROM services sy WHERE sy.id=%S% AND sy.category_id IS NULL))
   AND (NOT EXISTS (SELECT 1 FROM professional_services bs WHERE bs.professional_id=%B%)
        OR EXISTS (SELECT 1 FROM professional_services bs WHERE bs.professional_id=%B% AND bs.service_id=%S%))
-)`;
+))`;
 const doesSql = (b, sv) => PROFESSIONAL_DOES.replaceAll('%B%', b).replaceAll('%S%', sv);
 
 async function setProfessionalCategories(professionalId, ids) {
@@ -150,6 +165,20 @@ async function validCategoryIds(ids) {
 // Router compartilhado: usado pelo painel (JWT) e pelo N8N (API key). Cada requisição roda no schema da empresa (ver db.js).
 export function buildRouter() {
   const r = Router();
+  // quem usa a agenda (painel ou agente) sempre encontra ao menos uma: a da própria empresa
+  // empresa que não usa agendamentos: o painel mostra só o horário de atendimento e o agente não marca nada
+  r.use((req, res, next) => {
+    const marca = (req.method === 'POST' && req.path === '/appointments') || (req.method === 'GET' && /^\/availability/.test(req.path));
+    if (!marca) return next();
+    qg('SELECT scheduling_enabled FROM companies WHERE id=$1', [currentCompany()]).then(({ rows }) => {
+      if (rows[0]?.scheduling_enabled === false) return res.status(409).json({ error: 'Esta empresa não faz agendamentos', agendamentos_desativados: true });
+      next();
+    }, (e) => { console.error(e); res.status(500).json({ error: 'Erro interno' }); });
+  });
+  r.use((req, res, next) => {
+    if (!(ROTAS_AGENDA.test(req.path) && (req.method === 'GET' || (req.method === 'POST' && req.path === '/appointments')))) return next();
+    garantirAgendaUnica().then(() => next(), (e) => { console.error(e); res.status(500).json({ error: 'Erro interno' }); });
+  });
 
   // ---------- ATENDENTE: MANUAL E ATUALIZAÇÕES PROVISÓRIAS ----------
   const MANUAL_MAX = 50000, UPDATE_MAX = 1000, UPDATES_MAX = 10;
@@ -451,6 +480,30 @@ export function buildRouter() {
     res.json(out);
   }));
 
+  // ---------- AGENDA DA EMPRESA (sem profissionais) ----------
+  // Horário de atendimento da empresa e liga/desliga dos agendamentos. Só vale enquanto a empresa não tem profissional cadastrado.
+  r.get('/agenda/config', wrap(async (req, res) => {
+    const on = (await qg('SELECT scheduling_enabled FROM companies WHERE id=$1', [currentCompany()])).rows[0]?.scheduling_enabled !== false;
+    const ag = (await q(`SELECT b.id, COALESCE(json_agg(json_build_object('weekday',s.weekday,'start_time',s.start_time,'end_time',s.end_time,
+        'break_start',s.break_start,'break_end',s.break_end) ORDER BY s.weekday) FILTER (WHERE s.id IS NOT NULL), '[]') AS schedules
+      FROM professionals b LEFT JOIN professional_schedules s ON s.professional_id=b.id WHERE b.is_default AND b.active GROUP BY b.id`)).rows[0];
+    res.json({ scheduling_enabled: on, solo: !!ag, professional_id: ag?.id ?? null, schedules: ag?.schedules ?? [] });
+  }));
+  r.put('/agenda/config', wrap(async (req, res) => {
+    const { scheduling_enabled, schedules } = req.body;
+    if (typeof scheduling_enabled === 'boolean')
+      await qg('UPDATE companies SET scheduling_enabled=$2 WHERE id=$1', [currentCompany(), scheduling_enabled]);
+    if (Array.isArray(schedules)) {
+      const ag = (await q('SELECT id FROM professionals WHERE is_default AND active')).rows[0];
+      if (!ag) return res.status(400).json({ error: 'A empresa tem profissionais cadastrados: o horário de cada um fica no cadastro dele' });
+      await q('DELETE FROM professional_schedules WHERE professional_id=$1', [ag.id]);
+      for (const s of schedules)
+        await q(`INSERT INTO professional_schedules (professional_id,weekday,start_time,end_time,break_start,break_end) VALUES ($1,$2,$3,$4,$5,$6)`,
+          [ag.id, s.weekday, s.start_time, s.end_time, s.break_start || null, s.break_end || null]);
+    }
+    res.json({ ok: true });
+  }));
+
   // ---------- BARBEIROS ----------
   r.get('/professionals', wrap(async (req, res) => {
     const { rows } = await q(
@@ -463,6 +516,7 @@ export function buildRouter() {
           COALESCE((SELECT json_agg(sv.id ORDER BY sv.id) FROM services sv
                     WHERE sv.active AND sv.kind='service' AND ${doesSql('b.id', 'sv.id')}), '[]') AS does_service_ids
        FROM professionals b LEFT JOIN professional_schedules s ON s.professional_id=b.id
+       WHERE b.active OR NOT b.is_default
        GROUP BY b.id ORDER BY b.name`);
     res.json(rows);
   }));
@@ -854,7 +908,13 @@ export function buildRouter() {
     res.json(rows);
   }));
   r.post('/appointments', wrap(async (req, res) => {
-    const { professional_id, customer_id, service_id, starts_at, source = 'manual' } = req.body;
+    const { customer_id, service_id, starts_at, source = 'manual' } = req.body;
+    let { professional_id } = req.body;
+    // sem profissional informado: se a empresa tem só uma agenda, é ela
+    if (!professional_id) {
+      const uni = (await q('SELECT id FROM professionals WHERE active')).rows;
+      if (uni.length === 1) professional_id = uni[0].id;
+    }
     const sv = await q("SELECT price,duration_min FROM services WHERE id=$1 AND active AND kind='service'",
       [service_id]);
     if (!sv.rows[0]) return res.status(400).json({ error: 'Serviço inválido' });
