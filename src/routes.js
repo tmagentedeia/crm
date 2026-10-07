@@ -122,7 +122,8 @@ async function garantirAgendaUnica() {
   if (st.reais > 0) { await q('UPDATE professionals SET active=false WHERE is_default AND active'); return; }
   if (st.padrao) { await q('UPDATE professionals SET active=true WHERE id=$1 AND NOT active', [st.padrao]); return; }
   const nome = (await qg('SELECT name FROM companies WHERE id=$1', [currentCompany()])).rows[0]?.name || 'Agenda';
-  const { rows: [b] } = await q("INSERT INTO professionals (name,is_default) VALUES ($1,true) RETURNING id", [nome]);
+  const { rows: [b] } = await q("INSERT INTO professionals (name,is_default) VALUES ($1,true) ON CONFLICT DO NOTHING RETURNING id", [nome]);
+  if (!b) return; // outra tela criou na mesma hora
   for (let d = 1; d <= 6; d++)
     await q("INSERT INTO professional_schedules (professional_id,weekday,start_time,end_time) VALUES ($1,$2,'09:00','18:00')", [b.id, d]);
 }

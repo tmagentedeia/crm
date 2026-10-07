@@ -15,6 +15,9 @@ check('empresa nova criada', reg.status === 201, JSON.stringify(reg.body));
 const T = reg.body.token;
 const get = (p) => call('GET', '/api/' + p, { token: T });
 
+const reg2 = await call('POST', '/api/auth/register', { body: { company_name: 'Clínica Dupla', name: 'Dona', email: `dupla${Date.now()}@x.com`, password: 'senhasenha1' } });
+const par = await Promise.all([1, 2, 3, 4].map(() => call('GET', '/api/professionals', { token: reg2.body.token })));
+check('telas abrindo ao mesmo tempo não duplicam a agenda', par.every((x) => x.status === 200) && (await call('GET', '/api/professionals', { token: reg2.body.token })).body.length === 1);
 let pr = await get('professionals');
 check('sem profissional: aparece a agenda da empresa', pr.body.length === 1 && pr.body[0].name === 'Clínica Solo', JSON.stringify(pr.body));
 check('não exige categoria', (pr.body[0].category_ids || []).length === 0);

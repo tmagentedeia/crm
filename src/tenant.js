@@ -22,6 +22,18 @@ import { CONTRATACOES_SQL } from './contratacoes.js';
 import { FINANCEIRO_SQL, FINANCEIRO_ORIGEM_SQL, FINANCEIRO_DEDUP_SQL } from './financeiro.js';
 
 const AGENDA_UNICA_SQL = 'ALTER TABLE professionals ADD COLUMN IF NOT EXISTS is_default BOOLEAN NOT NULL DEFAULT false';
+// Duas telas abriam ao mesmo tempo e cada uma criava a agenda da empresa: junta as repetidas e passa a permitir só uma.
+const AGENDA_UNICA_UMA_SQL = `
+DO $$ DECLARE k BIGINT; BEGIN
+  SELECT min(id) INTO k FROM professionals WHERE is_default;
+  IF k IS NOT NULL THEN
+    UPDATE appointments SET professional_id=k WHERE professional_id IN (SELECT id FROM professionals WHERE is_default AND id<>k);
+    UPDATE blocked_slots SET professional_id=k WHERE professional_id IN (SELECT id FROM professionals WHERE is_default AND id<>k);
+    UPDATE waitlist SET professional_id=k WHERE professional_id IN (SELECT id FROM professionals WHERE is_default AND id<>k);
+    DELETE FROM professionals WHERE is_default AND id<>k;
+  END IF;
+END $$;
+CREATE UNIQUE INDEX IF NOT EXISTS professionals_uma_agenda_unica ON professionals (is_default) WHERE is_default;`;
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const baseline = fs.readFileSync(path.join(dir, '..', 'db', 'tenant.sql'), 'utf8');
 
@@ -217,6 +229,8 @@ export const TENANT_STEPS = [
   { version: 53, sql: GRUPOS_CAMPANHA_SQL },
   // 54: agenda única da empresa (sem profissionais cadastrados, a agenda responde pelo nome da empresa)
   { version: 54, sql: AGENDA_UNICA_SQL },
+  // 55: só uma agenda da empresa (corrige duplicada)
+  { version: 55, sql: AGENDA_UNICA_UMA_SQL },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 
@@ -270,6 +284,7 @@ export async function createCompanySchema(cx, companyId) {
   await cx.query(CAMPOS_EXTRA_SQL);
   await cx.query(GRUPOS_CAMPANHA_SQL);
   await cx.query(AGENDA_UNICA_SQL);
+  await cx.query(AGENDA_UNICA_UMA_SQL);
   await cx.query('SET LOCAL search_path TO public');
   await cx.query('INSERT INTO tenant_versions (company_id, version) VALUES ($1, 1)', [companyId]);
 }
