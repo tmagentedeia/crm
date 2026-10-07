@@ -67,7 +67,7 @@ function MeuSaldo({ titulo }) {
     <>
       <div style={{ marginBottom: 12 }}>
         <h1>{titulo}</h1>
-        <p className="muted">Indicou um cliente que fechou contrato? Cada indicação vale {v.rules.pct_each}% de desconto na mensalidade, até {v.rules.max_per_month} por mês. O que passar disso fica acumulado e vale nos meses seguintes.</p>
+        <p className="muted">Indicou um cliente que fechou contrato? Cada indicação vale {v.rules.pct_each}% de desconto na mensalidade, até {v.rules.max_per_month} por mês. O que passar disso fica acumulado e vale nos meses seguintes. Quem você indicar e contratar usando o seu código também ganha 10% na primeira mensalidade.</p>
       </div>
       <Indicar />
       {v.company.billing_exempt ? (
@@ -137,7 +137,7 @@ function Indicar() {
     <div className="card" style={{ marginBottom: 12 }}>
       <h3>Indicar alguém</h3>
       <p>Seu código: <strong>{info.codigo}</strong></p>
-      <p className="muted">Escolha um contato seu e o WhatsApp abre com a mensagem pronta. A pessoa precisa informar o seu código ao contratar para ter o desconto; assim, o desconto da sua indicação é lançado para você.</p>
+      <p className="muted">Escolha um contato seu e o WhatsApp abre com a mensagem pronta. A pessoa precisa informar o seu código ao contratar para ter o desconto. Para ela e para você: ela ganha 10% na primeira mensalidade e o desconto da sua indicação é lançado para você.</p>
       <div className="field"><label>Procurar entre seus clientes</label><input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Nome ou telefone" /></div>
       {achados.length > 0 && (
         <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
