@@ -1159,7 +1159,7 @@ export function buildRouter() {
       q(`SELECT status, COUNT(*)::int AS total FROM customers GROUP BY status`),
     ]);
     // Resumos dos outros módulos: pedidos de música, valores recebidos e vendas de ingresso (o painel mostra os que a empresa usa)
-    const cfgConversas = (await qg('SELECT chat_table, whatsapp_instance FROM companies WHERE id=$1', [currentCompany()])).rows[0] || {};
+    const cfgConversas = (await qg('SELECT chat_table, whatsapp_instance, conv_db_url FROM companies WHERE id=$1', [currentCompany()])).rows[0] || {};
     const [ped, musicas, rec, ing, conv] = await Promise.all([
       q(`SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE served_at IS NOT NULL)::int AS atendidos
          FROM song_orders WHERE created_at >= now() - make_interval(days => $1)`, [days]),

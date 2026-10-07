@@ -1,8 +1,9 @@
 // Campanhas: envio em lote com ritmo controlado. Todas as regras de segurança valem aqui no servidor,
 // independentemente do que a tela mostrar.
 import { conexaoWhats } from './lista_evento.js';
-import { msgPool } from './indicacoes.js';
-import { nomeTabelaValido } from './conversas.js';
+import { poolDaEmpresa, nomeTabelaValido } from './conversas.js';
+import { decifrar } from './segredo.js';
+import { testarRedis } from './blocks.js';
 import { q, qg, tx, currentCompany } from './db.js';
 import { normPhone } from './phone.js';
 
@@ -244,9 +245,9 @@ async function enviarDireto(companyId, con, job) {
 // Entra como mensagem DO AGENTE (ele é quem escreveu); o motivo de qualquer falha fica no registro do servidor.
 export async function gravarNaConversa(companyId, job, resp) {
   try {
-    const c = (await qg('SELECT chat_table, whatsapp_instance FROM companies WHERE id=$1', [companyId])).rows[0];
-    const pool = msgPool();
-    const falta = !pool ? 'sem ligação com o histórico do atendimento (N8N_DATABASE_URL)' : !c?.chat_table ? 'empresa sem tabela de conversas' : !nomeTabelaValido(c.chat_table) ? 'nome de tabela inválido' : !c.whatsapp_instance ? 'empresa sem instância do WhatsApp' : '';
+    const c = (await qg('SELECT chat_table, whatsapp_instance, conv_db_url FROM companies WHERE id=$1', [companyId])).rows[0];
+    const pool = poolDaEmpresa(c);
+    const falta = !pool ? 'sem ligação com o histórico do atendimento (banco próprio da empresa ou N8N_DATABASE_URL do servidor)' : !c?.chat_table ? 'empresa sem tabela de conversas' : !nomeTabelaValido(c.chat_table) ? 'nome de tabela inválido' : !c.whatsapp_instance ? 'empresa sem instância do WhatsApp' : '';
     if (falta) { console.error(`campanhas: histórico NÃO gravado (empresa ${companyId}): ${falta}`); return false; }
     // O agente guarda a conversa sob o número que o WhatsApp mostra no recebimento (muitas vezes sem o "9" extra),
     // e nunca sob o identificador interno (@lid). Procuramos a conversa que já existe; se não houver, usamos o número do envio.
@@ -561,14 +562,15 @@ export function registerCampaignRoutes(r, wrap) {
 
 // Confere, sem deixar rastro, se o painel consegue gravar no histórico de conversas do agente desta empresa.
 // Devolve { ok, motivo }: o motivo é uma frase pronta para a Administração mostrar.
-export async function verificarHistorico(companyId) {
-  const c = (await qg('SELECT chat_table, whatsapp_instance FROM companies WHERE id=$1', [companyId])).rows[0];
+async function verificarConversas(companyId) {
+  const c = (await qg('SELECT chat_table, whatsapp_instance, conv_db_url, redis_url FROM companies WHERE id=$1', [companyId])).rows[0];
   if (!c) return { ok: false, motivo: 'Empresa não encontrada.' };
-  if (!process.env.N8N_DATABASE_URL) return { ok: false, motivo: 'O servidor do painel está sem a ligação com o banco de conversas do agente (variável N8N_DATABASE_URL). Cadastre no servidor e faça um novo deploy.' };
+  const pool = poolDaEmpresa(c);
+  if (!pool) return { ok: false, motivo: c.conv_db_url ? 'Não consegui abrir o endereço guardado do banco de conversas desta empresa. Cadastre o endereço de novo.' : 'Falta a ligação com o banco de conversas do agente: cadastre o endereço do banco desta empresa, ou a variável N8N_DATABASE_URL no servidor.' };
   if (!c.whatsapp_instance) return { ok: false, motivo: 'Falta o nome da instância do WhatsApp desta empresa (campo "instância do WhatsApp").' };
   if (!c.chat_table) return { ok: false, motivo: 'Falta a tabela das conversas do agente desta empresa (campo "Conversas do agente").' };
   if (!nomeTabelaValido(c.chat_table)) return { ok: false, motivo: 'O nome da tabela das conversas é inválido.' };
-  const client = await msgPool().connect().catch((e) => { throw Object.assign(new Error('Não consegui conectar ao banco de conversas do agente: ' + e.message), { aviso: true }); });
+  const client = await pool.connect().catch((e) => { throw Object.assign(new Error('Não consegui conectar ao banco de conversas do agente: ' + e.message), { aviso: true }); });
   try {
     await client.query('BEGIN');
     await client.query(`INSERT INTO "${c.chat_table}" (session_id, message) VALUES ($1, $2::jsonb)`, ['teste-painel ' + c.whatsapp_instance + ' chats', JSON.stringify({ type: 'ai', content: 'teste', additional_kwargs: {}, response_metadata: {} })]);
@@ -578,4 +580,19 @@ export async function verificarHistorico(companyId) {
     await client.query('ROLLBACK').catch(() => {});
     return { ok: false, motivo: `Não consegui gravar na tabela ${c.chat_table}: ${e.message}` };
   } finally { client.release(); }
+}
+
+// "Testar ligação": confere o banco das conversas e, em seguida, o Redis dos bloqueios (o da empresa, se tiver; senão o do servidor).
+export async function verificarHistorico(companyId) {
+  const conv = await verificarConversas(companyId);
+  const c = (await qg('SELECT redis_url FROM companies WHERE id=$1', [companyId])).rows[0] || {};
+  let red;
+  if (c.redis_url && !decifrar(c.redis_url)) red = { ok: false, motivo: 'Não consegui abrir o endereço guardado do Redis desta empresa. Cadastre o endereço de novo.' };
+  else {
+    const r = await testarRedis({ redisUrl: decifrar(c.redis_url) });
+    red = r.motivo === 'sem_redis' ? { ok: true, motivo: 'Bloqueios: sem Redis cadastrado (a lista de atendimentos bloqueados fica desligada).' }
+      : r.ok ? { ok: true, motivo: 'Bloqueios: o painel alcança o Redis.' }
+        : { ok: false, motivo: 'Bloqueios: não consegui falar com o Redis: ' + r.motivo };
+  }
+  return { ok: conv.ok && red.ok, motivo: conv.motivo + ' ' + red.motivo };
 }

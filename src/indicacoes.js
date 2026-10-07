@@ -71,10 +71,17 @@ export function agendaDescontos(referrals, dueDay) {
 }
 
 // ---------- ligação com a tabela de mensagens agendadas ----------
-let poolMsg = null;
-export const msgPool = () => {
-  if (!process.env.N8N_DATABASE_URL) return null;
-  return (poolMsg ||= new pg.Pool({ connectionString: process.env.N8N_DATABASE_URL, max: 2 }));
+// Um pool por endereço: o do servidor (N8N_DATABASE_URL) ou, quando informado, o banco próprio de uma empresa.
+const poolsMsg = new Map();
+export const msgPool = (url) => {
+  const u = url || process.env.N8N_DATABASE_URL;
+  if (!u) return null;
+  if (!poolsMsg.has(u)) {
+    const p = new pg.Pool({ connectionString: u, max: 2 });
+    p.on('error', (e) => console.error('banco de conversas:', e.message));
+    poolsMsg.set(u, p);
+  }
+  return poolsMsg.get(u);
 };
 export const lembretesLigados = () => !!process.env.N8N_DATABASE_URL;
 

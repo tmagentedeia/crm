@@ -64,6 +64,14 @@ export default function Admin() {
       const { [s.id]: _, ...resto } = cx; setCx(resto); setMsg('Bloqueios de ' + s.name + ' atualizados.'); load();
     } catch (e) { setErr(e.message); }
   };
+  const [lg, setLg] = useState({}); // ligações próprias em edição, por empresa: { id: { r: endereço do Redis, b: endereço do banco das conversas } }
+  const salvarLg = async (s, corpo, aviso) => {
+    setErr(''); setMsg('');
+    try {
+      await api(`/admin/companies/${s.id}/connections`, { method: 'PUT', body: corpo });
+      const { [s.id]: _, ...resto } = lg; setLg(resto); setMsg(aviso); load();
+    } catch (e) { setErr(e.message); }
+  };
   const [up, setUp] = useState({ phone: '', text: '' }); // contato e texto do aviso de upgrade
   const [opAgenda, setOpAgenda] = useState(null); // id da empresa cujas opções da Agenda estão abertas
   const [opcoes, setOpcoes] = useState(null); // id da empresa cujas opções do Atendente estão abertas
@@ -489,7 +497,16 @@ export default function Admin() {
                   <input placeholder="ex.: chat_vendas" style={{ width: 170 }} value={ct[s.id] ?? s.chat_table ?? ''}
                     onChange={(e) => setCt({ ...ct, [s.id]: e.target.value })} />
                   {s.id in ct && <button className="btn sm primary" onClick={() => salvarCt(s)}>Salvar</button>}
-                  <button className="btn sm" disabled={s.id in ct || s.id in cx} onClick={() => testarConversas(s)}>Testar ligação</button>
+                  <button className="btn sm" disabled={s.id in ct || s.id in cx || s.id in lg} onClick={() => testarConversas(s)}>Testar ligação</button>
+                </Campo>
+                <Campo rotulo="Ligações próprias da empresa (endereço completo, com senha; vazio usa o do servidor)">
+                  <input type="password" autoComplete="new-password" placeholder={s.redis_set ? `Redis: ${s.redis_host || 'guardado'} (em branco mantém)` : 'Redis: redis://…'} style={{ width: 250 }} value={lg[s.id]?.r ?? ''}
+                    onChange={(e) => setLg({ ...lg, [s.id]: { r: e.target.value, b: lg[s.id]?.b ?? '' } })} />
+                  {s.redis_set && <button className="btn sm" title="Volta a usar o do servidor" onClick={() => window.confirm('Voltar o Redis de ' + s.name + ' ao padrão do servidor?') && salvarLg(s, { redis_url: 'clear' }, 'Redis de ' + s.name + ' voltou ao padrão do servidor.')}>Usar o do servidor</button>}
+                  <input type="password" autoComplete="new-password" placeholder={s.conv_db_set ? `Conversas: ${s.conv_db_host || 'guardado'} (em branco mantém)` : 'Conversas: postgres://…'} style={{ width: 250, marginLeft: 12 }} value={lg[s.id]?.b ?? ''}
+                    onChange={(e) => setLg({ ...lg, [s.id]: { r: lg[s.id]?.r ?? '', b: e.target.value } })} />
+                  {s.conv_db_set && <button className="btn sm" title="Volta a usar o do servidor" onClick={() => window.confirm('Voltar o banco das conversas de ' + s.name + ' ao padrão do servidor?') && salvarLg(s, { conv_db_url: 'clear' }, 'Banco das conversas de ' + s.name + ' voltou ao padrão do servidor.')}>Usar o do servidor</button>}
+                  {s.id in lg && (lg[s.id].r || lg[s.id].b) && <button className="btn sm primary" onClick={() => salvarLg(s, { redis_url: lg[s.id].r, conv_db_url: lg[s.id].b }, 'Ligações de ' + s.name + ' atualizadas. Use "Testar ligação" para conferir.')}>Salvar</button>}
                 </Campo>
                 <Campo rotulo="Planilha de contatos: cópia (endereço do fluxo) e importação (link; a planilha precisa estar com “qualquer pessoa com o link pode ver”)">
                   <input placeholder="https://…/webhook/contatos-planilha" style={{ width: 300 }} value={esp[s.id] ?? s.contact_mirror_url ?? ''}

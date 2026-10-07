@@ -1,5 +1,5 @@
 // Contatos bloqueados: o painel enxerga e altera os mesmos bloqueios que o atendente usa.
-// Cada bloqueio é uma chave no Redis da plataforma (REDIS_URL), no formato
+// Cada bloqueio é uma chave no Redis da empresa (o dela, se cadastrado; senão o da plataforma, REDIS_URL), no formato
 //   <prefixo da empresa>ia_forced:<instância>:<número>    bloqueio geral (comando "off", loop, bloqueio manual)
 //   <prefixo da empresa>ia_blocked:<instância>:<número>   pausa (o responsável assumiu a conversa)
 // A validade da chave diz se é temporário ou para sempre. A empresa só enxerga chaves do próprio prefixo + instância.
@@ -10,17 +10,31 @@ export const PERMANENTE_ACIMA_DE = 30 * DIA;   // validade maior que 30 dias = p
 export const TEMPORARIO = DIA;                 // bloqueio manual "por 24 horas"
 export const PARA_SEMPRE = 315360000;          // 10 anos, igual ao comando "off" do atendente
 
-let client = null;
-export const redisDisponivel = () => !!process.env.REDIS_URL;
-function redis() {
-  if (!process.env.REDIS_URL) return null;
-  if (!client) {
-    client = new Redis(process.env.REDIS_URL, { maxRetriesPerRequest: 2, connectTimeout: 5000, commandTimeout: 5000 });
-    client.on('error', (e) => console.error('Redis:', e.message));
+// Um cliente de Redis por endereço: o do servidor (REDIS_URL) e, se a empresa tiver o dela, o endereço próprio (cfg.redisUrl).
+const clientes = new Map();
+const enderecoDe = (cfg) => (cfg && cfg.redisUrl) || process.env.REDIS_URL || '';
+export const redisDisponivel = (cfg) => !!enderecoDe(cfg);
+function redis(cfg) {
+  const url = enderecoDe(cfg);
+  if (!url) return null;
+  if (!clientes.has(url)) {
+    const c = new Redis(url, { maxRetriesPerRequest: 2, connectTimeout: 5000, commandTimeout: 5000 });
+    c.on('error', (e) => console.error('Redis:', e.message));
+    clientes.set(url, c);
   }
-  return client;
+  return clientes.get(url);
 }
-export async function fechaRedis() { if (client) { await client.quit().catch(() => {}); client = null; } }
+export async function fechaRedis() { for (const c of clientes.values()) await c.quit().catch(() => {}); clientes.clear(); }
+// Confere a ligação (usado pelo "Testar ligação"): responde { ok, motivo }
+export async function testarRedis(cfg) {
+  const url = enderecoDe(cfg);
+  if (!url) return { ok: false, motivo: 'sem_redis' };
+  const c = new Redis(url, { maxRetriesPerRequest: 1, connectTimeout: 5000, commandTimeout: 5000, lazyConnect: true, retryStrategy: () => null });
+  c.on('error', () => {});
+  try { await c.connect(); await c.ping(); return { ok: true }; }
+  catch (e) { return { ok: false, motivo: e.message }; }
+  finally { c.disconnect(); }
+}
 
 // instância e prefixo só aceitam caracteres comuns: nada de curingas nem espaços
 export const nomeValido = (s) => typeof s === 'string' && /^[A-Za-z0-9_.:-]{1,60}$/.test(s);
@@ -41,7 +55,7 @@ const chave = (cfg, tipo, id) => `${comPrefixo(cfg)}ia_${tipo}:${cfg.instancia}:
 
 // Lê as chaves da empresa e junta pelo contato.
 export async function listar(cfg) {
-  const r = redis();
+  const r = redis(cfg);
   if (!r) throw Object.assign(new Error('indisponivel'), { code: 'SEM_REDIS' });
   const out = new Map();
   for (const tipo of ['forced', 'blocked']) {
@@ -80,14 +94,14 @@ export async function listar(cfg) {
 }
 
 export async function bloquear(cfg, id, duracao) {
-  const r = redis();
+  const r = redis(cfg);
   if (!r) throw Object.assign(new Error('indisponivel'), { code: 'SEM_REDIS' });
   await r.set(chave(cfg, 'forced', id), '1', 'EX', duracao === 'sempre' ? PARA_SEMPRE : TEMPORARIO);
 }
 
 // Libera de verdade: apaga o bloqueio geral e a pausa do contato.
 export async function liberar(cfg, id) {
-  const r = redis();
+  const r = redis(cfg);
   if (!r) throw Object.assign(new Error('indisponivel'), { code: 'SEM_REDIS' });
   return r.del(chave(cfg, 'forced', id), chave(cfg, 'blocked', id));
 }

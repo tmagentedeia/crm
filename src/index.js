@@ -12,6 +12,7 @@ import { newApiKey } from './apikeys.js';
 import { cleanModules, cleanMenuCustom, cleanModuleLabels } from './modules.js';
 import { aplicacaoDoPlano } from './plans.js';
 import { listar as listarBloqueios, bloquear, liberar, numeroDoContato, nomeValido, prefixoValido, redisDisponivel } from './blocks.js';
+import { cifrar, decifrar, servidorDe } from './segredo.js';
 import { requireUser, requireN8n, requireAdmin, isAdmin, signToken, signImpersonationToken } from './auth.js';
 import { buildRouter } from './routes.js';
 import { startCampaignScheduler, verificarHistorico } from './campaigns.js';
@@ -125,10 +126,12 @@ app.put('/api/company', requireUser, async (req, res) => {
 // ---------- Contatos bloqueados (painel <-> atendente) ----------
 // A empresa só enxerga e altera os bloqueios da própria instância (configurada pelo administrador).
 async function configBloqueios(req, res) {
-  const c = (await qg('SELECT whatsapp_instance, redis_prefix FROM companies WHERE id=$1', [req.user.companyId])).rows[0];
-  if (!redisDisponivel()) { res.status(503).json({ error: 'A lista de bloqueios ainda não está disponível. Fale com o suporte.' }); return null; }
+  const c = (await qg('SELECT whatsapp_instance, redis_prefix, redis_url FROM companies WHERE id=$1', [req.user.companyId])).rows[0];
+  // Redis próprio da empresa, se cadastrado; senão o do servidor. Se o endereço dela não abre, não cai no de outra empresa.
+  const redisUrl = c?.redis_url ? decifrar(c.redis_url) : null;
+  if ((c?.redis_url && !redisUrl) || !redisDisponivel({ redisUrl })) { res.status(503).json({ error: 'A lista de bloqueios ainda não está disponível. Fale com o suporte.' }); return null; }
   if (!c?.whatsapp_instance) { res.status(409).json({ error: 'A lista de bloqueios ainda não foi ligada ao atendimento desta empresa. Fale com o suporte.' }); return null; }
-  return { instancia: c.whatsapp_instance, prefixo: c.redis_prefix || '' };
+  return { instancia: c.whatsapp_instance, prefixo: c.redis_prefix || '', redisUrl };
 }
 const falhaBloqueios = (res, e) => {
   console.error(e);
@@ -184,6 +187,32 @@ app.put('/api/admin/companies/:id/chat-table', requireUser, requireAdmin, async 
   if (tabela && !nomeTabelaValido(tabela)) return res.status(400).json({ error: 'Nome da tabela inválido (use letras, números e _)' });
   const { rows } = await qg('UPDATE companies SET chat_table=NULLIF($2,\'\') WHERE id=$1 RETURNING id, chat_table', [id, tabela]);
   rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Empresa não encontrada' });
+});
+
+// Administração: ligações próprias da empresa — Redis dos bloqueios e banco das conversas do agente.
+// Endereço completo com senha (redis://… e postgres://…), guardado cifrado e nunca devolvido; vazio mantém, "clear" volta ao padrão do servidor.
+app.put('/api/admin/companies/:id/connections', requireUser, requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id <= 0) return res.status(404).json({ error: 'Empresa não encontrada' });
+  const regras = {
+    redis_url: { rotulo: 'Redis', ok: /^rediss?:\/\//i },
+    conv_db_url: { rotulo: 'Banco de conversas', ok: /^postgres(ql)?:\/\//i },
+  };
+  const sets = [], args = [id];
+  for (const [campo, r] of Object.entries(regras)) {
+    const v = req.body[campo];
+    if (v === undefined || v === null || String(v).trim() === '') continue;
+    const s = String(v).trim();
+    if (s === 'clear') { sets.push(`${campo}=NULL`); continue; }
+    let valido = s.length <= 500 && r.ok.test(s) && !/\s/.test(s);
+    if (campo === 'redis_url') { try { new URL(s); } catch { valido = false; } }
+    if (!valido) return res.status(400).json({ error: `Endereço do ${r.rotulo} inválido (cole o endereço completo, com a senha)` });
+    args.push(cifrar(s)); sets.push(`${campo}=$${args.length}`);
+  }
+  if (!sets.length) return res.status(400).json({ error: 'Nada para salvar' });
+  const { rows } = await qg(`UPDATE companies SET ${sets.join(', ')} WHERE id=$1 RETURNING id, redis_url, conv_db_url`, args);
+  if (!rows[0]) return res.status(404).json({ error: 'Empresa não encontrada' });
+  res.json({ id, redis_host: servidorDe(decifrar(rows[0].redis_url)), conv_db_host: servidorDe(decifrar(rows[0].conv_db_url)) });
 });
 
 // Administração: conexão do WhatsApp da empresa para avisos enviados pelo painel (endereço do serviço e chave; a chave nunca volta nas respostas)
@@ -262,11 +291,15 @@ app.get('/api/admin/diagnostico', requireUser, requireAdmin, async (req, res) =>
 
 app.get('/api/admin/companies', requireUser, requireAdmin, async (req, res) => {
   const { rows } = await qg(
-    `SELECT c.id, c.name, c.max_professionals, c.doc_slots, c.doc_extras, c.doc_nivel, c.billing_due_day, c.billing_exempt, (SELECT count(*) FROM partner_referrals pr WHERE pr.company_id=c.id)::int AS referrals_total, c.created_at, c.modules, c.locked_modules, c.module_labels, c.whatsapp_instance, c.chat_table, c.redis_prefix, c.contact_mirror_url, c.contact_mirror_on, c.contact_sheet_url, c.wa_api_url, (c.wa_api_token IS NOT NULL) AS wa_api_set, right(c.wa_api_token, 4) AS wa_api_fim, c.booking_mode, c.api_key_hint, c.api_key_created_at,
+    `SELECT c.id, c.name, c.max_professionals, c.doc_slots, c.doc_extras, c.doc_nivel, c.billing_due_day, c.billing_exempt, (SELECT count(*) FROM partner_referrals pr WHERE pr.company_id=c.id)::int AS referrals_total, c.created_at, c.modules, c.locked_modules, c.module_labels, c.whatsapp_instance, c.chat_table, c.redis_prefix, c.redis_url, c.conv_db_url, c.contact_mirror_url, c.contact_mirror_on, c.contact_sheet_url, c.wa_api_url, (c.wa_api_token IS NOT NULL) AS wa_api_set, right(c.wa_api_token, 4) AS wa_api_fim, c.booking_mode, c.api_key_hint, c.api_key_created_at,
             (SELECT u.email FROM users u WHERE u.company_id = c.id ORDER BY (u.role = 'owner') DESC, u.id LIMIT 1) AS owner_email
      FROM companies c ORDER BY c.id`);
   // profissionais ativos: contados dentro do schema de cada empresa
   for (const c of rows) {
+    // as ligações próprias nunca saem daqui: só o servidor e a porta, para conferir a quem a empresa está ligada
+    c.redis_host = servidorDe(decifrar(c.redis_url)); c.redis_set = !!c.redis_url;
+    c.conv_db_host = servidorDe(decifrar(c.conv_db_url)); c.conv_db_set = !!c.conv_db_url;
+    delete c.redis_url; delete c.conv_db_url;
     c.ativos = await runAs(c.id, async () => (await q('SELECT COUNT(*)::int AS n FROM professionals WHERE active')).rows[0].n);
   }
   res.json(rows);

@@ -8,6 +8,7 @@
 #  - senha.mjs: alterar senha na tela de login (dono ou equipe), sem estar logado
 #  - venda.mjs: venda com valor (pagamento aceito ou pedido pago) vira cliente
 #  - bloqueios.mjs: lista de atendimentos bloqueados (precisa do redis-server instalado)
+#  - conexoes.mjs: Redis e banco de conversas próprios de uma empresa (cifrados; vazio = padrão do servidor)
 #  - chave_global.mjs: chave global desligada com ALLOW_GLOBAL_KEY=false (segundo servidor, porta 3998)
 # Precisa de um Postgres de teste (PGBASE = conexão sem banco, ex.: postgres://postgres@/postgres?host=/var/tmp/pgtest&port=55432)
 set -e
@@ -136,6 +137,7 @@ BASE=http://localhost:3999 node test/acesso_admin.mjs || R=1
 BASE=http://localhost:3999 node test/sessao.mjs || R=1
 BASE=http://localhost:3999 node test/senha.mjs || R=1
 BASE=http://localhost:3999 node test/bloqueios.mjs || R=1
+BASE=http://localhost:3999 node test/conexoes.mjs || R=1
 BASE=http://localhost:3999 node test/confirmacao.mjs || R=1
 BASE=http://localhost:3999 node test/clube.mjs || R=1
 BASE=http://localhost:3999 node test/importar_clube.mjs || R=1
