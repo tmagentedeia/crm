@@ -49,6 +49,7 @@ try {
     await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS api_key_hint TEXT');
     await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS api_key_created_at TIMESTAMPTZ');
     await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS agent_guidelines TEXT');
+    await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS agent_tools JSONB NOT NULL DEFAULT \'[]\'::jsonb');
     await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS contact_mirror_url TEXT');
     await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS contact_mirror_on BOOLEAN NOT NULL DEFAULT false');
     await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS contact_sheet_url TEXT');

@@ -4,6 +4,7 @@ import { q, qg, tx, currentCompany } from './db.js';
 import { runImport } from './importer.js';
 import { baixarPlanilha, planilhaDaEmpresa } from './planilha_contatos.js';
 import { registerDiretrizesRoutes, textoDeDiretrizes } from './diretrizes.js';
+import { registerFerramentasRoutes, textoDeFerramentas } from './ferramentas.js';
 import { registerContatosRoutes, chavesDePerfil, definirAssunto, textoDeCadastroContato } from './contatos.js';
 import { registerCampaignRoutes } from './campaigns.js';
 import { registerLembretesRoutes } from './lembretes.js';
@@ -352,7 +353,8 @@ export function buildRouter() {
       const parcerias = ehAssistente ? '' : await textoDeParcerias();
       const cadastroContato = ehAssistente ? '' : await textoDeCadastroContato();
       const diretrizes = ehAssistente ? '' : await textoDeDiretrizes(req.user.companyId, { agente: agentName, adm: admName });
-      const corpo = [diretrizes, semLembrete, avisos, parcerias, cadastroContato, prompt].filter(Boolean);
+      const ferramentas = ehAssistente ? '' : await textoDeFerramentas(req.user.companyId, { agente: agentName, adm: admName });
+      const corpo = [diretrizes, semLembrete, avisos, parcerias, cadastroContato, prompt, ferramentas].filter(Boolean);
       prompt = (corpo.length ? [abertura, ...corpo] : []).filter(Boolean).join('\n\n');
       res.json({ enabled: true, prompt, client_reminders: lembreteCliente, agent_name: agentName || null, adm_name: admName || null, manual: man ? semSeparadores(man.content) : '', updates, published_at: man ? man.published_at : null });
     }));
@@ -1277,6 +1279,7 @@ export function buildRouter() {
     ...set.custom.map((x) => ({ kind: x.kind, norm: x.phrase_norm })),
   ];
   registerDiretrizesRoutes(r, wrap);
+  registerFerramentasRoutes(r, wrap);
   r.get('/agent-config', wrap(async (req, res) => {
     const set = await agentCommandSet();
     res.json({ agent_name: set.agent, adm_name: set.adm, attendants: set.attendants.map(({ id, name }) => ({ id, name })),

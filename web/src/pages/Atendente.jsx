@@ -545,6 +545,205 @@ function Diretrizes() {
   );
 }
 
+// Ferramentas: regras de uso de cada ferramenta do agente, só para o administrador, UMA LISTA POR EMPRESA. Vão no FIM do prompt.
+// Cada caixa só chega ao agente quando as condições dela estão cumpridas na empresa, ou quando é forçada "sempre" ou "nunca".
+function Ferramentas() {
+  const [d, setD] = useState(null);
+  const [caixas, setCaixas] = useState([]);
+  const [orig, setOrig] = useState('[]');
+  const [msg, setMsg] = useState('');
+  const [err, setErr] = useState('');
+  const [sel, setSel] = useState([]);
+  const [confirmando, setConfirmando] = useState(false);
+  const [modelos, setModelos] = useState([]);       // biblioteca de modelos (copiados para a empresa, sem vínculo depois)
+  const [selMod, setSelMod] = useState([]);
+  const [confMod, setConfMod] = useState(false);
+  const [msgMod, setMsgMod] = useState('');
+  const [msgCaixa, setMsgCaixa] = useState({});
+  const [visao, setVisao] = useState('caixas');   // 'caixas' ou 'texto' (um texto só, sem separação)
+  const [selSug, setSelSug] = useState([]);
+  const carregar = (x) => { setD(x); setCaixas(x.boxes); setOrig(JSON.stringify(x.boxes)); };
+  useEffect(() => {
+    api('/agent-tools').then(carregar).catch((e) => setErr(e.message));
+    api('/agent-tools/presets').then((x) => setModelos(x.presets)).catch(() => {});
+  }, []);
+  if (!d) return err ? <div className="error">{err}</div> : null;
+  const mudou = JSON.stringify(caixas) !== orig;
+  const total = caixas.reduce((n, c) => n + c.text.length, 0);
+  const altera = (id, campo, v) => { setCaixas((l) => l.map((c) => (c.id === id ? { ...c, [campo]: v } : c))); setMsg(''); };
+  const alternaCond = (c, k) => altera(c.id, 'conds', c.conds.includes(k) ? c.conds.filter((x) => x !== k) : [...c.conds, k]);
+  const nova = () => { setCaixas((l) => [...l, { id: novoId(), title: '', text: '', conds: [], mode: 'auto', ref: '' }]); setMsg(''); };
+  const sobe = (i, dir) => setCaixas((l) => { const a = [...l]; const j = i + dir; if (j < 0 || j >= a.length) return a; [a[i], a[j]] = [a[j], a[i]]; return a; });
+  const alternaSel = (id) => { setConfirmando(false); setSel((a) => (a.includes(id) ? a.filter((x) => x !== id) : [...a, id])); };
+  const alternaTodas = () => { setConfirmando(false); setSel(sel.length === caixas.length ? [] : caixas.map((c) => c.id)); };
+  const apagarSel = () => { setCaixas((l) => l.filter((c) => !sel.includes(c.id))); setSel([]); setConfirmando(false); setMsg(''); };
+  // texto completo: as caixas viram um texto só; "=====" separa caixas. Título, condições e modo ficam com a caixa da mesma posição.
+  const textoCompleto = caixas.map((c) => c.text).join('\n=====\n');
+  const mudaTextoCompleto = (v) => {
+    const partes = v.split(/^={5}[ \t]*\r?\n?/m);
+    const limpa = (t, i) => (i < partes.length - 1 ? t.replace(/\n$/, '') : t);   // o "\n" antes de cada "=====" é do separador
+    setCaixas((l) => partes.map((t, i) => (l[i] ? { ...l[i], text: limpa(t, i) } : { id: novoId(), title: '', text: limpa(t, i), conds: [], mode: 'auto', ref: '' })));
+    setMsg('');
+  };
+  const criarSugeridas = () => {
+    const novas = d.suggestions.filter((x) => selSug.includes(x.ref)).map((x) => ({ id: novoId(), title: x.title, text: '', conds: x.conds, mode: 'auto', ref: x.ref }));
+    setCaixas((l) => [...l, ...novas]); setSelSug([]);
+    setMsg(`${novas.length} ${novas.length === 1 ? 'caixa criada' : 'caixas criadas'}. Escreva o texto de cada uma e salve.`);
+  };
+  const novoId = () => 'f' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+  const gravaModelos = async (lista) => { const x = await api('/agent-tools/presets', { method: 'PUT', body: { presets: lista } }); setModelos(x.presets); };
+  const salvarComoModelo = async (c) => {
+    setMsgCaixa((m) => ({ ...m, [c.id]: '' }));
+    try {
+      const novo = { id: modelos.find((m) => m.title && m.title === c.title)?.id || novoId(), title: c.title, text: c.text, conds: c.conds, mode: 'auto' };
+      await gravaModelos(modelos.some((m) => m.id === novo.id) ? modelos.map((m) => (m.id === novo.id ? novo : m)) : [...modelos, novo]);
+      setMsgCaixa((m) => ({ ...m, [c.id]: 'Salvo como modelo (outras empresas podem copiá-lo)' }));
+    } catch (e) { setMsgCaixa((m) => ({ ...m, [c.id]: e.message })); }
+  };
+  const usarModelos = () => {
+    const novas = modelos.filter((m) => selMod.includes(m.id)).map((m) => ({ ...m, id: novoId(), mode: 'auto' }));
+    setCaixas((l) => [...l, ...novas]); setSelMod([]); setMsg(`${novas.length} ${novas.length === 1 ? 'caixa copiada' : 'caixas copiadas'} do modelo. Ajuste o que precisar e salve.`);
+  };
+  const apagarModelos = async () => {
+    setMsgMod('');
+    try { await gravaModelos(modelos.filter((m) => !selMod.includes(m.id))); setSelMod([]); setConfMod(false); setMsgMod('Modelos apagados'); }
+    catch (e) { setMsgMod(e.message); }
+  };
+  const salvar = async () => {
+    setErr(''); setMsg('');
+    try { carregar(await api('/agent-tools', { method: 'PUT', body: { boxes: caixas } })); setMsg('Ferramentas salvas'); }
+    catch (e) { setErr(e.message); }
+  };
+  return (
+    <div className="card">
+      <p className="muted" style={{ marginTop: 0 }}>Só você (administrador da plataforma) vê esta aba. As caixas são <strong>desta empresa</strong>: cada empresa tem as suas, com as particularidades do ramo dela.
+        Cada caixa explica ao agente como usar uma ferramenta e vai no fim do prompt, depois do manual. Ela só chega ao agente quando todas as condições marcadas estão cumpridas.
+        Variáveis: <code>{'{{agente}}'}</code>, <code>{'{{adm}}'}</code> e <code>{'{{empresa}}'}</code>.</p>
+      <details style={{ marginBottom: 10 }}>
+        <summary style={{ cursor: 'pointer' }}>Modelos prontos ({modelos.length})</summary>
+        <p className="muted" style={{ margin: '6px 0' }}>Os modelos facilitam montar as caixas de uma empresa. Ao usar um modelo, o texto é <strong>copiado</strong> para esta empresa e passa a ser dela: mudar a caixa aqui não altera o modelo nem as outras empresas.
+          Para criar um modelo, use “Salvar como modelo” numa caixa.</p>
+        {modelos.length > 0 && (
+          <div>
+            <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4 }}>
+              <input type="checkbox" checked={selMod.length === modelos.length} onChange={() => { setConfMod(false); setSelMod(selMod.length === modelos.length ? [] : modelos.map((m) => m.id)); }} /> Selecionar todos
+            </label>
+            {modelos.map((m) => (
+              <label key={m.id} style={{ display: 'flex', gap: 6, alignItems: 'center', padding: '2px 0' }}>
+                <input type="checkbox" checked={selMod.includes(m.id)} onChange={() => { setConfMod(false); setSelMod((a) => (a.includes(m.id) ? a.filter((x) => x !== m.id) : [...a, m.id])); }} />
+                <strong>{m.title || 'Sem nome'}</strong> <span className="muted">{m.text.slice(0, 70)}{m.text.length > 70 ? '…' : ''}</span>
+              </label>
+            ))}
+            <div className="row" style={{ alignItems: 'center', gap: 8, marginTop: 6 }}>
+              <button className="btn primary sm" disabled={!selMod.length} onClick={usarModelos}>Copiar para esta empresa</button>
+              {!confMod && <button className="btn sm" disabled={!selMod.length} onClick={() => setConfMod(true)}>Apagar modelos selecionados</button>}
+              {confMod && <span>Apagar {selMod.length} {selMod.length === 1 ? 'modelo' : 'modelos'}? As caixas já copiadas para empresas não mudam. <button className="btn primary sm" onClick={apagarModelos}>Sim, apagar</button> <button className="btn sm" onClick={() => setConfMod(false)}>Cancelar</button></span>}
+              {msgMod && <span className="muted">{msgMod}</span>}
+            </div>
+          </div>
+        )}
+      </details>
+      {(() => {
+        const faltam = d.suggestions.filter((x) => !x.existe && !caixas.some((c) => c.ref === x.ref));
+        const prontas = faltam.filter((x) => x.disponivel), outras = faltam.filter((x) => !x.disponivel);
+        const linha = (x) => (
+          <label key={x.ref} style={{ display: 'flex', gap: 6, alignItems: 'center', padding: '2px 0' }}>
+            <input type="checkbox" checked={selSug.includes(x.ref)} onChange={() => setSelSug((a) => (a.includes(x.ref) ? a.filter((k) => k !== x.ref) : [...a, x.ref]))} /> {x.title}
+          </label>
+        );
+        if (!faltam.length) return null;
+        return (
+          <div style={{ border: '1px dashed var(--line, #ccc)', borderRadius: 8, padding: 10, marginBottom: 10 }}>
+            <strong>Ferramentas sugeridas para esta empresa</strong>
+            <p className="muted" style={{ margin: '4px 0 6px' }}>Já vêm com o nome e as condições certas, só faltando o texto. As primeiras são as dos módulos ligados nesta empresa.</p>
+            {prontas.length > 0 && (
+              <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 2 }}>
+                <input type="checkbox" checked={prontas.every((x) => selSug.includes(x.ref))} onChange={() => setSelSug((a) => (prontas.every((x) => a.includes(x.ref)) ? a.filter((k) => !prontas.some((x) => x.ref === k)) : [...new Set([...a, ...prontas.map((x) => x.ref)])]))} /> Selecionar todas as sugeridas
+              </label>
+            )}
+            {prontas.map(linha)}
+            {!prontas.length && <span className="muted">Todas as ferramentas dos módulos ligados já têm caixa.</span>}
+            {outras.length > 0 && (
+              <details style={{ marginTop: 6 }}>
+                <summary className="muted" style={{ cursor: 'pointer' }}>Outras ferramentas (módulo desligado nesta empresa)</summary>
+                {outras.map(linha)}
+              </details>
+            )}
+            <button className="btn primary sm" style={{ marginTop: 6 }} disabled={!selSug.length} onClick={criarSugeridas}>Criar caixas selecionadas</button>
+          </div>
+        );
+      })()}
+      <div className="row" style={{ gap: 6, marginBottom: 8 }}>
+        <button className={'btn sm' + (visao === 'caixas' ? ' primary' : '')} onClick={() => setVisao('caixas')}>Por caixas</button>
+        <button className={'btn sm' + (visao === 'texto' ? ' primary' : '')} onClick={() => setVisao('texto')}>Texto completo</button>
+      </div>
+      {visao === 'texto' && (
+        <div style={{ marginBottom: 10 }}>
+          <p className="muted" style={{ margin: '0 0 4px' }}>Todo o texto de uma vez. Uma linha <code>=====</code> separa uma caixa da outra; apague essas linhas para ter um texto único.
+            As condições e o modo de cada caixa ficam com a caixa da mesma posição: em um texto único, valem as da primeira caixa.</p>
+          <textarea rows={16} value={textoCompleto} onChange={(e) => mudaTextoCompleto(e.target.value)} style={{ width: '100%', fontFamily: 'inherit' }} />
+        </div>
+      )}
+      {visao === 'caixas' && caixas.length > 0 && (
+        <div className="row" style={{ alignItems: 'center', gap: 12, marginBottom: 8 }}>
+          <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <input type="checkbox" checked={sel.length === caixas.length} onChange={alternaTodas} /> Selecionar todas
+          </label>
+          {sel.length > 0 && !confirmando && <button className="btn sm" onClick={() => setConfirmando(true)}>Apagar selecionadas ({sel.length})</button>}
+          {sel.length > 0 && confirmando && (
+            <span>Apagar {sel.length} {sel.length === 1 ? 'caixa' : 'caixas'}? <button className="btn primary sm" onClick={apagarSel}>Sim, apagar</button> <button className="btn sm" onClick={() => setConfirmando(false)}>Cancelar</button></span>
+          )}
+        </div>
+      )}
+      {visao === 'caixas' && caixas.map((c, i) => {
+        const salva = d.boxes.some((b) => b.id === c.id);
+        return (
+          <div key={c.id} style={{ border: '1px solid var(--line, #ddd)', borderRadius: 8, padding: 10, marginBottom: 10 }}>
+            <div className="row" style={{ alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" checked={sel.includes(c.id)} onChange={() => alternaSel(c.id)} title="Selecionar" />
+              <input value={c.title} maxLength={80} placeholder="Nome da ferramenta (ex.: Agendamento)" onChange={(e) => altera(c.id, 'title', e.target.value)} style={{ flex: 1 }} />
+              <button className="btn sm" disabled={i === 0} onClick={() => sobe(i, -1)} title="Subir">↑</button>
+              <button className="btn sm" disabled={i === caixas.length - 1} onClick={() => sobe(i, 1)} title="Descer">↓</button>
+            </div>
+            <textarea rows={6} value={c.text} placeholder="Como o agente deve usar esta ferramenta: quando usar, o que confirmar antes, o que dizer depois, o que nunca fazer."
+              onChange={(e) => altera(c.id, 'text', e.target.value)} style={{ width: '100%', fontFamily: 'inherit', marginTop: 8 }} />
+            <details style={{ marginTop: 6 }}>
+              <summary className="muted" style={{ cursor: 'pointer' }}>Condições para chegar ao agente ({c.conds.length ? c.conds.length + ' marcadas' : 'nenhuma: chega sempre'})</summary>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 4, marginTop: 6 }}>
+                {d.conditions.map((k) => (
+                  <label key={k.key} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <input type="checkbox" checked={c.conds.includes(k.key)} onChange={() => alternaCond(c, k.key)} /> {k.label}
+                  </label>
+                ))}
+              </div>
+            </details>
+            <div className="row" style={{ alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+              <select value={c.mode || 'auto'} onChange={(e) => altera(c.id, 'mode', e.target.value)}>
+                <option value="auto">Automático (pelas condições)</option>
+                <option value="on">Sempre chega ao agente</option>
+                <option value="off">Nunca chega ao agente</option>
+              </select>
+              {salva
+                ? <strong style={{ color: d.active[c.id] ? 'var(--ok)' : 'var(--muted, #888)' }}>{d.active[c.id] ? 'Chega ao agente' : 'Não chega ao agente'}</strong>
+                : <span className="muted">Salve para ver se chega ao agente</span>}
+              <button className="btn sm" disabled={!c.title.trim() || !c.text.trim()} onClick={() => salvarComoModelo(c)}>Salvar como modelo</button>
+              {msgCaixa[c.id] && <span className="muted">{msgCaixa[c.id]}</span>}
+            </div>
+          </div>
+        );
+      })}
+      {!caixas.length && <p className="muted">Nenhuma caixa ainda.</p>}
+      <div className="row" style={{ alignItems: 'center', gap: 8 }}>
+        {visao === 'caixas' && <button className="btn" onClick={nova}>Nova caixa</button>}
+        <button className="btn primary" disabled={!mudou} onClick={salvar}>Salvar ferramentas</button>
+        <span className="muted">{total}/{d.max}</span>
+        {msg && <span className="muted">{msg}</span>}
+        {err && <span className="error">{err}</span>}
+      </div>
+    </div>
+  );
+}
+
 export default function Atendente({ company }) {
   const [aba, setAba] = useState('manual');
   // O assistente é opcional: só aparece quando o administrador liga para a empresa
@@ -578,8 +777,9 @@ export default function Atendente({ company }) {
         <button className={'btn' + (aba === 'manual' ? ' primary' : '')} onClick={() => setAba('manual')}>Manual</button>
         <button className={'btn' + (aba === 'atualizacoes' ? ' primary' : '')} onClick={() => setAba('atualizacoes')}>Atualizações provisórias</button>
         {ehAdmin && P === 'agent' && <button className={'btn' + (aba === 'diretrizes' ? ' primary' : '')} onClick={() => setAba('diretrizes')}>Diretrizes</button>}
+        {ehAdmin && P === 'agent' && <button className={'btn' + (aba === 'ferramentas' ? ' primary' : '')} onClick={() => setAba('ferramentas')}>Ferramentas</button>}
       </div>
-      {aba === 'diretrizes' && ehAdmin && P === 'agent' ? <Diretrizes /> : aba === 'atualizacoes' ? <Atualizacoes key={P} P={P} papel={papel} /> : <Manual key={P} P={P} papel={papel} />}
+      {aba === 'ferramentas' && ehAdmin && P === 'agent' ? <Ferramentas /> : aba === 'diretrizes' && ehAdmin && P === 'agent' ? <Diretrizes /> : aba === 'atualizacoes' ? <Atualizacoes key={P} P={P} papel={papel} /> : <Manual key={P} P={P} papel={papel} />}
     </>
   );
 }

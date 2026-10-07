@@ -65,3 +65,10 @@ export function cleanModuleLabels(input) {
   }
   return out;
 }
+
+// Mesma regra de web/src/modules.js (moduleOn): quais módulos são opcionais (só valem quando ligados) e quais herdam do módulo antigo.
+const OPCIONAIS = ['clube', 'pedidos', 'eventos', 'financeiro', 'assistente', 'comissoes', 'casa_de_shows', 'beneficios', 'documentos', 'delivery', 'restaurante'];
+const PAI = { fila: 'agenda', profissionais: 'agenda', servicos: 'agenda', inativos: 'clientes', campanhas: 'clientes', clube: 'clientes', comandos: 'atendente', bloqueios: 'atendente' };
+export const moduloLigado = (modules, key) =>
+  OPCIONAIS.includes(key) ? modules?.[key] === true :
+  modules?.[key] !== undefined ? modules[key] !== false : PAI[key] ? modules?.[PAI[key]] !== false : true;
