@@ -1296,9 +1296,10 @@ export function buildRouter() {
 
   // Gráfico por dia da semana (0 = domingo, horário de Brasília). O cliente escolhe a métrica e o período na própria tela.
   //   atendimentos: pessoas que conversaram com o agente · agendamentos: realizados · ingressos: vendas de ingresso confirmadas
+  //   pedidos: pedidos de música
   r.get('/dashboard/weekday', wrap(async (req, res) => {
     const metric = String(req.query.metric || 'atendimentos');
-    if (!['atendimentos', 'agendamentos', 'ingressos'].includes(metric)) return res.status(400).json({ error: 'Escolha o que o gráfico deve mostrar.' });
+    if (!['atendimentos', 'agendamentos', 'ingressos', 'pedidos'].includes(metric)) return res.status(400).json({ error: 'Escolha o que o gráfico deve mostrar.' });
     const days = Math.min(Math.max(Math.floor(Number(req.query.days)) || 30, 1), 365);
     let linhas = [], indisponivel = false;
     if (metric === 'atendimentos') {
@@ -1308,6 +1309,10 @@ export function buildRouter() {
     } else if (metric === 'agendamentos') {
       linhas = (await q(`SELECT weekday, COUNT(*)::int AS total FROM v_dashboard_base WHERE status='attended'
                          AND starts_at >= now() - make_interval(days => $1) GROUP BY weekday ORDER BY weekday`, [days])).rows;
+    } else if (metric === 'pedidos') {
+      linhas = (await q(`SELECT EXTRACT(DOW FROM created_at AT TIME ZONE 'America/Sao_Paulo')::int AS weekday, COUNT(*)::int AS total
+                         FROM song_orders WHERE created_at >= now() - make_interval(days => $1)
+                         GROUP BY 1 ORDER BY 1`, [days])).rows;
     } else {
       linhas = (await q(`SELECT EXTRACT(DOW FROM created_at AT TIME ZONE 'America/Sao_Paulo')::int AS weekday, COUNT(*)::int AS total
                          FROM shows_sales WHERE status IN ('confirmed','attended') AND created_at >= now() - make_interval(days => $1)

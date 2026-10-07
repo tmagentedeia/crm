@@ -25,6 +25,8 @@ const sAgenda = await semana('agendamentos', 365);
 check('agendamentos por dia da semana batem com o total realizado', sAgenda.status === 200 && dias07(sAgenda) && soma(sAgenda) === d.atendimentos, `${soma(sAgenda)} x ${d.atendimentos}`);
 const sIng = await semana('ingressos', 365);
 check('vendas de ingresso por dia da semana batem com o total de vendas', sIng.status === 200 && dias07(sIng) && soma(sIng) === d.ingressos.vendas, `${soma(sIng)} x ${d.ingressos.vendas}`);
+const sPed = await semana('pedidos', 365);
+check('pedidos de música por dia da semana batem com o total de pedidos', sPed.status === 200 && dias07(sPed) && soma(sPed) === d.pedidos.total, `${soma(sPed)} x ${d.pedidos.total}`);
 check('período omitido vale 30 dias e o padrão é atendimentos', (await semana('agendamentos', '')).days === 30 && (await fetch(`${BASE}/api/dashboard/weekday`, { headers: { authorization: 'Bearer ' + login.token } }).then((r) => r.json())).metric === 'atendimentos');
 check('período muito grande é limitado a 365 dias', (await semana('agendamentos', 99999)).days === 365);
 // atendimentos = pessoas que conversaram com o agente (histórico no banco do N8N)

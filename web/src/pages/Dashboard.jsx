@@ -54,12 +54,13 @@ function Chart({ title, data, x, layout, vazio, nome, acoes }) {
   );
 }
 
-// Movimento por dia da semana: o cliente escolhe o que ver e em qual período, e a resposta aparece aqui mesmo no gráfico
+// Gráfico por dia da semana: o cliente escolhe o que ver e em qual período; o título sempre diz o que está sendo contado
 function GraficoSemana({ mods }) {
   const metricas = [
     { id: 'atendimentos', label: 'Atendimentos', nome: 'Atendimentos' },
     ...(moduleOn(mods, 'agenda') ? [{ id: 'agendamentos', label: 'Agendamentos realizados', nome: 'Agendamentos' }] : []),
     ...(moduleOn(mods, 'casa_de_shows') ? [{ id: 'ingressos', label: 'Vendas de ingresso', nome: 'Vendas' }] : []),
+    ...(moduleOn(mods, 'pedidos') ? [{ id: 'pedidos', label: 'Pedidos de música', nome: 'Pedidos' }] : []),
   ];
   const [metric, setMetric] = useState('atendimentos');
   const [days, setDays] = useState(30);
@@ -74,7 +75,7 @@ function GraficoSemana({ mods }) {
   const vazio = !r ? 'Carregando…' : r.erro ? 'Não foi possível carregar agora.' : 'A contagem começa quando o agente for ligado ao painel.';
   const atual = metricas.find((m) => m.id === metric) || metricas[0];
   return (
-    <Chart title="Movimento por dia da semana" data={mostra ? week : []} x="dia" nome={atual.nome} vazio={vazio}
+    <Chart title={`${atual.label} por dia da semana`} data={mostra ? week : []} x="dia" nome={atual.nome} vazio={vazio}
       acoes={(
         <>
           {metricas.length > 1 && (
