@@ -52,6 +52,50 @@ export function registerAgendamentosRoutes(r, wrap) {
     } catch (e) { falhou(res, e); }
   }));
 
+  // Cria um agendamento (o agendador do N8N envia na hora). Corpo: { text, send_at: "aaaa-mm-ddThh:mm" no horário da empresa,
+  // phone (omitido = o próprio responsável: lembrete pessoal), name, cancel_ids (agendamentos antigos que este substitui) }.
+  // A resposta diz exatamente o que aconteceu (criado, repetido, quantos foram cancelados): quem chama só deve afirmar isso.
+  r.post('/scheduled-messages', wrap(async (req, res) => {
+    const b = req.body || {};
+    const texto = String(b.text ?? '').trim();
+    const data = String(b.send_at ?? '');
+    if (!texto) return res.status(400).json({ ok: false, error: 'Informe o texto da mensagem' });
+    if (texto.length > TEXTO_MAX) return res.status(400).json({ ok: false, error: `A mensagem é grande demais (até ${TEXTO_MAX} letras)` });
+    if (!MOMENTO.test(data)) return res.status(400).json({ ok: false, error: 'Informe a data e a hora no formato aaaa-mm-ddThh:mm' });
+    const nome = b.name === undefined || b.name === null ? '' : String(b.name).trim().slice(0, 120);
+    const cancelar = idsDe({ ids: b.cancel_ids });
+    const l = await ligacao(req, res); if (!l) return;
+    const fone = b.phone ? normPhone(b.phone) : l.adm;
+    if (!/^\d{10,15}$/.test(fone)) return res.status(400).json({ ok: false, error: b.phone ? 'Telefone inválido (use DDD + número)' : 'Informe o telefone: o responsável ainda não tem telefone cadastrado' });
+    const client = await l.pool.connect();
+    try {
+      const futuro = (await client.query('SELECT ($1::timestamp AT TIME ZONE $2) > now() AS futuro', [data, l.tz])).rows[0]?.futuro;
+      if (!futuro) return res.status(400).json({ ok: false, error: 'Escolha uma data e hora que ainda não passaram' });
+      await client.query('BEGIN');
+      const canc = cancelar.length ? (await client.query(
+        `UPDATE agendamentos_mensagens SET status = 'cancelado'
+         WHERE id = ANY($1::bigint[]) AND status = 'pendente' AND instancia = $2 AND ${ORIGENS} RETURNING id::text AS id`, [cancelar, l.instancia])).rows.map((x) => x.id) : [];
+      // o mesmo pedido repetido (a ferramenta chamada duas vezes) não vira dois envios
+      const igual = (await client.query(
+        `SELECT id::text AS id FROM agendamentos_mensagens
+         WHERE status = 'pendente' AND instancia = $1 AND telefone = $2 AND mensagem = $3 AND data_hora_envio = ($4::timestamp AT TIME ZONE $5) AND ${ORIGENS} LIMIT 1`,
+        [l.instancia, fone, texto, data, l.tz])).rows[0];
+      let id = igual?.id;
+      if (!id) id = (await client.query(
+        `INSERT INTO agendamentos_mensagens (telefone, mensagem, data_hora_envio, instancia, nome)
+         VALUES ($1, $2, $3::timestamp AT TIME ZONE $4, $5, NULLIF($6,'')) RETURNING id::text AS id`,
+        [fone, texto, data, l.tz, l.instancia, nome])).rows[0].id;
+      await client.query('COMMIT');
+      const ignorados = cancelar.length - canc.length;
+      res.status(igual ? 200 : 201).json({
+        ok: true, id, duplicate: !!igual, cancelled: canc.length, cancelled_ids: canc,
+        message: (igual ? 'Esse agendamento já existia; não criei outro.' : 'Agendamento criado.')
+          + (cancelar.length ? ` Cancelei ${canc.length} de ${cancelar.length} agendamento(s) antigo(s)${ignorados ? '; os outros já tinham sido enviados ou cancelados' : ''}.` : ''),
+      });
+    } catch (e) { await client.query('ROLLBACK').catch(() => {}); falhou(res, e); }
+    finally { client.release(); }
+  }));
+
   // Muda a data/hora e/ou o texto de um agendamento que ainda não saiu. send_at = "aaaa-mm-ddThh:mm" no horário da empresa.
   r.put('/scheduled-messages/:id', wrap(async (req, res) => {
     if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: 'Agendamento inválido' });

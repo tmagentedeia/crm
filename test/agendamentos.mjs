@@ -82,6 +82,38 @@ check('em massa sem itens: 400', (await call('POST', '/api/scheduled-messages/bu
 l = await call('GET', '/api/scheduled-messages', { token: t });
 check('depois de cancelar a lista fica vazia', l.status === 200 && l.body.items.length === 0, JSON.stringify(l.body));
 
+// o agente (N8N) cria, lista e troca lembretes pelo mesmo caminho e recebe a contagem real
+const n8n = async (method, path, body) => {
+  const r = await fetch(BASE + '/n8n' + path, { method, headers: { 'content-type': 'application/json', 'x-api-key': process.env.N8N_API_KEY || 'k', 'x-company-id': '1' }, body: body ? JSON.stringify(body) : undefined });
+  let j = null; try { j = await r.json(); } catch {}
+  return { status: r.status, body: j };
+};
+const quando = (dias, hm = '10:00') => new Date(Date.now() + dias * 86400000).toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' }) + 'T' + hm;
+const a1 = await n8n('POST', '/scheduled-messages', { text: 'Lembrete: ligar para o contador', send_at: quando(3) });
+check('agente cria lembrete pessoal (sem telefone = o responsável)', a1.status === 201 && a1.body.ok && !a1.body.duplicate && psql(`select telefone from agendamentos_mensagens where id=${a1.body.id}`) === '553291135799', JSON.stringify(a1.body));
+check('grava no horário da empresa e na instância dela', psql(`select to_char(data_hora_envio at time zone 'America/Sao_Paulo','HH24:MI') || '|' || instancia || '|' || status from agendamentos_mensagens where id=${a1.body.id}`) === '10:00|tm-ag|pendente');
+const a2 = await n8n('POST', '/scheduled-messages', { text: 'Lembrete: ligar para o contador', send_at: quando(3) });
+check('o mesmo pedido repetido não cria outro', a2.status === 200 && a2.body.duplicate === true && a2.body.id === a1.body.id && psql("select count(*) from agendamentos_mensagens where mensagem='Lembrete: ligar para o contador'") === '1', JSON.stringify(a2.body));
+const b1 = await n8n('POST', '/scheduled-messages', { text: 'Levar o documento', send_at: quando(3, '11:00') });
+const mist = await n8n('POST', '/scheduled-messages', { text: 'Ligar para o contador e levar o documento', send_at: quando(3), cancel_ids: [a1.body.id, b1.body.id, outra, 'x'] });
+check('troca: cria um só e diz quantos antigos cancelou', mist.status === 201 && mist.body.cancelled === 2 && mist.body.cancelled_ids.sort().join() === [a1.body.id, b1.body.id].sort().join(), JSON.stringify(mist.body));
+check('troca: os antigos ficam cancelados, o de outra instância não é tocado', status(a1.body.id) === 'cancelado' && status(b1.body.id) === 'cancelado' && status(outra) === 'pendente' && status(mist.body.id) === 'pendente');
+const sem = await n8n('POST', '/scheduled-messages', { text: 'Teste', send_at: quando(3, '12:00'), cancel_ids: [a1.body.id] });
+check('cancelar quem já estava cancelado diz 0, sem inventar', sem.status === 201 && sem.body.cancelled === 0 && /0 de 1/.test(sem.body.message), JSON.stringify(sem.body));
+const lista = await n8n('GET', '/scheduled-messages');
+check('agente enxerga os pendentes com id', lista.status === 200 && lista.body.items.some((x) => x.id === mist.body.id) && !lista.body.items.some((x) => x.id === a1.body.id));
+const para = await n8n('POST', '/scheduled-messages', { text: 'Oi Carlos', send_at: quando(4), phone: '(32) 98888-7777', name: 'Carlos' });
+check('para um contato: telefone padronizado e nome gravado', para.status === 201 && psql(`select telefone || '|' || nome from agendamentos_mensagens where id=${para.body.id}`) === '553288887777|Carlos', JSON.stringify(para.body));
+check('aspas e apóstrofo no texto passam inteiros', (await n8n('POST', '/scheduled-messages', { text: `d'Água "ok"; drop table x;--`, send_at: quando(4, '09:00') })).status === 201);
+check('sem texto: 400', (await n8n('POST', '/scheduled-messages', { send_at: quando(3) })).status === 400);
+check('data inválida: 400', (await n8n('POST', '/scheduled-messages', { text: 'x', send_at: 'amanhã' })).status === 400);
+check('data no passado: 400', (await n8n('POST', '/scheduled-messages', { text: 'x', send_at: '2020-01-01T10:00' })).status === 400);
+check('telefone inválido: 400', (await n8n('POST', '/scheduled-messages', { text: 'x', send_at: quando(3), phone: '123' })).status === 400);
+psql(`update public.companies set admin_phone=null where id=1`);
+check('lembrete pessoal sem telefone do responsável: 400 pedindo o telefone', (await n8n('POST', '/scheduled-messages', { text: 'x', send_at: quando(3) })).status === 400);
+psql(`update public.companies set admin_phone='(32) 99113-5799' where id=1`);
+check('sem a chave do agente: 401', (await fetch(BASE + '/n8n/scheduled-messages', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).status === 401);
+
 // empresa sem instância ligada
 psql(`update public.companies set whatsapp_instance=null where id=1`);
 check('sem instância: avisa em vez de listar tudo (409)', (await call('GET', '/api/scheduled-messages', { token: t })).status === 409);
