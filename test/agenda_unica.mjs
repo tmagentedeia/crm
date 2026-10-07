@@ -61,6 +61,11 @@ check('desativado: horários livres recusados', (await get(`availability?date=${
 check('desativado: agendar recusado', (await call('POST', '/api/appointments', { token: T, body: { customer_id: cu.body.id, service_id: sv.body.id, starts_at: av.body[0].starts_at } })).status === 409);
 check('reativa agendamentos', (await put({ scheduling_enabled: true })).status === 200 && (await get(`availability?date=${dia}&service_id=${sv.body.id}`)).status === 200);
 await put({ schedules: [1, 2, 3, 4, 5, 6].map((weekday) => ({ weekday, start_time: '09:00', end_time: '18:00' })) });
+{
+  const ult = async (id) => { const r = (await get(`availability?date=${dia}&service_id=${id}`)).body; return r.length ? r[r.length - 1].time : null; };
+  check('serviço de 30 min: último horário é 17:30 (expediente até 18:00)', (await ult(sv.body.id)) === '17:30', await ult(sv.body.id));
+  check('serviço de 45 min: último horário termina até as 18:00', (await ult(sv45.body.id)) === '17:15', await ult(sv45.body.id));
+}
 
 // entra o primeiro profissional de verdade: a agenda única sai de cena
 const cat = await call('POST', '/api/categories', { token: T, body: { name: 'Geral' } });
