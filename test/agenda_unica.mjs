@@ -14,6 +14,7 @@ const reg = await call('POST', '/api/auth/register', { body: { company_name: 'Cl
 check('empresa nova criada', reg.status === 201, JSON.stringify(reg.body));
 const T = reg.body.token;
 const get = (p) => call('GET', '/api/' + p, { token: T });
+const put = (b) => call('PUT', '/api/agenda/config', { token: T, body: b });
 
 const reg2 = await call('POST', '/api/auth/register', { body: { company_name: 'Clínica Dupla', name: 'Dona', email: `dupla${Date.now()}@x.com`, password: 'senhasenha1' } });
 const par = await Promise.all([1, 2, 3, 4].map(() => call('GET', '/api/professionals', { token: reg2.body.token })));
@@ -23,6 +24,13 @@ check('sem profissional: aparece a agenda da empresa', pr.body.length === 1 && p
 check('não exige categoria', (pr.body[0].category_ids || []).length === 0);
 pr = await get('professionals');
 check('não duplica na segunda vez', pr.body.length === 1);
+// agenda do Google da empresa (espelho): o campo volta para a agenda única
+check('agenda do Google começa vazia', (await get('agenda/config')).body.google_calendar_id === null);
+check('salva o ID da agenda do Google', (await put({ google_calendar_id: 'clinica@gmail.com' })).status === 200 && (await get('agenda/config')).body.google_calendar_id === 'clinica@gmail.com');
+check('aceita o link da agenda colado', (await put({ google_calendar_id: 'https://calendar.google.com/calendar/u/0?cid=bWluaGFAZ21haWwuY29t' })).status === 200 && (await get('agenda/config')).body.google_calendar_id === 'minha@gmail.com');
+check('o agendamento leva o ID para o espelho', (await get('professionals')).body[0].google_calendar_id === 'minha@gmail.com');
+check('salvar outra opção não apaga a agenda do Google', (await put({ scheduling_enabled: true })).status === 200 && (await get('agenda/config')).body.google_calendar_id === 'minha@gmail.com');
+check('vazio remove', (await put({ google_calendar_id: '' })).status === 200 && (await get('agenda/config')).body.google_calendar_id === null);
 const idUnica = pr.body[0].id;
 
 const sv = await call('POST', '/api/services', { token: T, body: { name: 'Consulta', price: 100, duration_min: 30 } });
@@ -39,7 +47,6 @@ check('agenda sem informar profissional', ap.status === 201 && ap.body.professio
 // horário de atendimento da empresa e liga/desliga dos agendamentos
 let cf = await get('agenda/config');
 check('config da agenda: empresa sem profissional, agendamentos ligados', cf.body.solo === true && cf.body.scheduling_enabled === true && cf.body.schedules.length === 6, JSON.stringify(cf.body));
-const put = (b) => call('PUT', '/api/agenda/config', { token: T, body: b });
 check('salva o horário da empresa', (await put({ schedules: [{ weekday: 2, start_time: '10:00', end_time: '12:00' }] })).status === 200);
 cf = await get('agenda/config');
 check('horário salvo vale', cf.body.schedules.length === 1 && cf.body.schedules[0].weekday === 2 && String(cf.body.schedules[0].start_time).startsWith('10:00'), JSON.stringify(cf.body.schedules));

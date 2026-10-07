@@ -21,6 +21,14 @@ function HorarioEmpresa({ cfg, onChange }) {
   const [grade, setGrade] = useState(gradeDe(cfg.schedules));
   const [msg, setMsg] = useState(''); const [err, setErr] = useState(''); const [busy, setBusy] = useState(false);
   const [aberto, setAberto] = useState(false);
+  const [gcal, setGcal] = useState(cfg.google_calendar_id || '');
+  const [gmsg, setGmsg] = useState(''); const [gerr, setGerr] = useState('');
+  const salvarGcal = async () => {
+    setGmsg(''); setGerr(''); setBusy(true);
+    try { await api('/agenda/config', { method: 'PUT', body: { google_calendar_id: gcal } }); setGmsg(gcal.trim() ? 'Agenda do Google salva.' : 'Agenda do Google removida.'); await onChange(); }
+    catch (e) { setGerr(e.message); }
+    setBusy(false);
+  };
   const resumo = (cfg.schedules || []).length ? cfg.schedules.map((s) => WEEKDAYS[s.weekday].slice(0, 3)).join(' · ') : 'nenhum dia definido';
   const salvar = async (corpo, ok) => {
     setMsg(''); setErr(''); setBusy(true);
@@ -41,6 +49,15 @@ function HorarioEmpresa({ cfg, onChange }) {
         <span>Fazer agendamentos</span>
       </label>
       {msg && !aberto && <p style={{ color: 'var(--ok)', marginTop: 8 }}>{msg}</p>}
+      <div className="field" style={{ marginTop: 14 }}>
+        <label>ID da agenda Google (opcional)</label>
+        <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <input style={{ flex: 1, minWidth: 240 }} value={gcal} onChange={(e) => setGcal(e.target.value)} placeholder="ex.: nome@gmail.com ou xxxx@group.calendar.google.com (ou cole o link da agenda)" />
+          <button className="btn sm" onClick={salvarGcal} disabled={busy || gcal.trim() === (cfg.google_calendar_id || '')}>Salvar</button>
+          {gmsg && <span style={{ color: 'var(--ok)' }}>{gmsg}</span>}
+          {gerr && <span className="error" style={{ margin: 0 }}>{gerr}</span>}
+        </div>
+      </div>
       {aberto && <div style={{ marginTop: 12 }}>
       {!cfg.scheduling_enabled && <p className="muted" style={{ marginBottom: 10 }}>Os agendamentos estão desativados: o horário abaixo serve só para informar quando a empresa atende.</p>}
       <GradeHorarios grade={grade} setGrade={setGrade} />

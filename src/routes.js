@@ -498,13 +498,18 @@ export function buildRouter() {
   // Horário de atendimento da empresa e liga/desliga dos agendamentos. Só vale enquanto a empresa não tem profissional cadastrado.
   r.get('/agenda/config', wrap(async (req, res) => {
     const on = (await qg('SELECT scheduling_enabled FROM companies WHERE id=$1', [currentCompany()])).rows[0]?.scheduling_enabled !== false;
-    const ag = (await q(`SELECT b.id, COALESCE(json_agg(json_build_object('weekday',s.weekday,'start_time',s.start_time,'end_time',s.end_time,
+    const ag = (await q(`SELECT b.id, b.google_calendar_id, COALESCE(json_agg(json_build_object('weekday',s.weekday,'start_time',s.start_time,'end_time',s.end_time,
         'break_start',s.break_start,'break_end',s.break_end) ORDER BY s.weekday) FILTER (WHERE s.id IS NOT NULL), '[]') AS schedules
       FROM professionals b LEFT JOIN professional_schedules s ON s.professional_id=b.id WHERE b.is_default AND b.active GROUP BY b.id`)).rows[0];
-    res.json({ scheduling_enabled: on, solo: !!ag, professional_id: ag?.id ?? null, schedules: ag?.schedules ?? [] });
+    res.json({ scheduling_enabled: on, solo: !!ag, professional_id: ag?.id ?? null, google_calendar_id: ag?.google_calendar_id ?? null, schedules: ag?.schedules ?? [] });
   }));
   r.put('/agenda/config', wrap(async (req, res) => {
-    const { scheduling_enabled, schedules } = req.body;
+    const { scheduling_enabled, schedules, google_calendar_id } = req.body;
+    if (google_calendar_id !== undefined) {
+      const ag = (await q('SELECT id FROM professionals WHERE is_default AND active')).rows[0];
+      if (!ag) return res.status(400).json({ error: 'A empresa tem profissionais cadastrados: a agenda do Google fica no cadastro de cada um' });
+      await q("UPDATE professionals SET google_calendar_id=NULLIF($2,'') WHERE id=$1", [ag.id, normCalendarId(google_calendar_id)]);
+    }
     if (typeof scheduling_enabled === 'boolean')
       await qg('UPDATE companies SET scheduling_enabled=$2 WHERE id=$1', [currentCompany(), scheduling_enabled]);
     if (Array.isArray(schedules)) {
