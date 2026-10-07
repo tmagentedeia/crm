@@ -953,6 +953,23 @@ export function buildRouter() {
     // se o responsável já autorizou esse horário (o agente perguntou a ele antes), nasce agendado
     const autorizado = req.body.adm_approved === true;
     const status = mode === 'confirm' && source === 'ia' && !autorizado ? 'pending' : 'scheduled';
+    // Cabe no expediente? (começa e termina dentro do horário do profissional, fora da pausa.) Empresa sem horário cadastrado: não há o que conferir.
+    // Agente sem autorização do responsável: recusa. Quem o responsável autorizou (adm_approved) e o painel: passa, o painel só avisa.
+    let foraDoExpediente = false;
+    if (mode !== 'confirm') {
+      const tzE = (await qg('SELECT timezone FROM companies WHERE id=$1', [currentCompany()])).rows[0]?.timezone || 'America/Sao_Paulo';
+      const cab = (await q(
+        `SELECT EXISTS (SELECT 1 FROM professional_schedules WHERE professional_id=$1) AS tem,
+                EXISTS (SELECT 1 FROM professional_schedules sc
+                        WHERE sc.professional_id=$1 AND sc.weekday = EXTRACT(DOW FROM t.ls)::int
+                          AND t.ls::date = t.le::date AND t.ls::time >= sc.start_time AND t.le::time <= sc.end_time
+                          AND (sc.break_start IS NULL OR NOT (t.ls::time < sc.break_end AND t.le::time > sc.break_start))) AS cabe
+         FROM (SELECT ($2::timestamptz AT TIME ZONE $4) AS ls, (($2::timestamptz + make_interval(mins => $3)) AT TIME ZONE $4) AS le) t`,
+        [professional_id, starts_at, sv.rows[0].duration_min, tzE])).rows[0];
+      foraDoExpediente = !!cab.tem && !cab.cabe;
+      if (foraDoExpediente && source === 'ia' && !autorizado)
+        return res.status(409).json({ error: 'Fora do horário de atendimento. Consulte os horários livres e escolha um deles; se o responsável autorizar este horário, marque com a autorização dele.', fora_do_expediente: true });
+    }
     const r = await tx(currentCompany(), async (t) => {
       // Agente repetindo o pedido (cliente insistiu, ou duas chamadas no mesmo segundo): não marca de novo, devolve o que já existe.
       // Vale para o mesmo cliente, no mesmo horário (1 min), com o mesmo profissional ou o mesmo serviço.
@@ -976,7 +993,7 @@ export function buildRouter() {
     });
     const rows = [r.row];
     if (r.dup) return res.status(200).json({ ...r.row, already_exists: true });
-    res.status(201).json(rows[0]);
+    res.status(201).json(foraDoExpediente ? { ...rows[0], outside_hours: true } : rows[0]);
     apptSnapshot(rows[0].id).then((s) => notifyN8n('created', s)).catch(() => {});
   }));
   // Lembrete ao cliente: o N8N chama isto de tempos em tempos. Reserva e devolve, de forma atômica,

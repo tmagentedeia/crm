@@ -65,6 +65,19 @@ await put({ schedules: [1, 2, 3, 4, 5, 6].map((weekday) => ({ weekday, start_tim
   const ult = async (id) => { const r = (await get(`availability?date=${dia}&service_id=${id}`)).body; return r.length ? r[r.length - 1].time : null; };
   check('serviço de 30 min: último horário é 17:30 (expediente até 18:00)', (await ult(sv.body.id)) === '17:30', await ult(sv.body.id));
   check('serviço de 45 min: último horário termina até as 18:00', (await ult(sv45.body.id)) === '17:15', await ult(sv45.body.id));
+  const marca = (hora, extra = {}, tok = T) => call('POST', '/api/appointments', { token: tok, body: { customer_id: cu.body.id, service_id: sv.body.id, starts_at: `${dia}T${hora}:00-03:00`, ...extra } });
+  let m = await marca('18:00', { source: 'ia' });
+  check('agente não marca no horário de encerramento (18:00)', m.status === 409 && m.body.fora_do_expediente === true, JSON.stringify(m.body));
+  m = await marca('17:45', { source: 'ia' });
+  check('agente não marca o que termina depois das 18:00 (17:45 + 30 min)', m.status === 409, JSON.stringify(m.body));
+  m = await marca('08:30', { source: 'ia' });
+  check('agente não marca antes de abrir', m.status === 409);
+  m = await marca('18:00', { source: 'ia', adm_approved: true });
+  check('com autorização do responsável, marca fora do expediente', m.status === 201, JSON.stringify(m.body));
+  m = await marca('19:00', {});
+  check('pelo painel, marca fora do expediente e recebe o aviso', m.status === 201 && m.body.outside_hours === true, JSON.stringify(m.body));
+  m = await marca('17:30', { source: 'ia' });
+  check('agente marca o último horário (17:30)', m.status === 201 && !m.body.outside_hours, JSON.stringify(m.body));
 }
 
 // entra o primeiro profissional de verdade: a agenda única sai de cena

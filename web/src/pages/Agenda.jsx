@@ -168,7 +168,7 @@ export default function Agenda() {
         setRecado({ ...recado, [editando.id]: 'Horário alterado.' + (r.notified ? ' O cliente foi avisado.' : r.notify_error ? ` O cliente não foi avisado: ${r.notify_error}.` : '') });
         setHist({ ...hist, [editando.id]: null }); setEditando(null); load();
       }} />}
-      {modal && <NewAppointment init={modal} date={date} professionals={professionals} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
+      {modal && <NewAppointment init={modal} date={date} professionals={professionals} onClose={() => setModal(null)} onSaved={(r) => { if (r?.outside_hours) setRecado({ ...recado, [r.id]: 'Agendado fora do horário de atendimento.' }); setModal(null); load(); }} />}
       </>}
     </>
   );
@@ -225,8 +225,8 @@ function NewAppointment({ init, date, professionals, onClose, onSaved }) {
         customer_id = c.id;
       }
       const starts_at = new Date(`${date}T${f.time}:00`).toISOString();
-      await api('/appointments', { method: 'POST', body: { professional_id: Number(f.professional_id), customer_id: Number(customer_id), service_id: Number(f.service_id), starts_at } });
-      onSaved();
+      const novo = await api('/appointments', { method: 'POST', body: { professional_id: Number(f.professional_id), customer_id: Number(customer_id), service_id: Number(f.service_id), starts_at } });
+      onSaved(novo);
     } catch (e2) { setErr(e2.message); }
   }
 

@@ -24,17 +24,17 @@ const dia = (n, h) => { const d = new Date(Date.UTC(2031, 0, n, h)); return d.to
 const novo = (T, extra) => call('POST', '/api/appointments', { token: T.token, body: { ...a, ...extra } });
 
 // modo automático (padrão): o agente marca direto
-let r = await novo(A, { source: 'ia', starts_at: dia(5, 13) });
+let r = await novo(A, { source: 'ia', starts_at: dia(13, 13) });
 check('modo automático: ia agenda direto', r.status === 201 && r.body.status === 'scheduled', JSON.stringify(r));
 
 // agente repetindo o pedido: não duplica, devolve o que já existe
-const rep = await novo(A, { source: 'ia', starts_at: dia(5, 13) });
+const rep = await novo(A, { source: 'ia', starts_at: dia(13, 13) });
 check('pedido repetido não cria outro agendamento', rep.status === 200 && rep.body.already_exists === true && rep.body.id === r.body.id, JSON.stringify(rep));
 const lote = await Promise.all([1, 2, 3, 4].map(() => novo(A, { source: 'ia', starts_at: dia(20, 13) })));
 const ids = new Set(lote.map((x) => x.body.id));
 check('4 chamadas no mesmo instante criam um só', ids.size === 1 && lote.filter((x) => x.status === 201).length === 1 && lote.every((x) => x.status === 200 || x.status === 201), JSON.stringify(lote.map((x) => [x.status, x.body.id])));
 check('outro horário do mesmo cliente é criado', (await novo(A, { source: 'ia', starts_at: dia(21, 13) })).status === 201);
-check('repetição pelo painel (manual) continua sendo conflito normal', (await novo(A, { source: 'manual', starts_at: dia(5, 13) })).status === 409);
+check('repetição pelo painel (manual) continua sendo conflito normal', (await novo(A, { source: 'manual', starts_at: dia(13, 13) })).status === 409);
 
 // liga "sob confirmação" sem mexer no limite de profissionais
 const antes = (await call('GET', '/api/admin/companies', { token: A.token })).body.find((x) => x.id === A.company.id);
@@ -81,7 +81,7 @@ check('sem login = 401', (await call('POST', `/api/appointments/${p3.body.id}/re
 // a empresa 2 continua automática
 const b = await base(B);
 if (b) {
-  const rb = await call('POST', '/api/appointments', { token: B.token, body: { ...b, source: 'ia', starts_at: dia(5, 15) } });
+  const rb = await call('POST', '/api/appointments', { token: B.token, body: { ...b, source: 'ia', starts_at: dia(13, 15) } });
   check('empresa em modo automático não é afetada', rb.status === 201 && rb.body.status === 'scheduled', JSON.stringify(rb));
 }
 
