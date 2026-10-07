@@ -162,7 +162,7 @@ check('administrador define os limites da empresa', salvoL.status === 200 && sal
 const listaAdm = (await call('GET', '/api/admin/companies', { token: A.token })).body;
 check('a lista da administração traz os limites', listaAdm.find((c) => c.id === 1 || c.id === '1')?.campaign_daily_max === 30);
 check('o cliente vê os limites novos', (await lim(A.token)).daily_max === 30 && (await lim(A.token)).interval_min === 15);
-check('outra empresa continua no padrão', (await lim(B.token)).daily_max === 100 && (await lim(B.token)).interval_min === 10);
+check('outra empresa (nova, com Campanhas ligado) começa no 1º degrau da liberação progressiva', (await lim(B.token)).daily_max === 50 && (await lim(B.token)).interval_min === 15);
 check('campanha acima do limite diário da empresa é recusada', (await post({ ...ok_cfg, interval_min: 15, interval_max: 20, daily_limit: 31 })).status === 400);
 check('intervalo abaixo do mínimo da empresa é recusado', (await post({ ...ok_cfg, interval_min: 10, interval_max: 20, daily_limit: 30 })).status === 400);
 const dentro = await post({ ...ok_cfg, interval_min: 15, interval_max: 20, daily_limit: 30 });

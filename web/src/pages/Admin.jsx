@@ -378,7 +378,15 @@ export default function Admin() {
           <div className="modal-bg" onClick={() => setOpCamp(null)}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
               <h2>Opções de Campanhas — {emp.name}</h2>
-              <p className="muted">Estes limites valem para as campanhas novas da empresa: ela escolhe livremente, mas não passa do máximo por dia nem fica abaixo do intervalo mínimo. As campanhas já em andamento seguem como foram criadas. Em branco vale o padrão.</p>
+              <p className="muted">Estes limites valem para as campanhas novas da empresa: ela escolhe livremente, mas não passa do máximo por dia nem fica abaixo do intervalo mínimo. As campanhas já em andamento seguem como foram criadas. Em branco vale o degrau da liberação progressiva (ou o padrão, se a empresa não tiver).</p>
+              {(() => { const pg = emp.campaign_prog; if (!pg) return <p className="muted">Esta empresa não usa a liberação progressiva (ligou Campanhas antes dela existir): vale o padrão 10 min / 100 por dia, ou o que você definir abaixo.</p>;
+                const manual = emp.campaign_daily_max != null || emp.campaign_interval_min != null;
+                return (
+                  <div className="muted" style={{ marginBottom: 12 }}>
+                    Liberação progressiva: degrau {pg.degrau} de {pg.degraus} — {pg.atual.INTERVAL_MIN} min / {pg.atual.DAILY_MAX} por dia.
+                    {' '}{pg.proximo ? `Faltam ${pg.faltam} campanha(s) concluída(s) para ${pg.proximo.INTERVAL_MIN} min / ${pg.proximo.DAILY_MAX} por dia.` : 'Já está no último degrau.'}
+                    {' '}({pg.concluidas} concluída(s) até agora.){manual && ' Enquanto houver valor definido abaixo, ele manda e a progressão fica parada.'}
+                  </div>); })()}
               <div className="field"><label>Máximo de envios por dia <span className="muted">(padrão 100; até 1000)</span></label>
                 <input type="number" min="1" max="1000" placeholder="100" value={opCamp.dia} onChange={(e) => setOpCamp({ ...opCamp, dia: e.target.value })} /></div>
               <div className="field"><label>Intervalo mínimo entre mensagens, em minutos <span className="muted">(padrão 10; até 120)</span></label>

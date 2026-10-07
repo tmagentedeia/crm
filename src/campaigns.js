@@ -24,11 +24,29 @@ export const LIMITS = {
 
 // O administrador da plataforma pode ajustar, por empresa, o limite diário e o intervalo mínimo (null = padrão acima).
 export const TETO_ADMIN = { DAILY_MAX: 1000, INTERVAL_MIN: 120 };
+// Liberação progressiva: empresas que ligaram o módulo Campanhas começam apertado e soltam a cada 2 campanhas manuais concluídas.
+export const DEGRAUS = [
+  { INTERVAL_MIN: 15, DAILY_MAX: 50 }, { INTERVAL_MIN: 14, DAILY_MAX: 60 }, { INTERVAL_MIN: 13, DAILY_MAX: 70 },
+  { INTERVAL_MIN: 12, DAILY_MAX: 80 }, { INTERVAL_MIN: 11, DAILY_MAX: 90 }, { INTERVAL_MIN: 10, DAILY_MAX: 100 },
+];
+export const CAMPANHAS_POR_DEGRAU = 2;
+export async function progressoDaEmpresa(companyId, desde) {
+  if (!desde) return null;
+  const concluidas = (await tx(companyId, (t) => t(
+    "SELECT COUNT(*)::int AS n FROM campaigns WHERE kind='manual' AND status='done' AND finished_at >= $1", [desde]))).rows[0].n;
+  const degrau = Math.min(DEGRAUS.length - 1, Math.floor(concluidas / CAMPANHAS_POR_DEGRAU));
+  const ultimo = degrau === DEGRAUS.length - 1;
+  return { concluidas, degrau: degrau + 1, degraus: DEGRAUS.length, atual: DEGRAUS[degrau], proximo: ultimo ? null : DEGRAUS[degrau + 1],
+           faltam: ultimo ? 0 : CAMPANHAS_POR_DEGRAU - (concluidas % CAMPANHAS_POR_DEGRAU) };
+}
 export async function limitesDaEmpresa(companyId) {
-  const c = (await qg('SELECT campaign_daily_max, campaign_interval_min FROM companies WHERE id=$1', [companyId])).rows[0] || {};
-  const INTERVAL_MIN = c.campaign_interval_min ?? LIMITS.INTERVAL_MIN;
-  return { ...LIMITS, DAILY_MAX: c.campaign_daily_max ?? LIMITS.DAILY_MAX, INTERVAL_MIN, INTERVAL_MAX_MIN: Math.max(LIMITS.INTERVAL_MAX_MIN, INTERVAL_MIN),
-           personalizado: c.campaign_daily_max != null || c.campaign_interval_min != null };
+  const c = (await qg('SELECT campaign_daily_max, campaign_interval_min, campaign_prog_desde FROM companies WHERE id=$1', [companyId])).rows[0] || {};
+  const manual = c.campaign_daily_max != null || c.campaign_interval_min != null;
+  // valor definido pelo administrador manda; sem ele, vale o degrau da liberação progressiva (se a empresa tem)
+  const prog = manual ? null : await progressoDaEmpresa(companyId, c.campaign_prog_desde);
+  const INTERVAL_MIN = c.campaign_interval_min ?? prog?.atual.INTERVAL_MIN ?? LIMITS.INTERVAL_MIN;
+  const DAILY_MAX = c.campaign_daily_max ?? prog?.atual.DAILY_MAX ?? LIMITS.DAILY_MAX;
+  return { ...LIMITS, DAILY_MAX, INTERVAL_MIN, INTERVAL_MAX_MIN: Math.max(LIMITS.INTERVAL_MAX_MIN, INTERVAL_MIN), personalizado: manual, progressivo: !!prog };
 }
 
 // A frase de saída precisa existir e a mensagem termina com "tá?", "ok?" ou "tudo bem?"
@@ -162,6 +180,7 @@ export async function claimNext(companyId) {
   const cfg = await companyCfg(companyId);
   const tz = cfg.timezone || 'America/Sao_Paulo';
   const foraDaJanela = !inWindow(tz); // a campanha de teste é a única que envia fora do horário
+  const intervaloMin = (await limitesDaEmpresa(companyId)).INTERVAL_MIN;
   const teto = Math.max(LIMITS.DAILY_MAX, cfg.campaign_daily_max ?? 0);   // campanha criada com um limite maior não é cortada
   const out = await tx(companyId, async (t) => {
     // quem ficou "enviando" sem resposta por mais de 30 min é dado como falho (nunca reenvia)
@@ -180,7 +199,7 @@ export async function claimNext(companyId) {
       // duas campanhas ativas ao mesmo tempo (a de aniversariantes roda junto com as outras) nunca enviam coladas
       const colada = (await t(`SELECT 1 FROM campaign_recipients r JOIN campaigns o ON o.id=r.campaign_id
          WHERE r.campaign_id<>$1 AND o.status='running' AND r.claimed_at > now() - make_interval(mins => $2) LIMIT 1`,
-        [c.id, Math.max(LIMITS.INTERVAL_MIN, cfg.campaign_interval_min ?? 0)])).rowCount;
+        [c.id, Math.max(LIMITS.INTERVAL_MIN, intervaloMin)])).rowCount;
       if (colada) continue;
       // quem entrou na lista de exceções depois de a campanha ser montada não recebe
       if (!c.allow_excluded) await t(`UPDATE campaign_recipients SET status='cancelled', error='Na lista de exceções'

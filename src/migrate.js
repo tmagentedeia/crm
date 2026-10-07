@@ -45,6 +45,18 @@ try {
     await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS wa_api_token TEXT');
     await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS campaign_daily_max INT CHECK (campaign_daily_max BETWEEN 1 AND 1000)');
     await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS campaign_interval_min INT CHECK (campaign_interval_min BETWEEN 1 AND 120)');
+    // liberação progressiva de campanhas: marca o dia em que o módulo Campanhas foi ligado (só vale daí em diante)
+    await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS campaign_prog_desde TIMESTAMPTZ');
+    await pool.query(`CREATE OR REPLACE FUNCTION companies_campanhas_desde() RETURNS trigger AS $f$
+      BEGIN
+        IF COALESCE(NEW.modules->>'campanhas','') = 'true' AND NEW.campaign_prog_desde IS NULL
+           AND (TG_OP = 'INSERT' OR COALESCE(OLD.modules->>'campanhas','') <> 'true') THEN
+          NEW.campaign_prog_desde := now();
+        END IF;
+        RETURN NEW;
+      END $f$ LANGUAGE plpgsql`);
+    await pool.query('DROP TRIGGER IF EXISTS companies_campanhas_desde ON companies');
+    await pool.query('CREATE TRIGGER companies_campanhas_desde BEFORE INSERT OR UPDATE OF modules ON companies FOR EACH ROW EXECUTE FUNCTION companies_campanhas_desde()');
     for (const c of ['admin_name', 'admin_phone', 'admin_email']) await pool.query(`ALTER TABLE companies ADD COLUMN IF NOT EXISTS ${c} TEXT`);
     await pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS booking_mode TEXT NOT NULL DEFAULT 'auto'");
     await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS api_key_hash TEXT');

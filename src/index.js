@@ -15,7 +15,7 @@ import { listar as listarBloqueios, bloquear, liberar, numeroDoContato, nomeVali
 import { cifrar, decifrar, servidorDe } from './segredo.js';
 import { requireUser, requireN8n, requireAdmin, isAdmin, signToken, signImpersonationToken } from './auth.js';
 import { buildRouter } from './routes.js';
-import { startCampaignScheduler, verificarHistorico, TETO_ADMIN } from './campaigns.js';
+import { startCampaignScheduler, verificarHistorico, TETO_ADMIN, progressoDaEmpresa } from './campaigns.js';
 import { registerEspelhoAdmin, startEspelhoContatos } from './espelho_contatos.js';
 import { registerPlanilhaAdmin } from './planilha_contatos.js';
 import { startListaScheduler } from './lista_evento.js';
@@ -295,7 +295,7 @@ app.get('/api/admin/diagnostico', requireUser, requireAdmin, async (req, res) =>
 
 app.get('/api/admin/companies', requireUser, requireAdmin, async (req, res) => {
   const { rows } = await qg(
-    `SELECT c.id, c.name, c.max_professionals, c.doc_slots, c.doc_extras, c.doc_nivel, c.billing_due_day, c.billing_exempt, (SELECT count(*) FROM partner_referrals pr WHERE pr.company_id=c.id)::int AS referrals_total, c.created_at, c.modules, c.locked_modules, c.module_labels, c.whatsapp_instance, c.chat_table, c.redis_prefix, c.redis_url, c.conv_db_url, c.contact_mirror_url, c.contact_mirror_on, c.contact_sheet_url, c.wa_api_url, (c.wa_api_token IS NOT NULL) AS wa_api_set, right(c.wa_api_token, 4) AS wa_api_fim, c.booking_mode, c.campaign_daily_max, c.campaign_interval_min, c.api_key_hint, c.api_key_created_at,
+    `SELECT c.id, c.name, c.max_professionals, c.doc_slots, c.doc_extras, c.doc_nivel, c.billing_due_day, c.billing_exempt, (SELECT count(*) FROM partner_referrals pr WHERE pr.company_id=c.id)::int AS referrals_total, c.created_at, c.modules, c.locked_modules, c.module_labels, c.whatsapp_instance, c.chat_table, c.redis_prefix, c.redis_url, c.conv_db_url, c.contact_mirror_url, c.contact_mirror_on, c.contact_sheet_url, c.wa_api_url, (c.wa_api_token IS NOT NULL) AS wa_api_set, right(c.wa_api_token, 4) AS wa_api_fim, c.booking_mode, c.campaign_daily_max, c.campaign_interval_min, c.campaign_prog_desde, c.api_key_hint, c.api_key_created_at,
             (SELECT u.email FROM users u WHERE u.company_id = c.id ORDER BY (u.role = 'owner') DESC, u.id LIMIT 1) AS owner_email
      FROM companies c ORDER BY c.id`);
   // profissionais ativos: contados dentro do schema de cada empresa
@@ -304,6 +304,8 @@ app.get('/api/admin/companies', requireUser, requireAdmin, async (req, res) => {
     c.redis_host = servidorDe(decifrar(c.redis_url)); c.redis_set = !!c.redis_url;
     c.conv_db_host = servidorDe(decifrar(c.conv_db_url)); c.conv_db_set = !!c.conv_db_url;
     delete c.redis_url; delete c.conv_db_url;
+    c.campaign_prog = c.modules?.campanhas ? await progressoDaEmpresa(c.id, c.campaign_prog_desde) : null;
+    delete c.campaign_prog_desde;
     c.ativos = await runAs(c.id, async () => (await q('SELECT COUNT(*)::int AS n FROM professionals WHERE active AND NOT is_default')).rows[0].n);
   }
   res.json(rows);

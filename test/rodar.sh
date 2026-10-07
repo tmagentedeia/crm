@@ -28,6 +28,7 @@ node src/migrate.js   # rodar de novo não pode quebrar nem duplicar
 # empresa criada antes do módulo Atendente: tira as tabelas e volta a versão; o migrate tem que recriar
 psql "$DB" -qc "select 1" >/dev/null
 node src/seed_demo.js
+psql "$DB" -qc "update public.companies set campaign_prog_desde=null where id=1"   # a demonstração fica no padrão; a progressiva tem teste próprio
 psql "$DB" -qc "drop table company_1.agent_manual_versions, company_1.agent_updates, company_1.assistant_manual_versions, company_1.assistant_updates; update public.tenant_versions set version=1 where company_id=1"
 node src/migrate.js
 psql "$DB" -qc "alter table company_1.services drop constraint services_kind_check, drop column kind; update public.tenant_versions set version=19 where company_id=1"
@@ -157,6 +158,7 @@ node test/telefone.mjs || R=1
 node test/passos.mjs || R=1
 BASE=http://localhost:3999 node test/campanhas.mjs || R=1
 BASE=http://localhost:3999 node test/aniversario.mjs || R=1
+BASE=http://localhost:3999 node test/campanhas_progressivo.mjs || R=1
 BASE=http://localhost:3999 node test/excecoes.mjs || R=1
 BASE=http://localhost:3999 node test/exclusao.mjs || R=1
 BASE=http://localhost:3999 node test/apagar_massa.mjs || R=1
