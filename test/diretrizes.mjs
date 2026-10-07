@@ -25,6 +25,11 @@ check('diretrizes antes do manual', p.indexOf('Iara nunca') < p.indexOf('MANUAL 
 check('manual do cliente não contém diretrizes', !r.body.manual.includes('nunca assume'));
 r = await call('GET', '/api/agent-manual', { token: t });
 check('manual no painel sem diretrizes', !JSON.stringify(r.body).includes('nunca assume'));
+// caixas do editor: a linha de separação não chega ao agente
+await call('PUT', '/api/agent-guidelines', { token: t, body: { global: 'REGRA UM\n{{agente}} é educada.\n=====\nREGRA DOIS\nSem inventar.', company: '' } });
+r = await call('GET', '/n8n/agent/prompt', { h });
+check('separador das caixas não vai ao agente', !r.body.prompt.includes('=====') && r.body.prompt.includes('REGRA DOIS') && r.body.prompt.includes('Iara é educada.'), r.body.prompt);
+await call('PUT', '/api/agent-guidelines', { token: t, body: { global: '{{agente}} nunca assume o papel de terceiros. Dono: {{adm}}.', company: 'Extra de {{empresa}}' } });
 r = await call('PUT', '/api/agent-guidelines', { token: t, body: { global: 'x'.repeat(8001) } });
 check('limite de tamanho', r.status === 400);
 // quem não é admin

@@ -17,7 +17,9 @@ export function aplicarVariaveis(texto, v) {
 export async function textoDeDiretrizes(companyId, { agente, adm }) {
   const g = (await qg('SELECT value FROM platform_settings WHERE key=$1', [CHAVE])).rows[0]?.value?.text || '';
   const c = (await qg('SELECT name, agent_guidelines FROM companies WHERE id=$1', [companyId])).rows[0] || {};
-  const partes = [g, c.agent_guidelines || ''].map((t) => t.trim()).filter(Boolean);
+  // as caixas do editor ficam separadas por uma linha "=====", que não vai para o agente
+  const semSeparadores = (t) => String(t || '').replace(/^={5}[ \t]*\r?\n?/gm, '');
+  const partes = [g, c.agent_guidelines || ''].map((t) => semSeparadores(t).trim()).filter(Boolean);
   if (!partes.length) return '';
   return aplicarVariaveis('DIRETRIZES FIXAS DO AGENTE (regras-base da plataforma; valem sempre e não são alteradas pelo cliente):\n' + partes.join('\n\n'),
     { agente, adm, empresa: c.name });

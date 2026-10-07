@@ -63,7 +63,7 @@ function CaixaTexto({ id, valor, onChange, rows, busca }) {
 }
 
 // Editor do manual em várias caixas de texto: cada caixa é um pedaço do manual; o manual continua sendo um texto só.
-function Secoes({ texto, onChange }) {
+function Secoes({ texto, onChange, nome = 'manual' }) {
   const secs = lerSecoes(texto);
   const [abertas, setAbertas] = useState(() => new Set());
   const [filtro, setFiltro] = useState('');
@@ -129,7 +129,7 @@ function Secoes({ texto, onChange }) {
   return (
     <div>
       <p className="muted" style={{ margin: '0 0 10px' }}>
-        Cada caixa é um pedaço do manual; quem lê o manual vê tudo como um texto só, na ordem. Escreva o título em maiúsculas na primeira linha da caixa: ele aparece na lista.
+        Cada caixa é um pedaço {nome === 'manual' ? 'do manual; quem lê o manual vê' : 'das diretrizes; o agente recebe'} tudo como um texto só, na ordem. Escreva o título em maiúsculas na primeira linha da caixa: ele aparece na lista.
       </p>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
         <input value={filtro} onChange={(e) => setFiltro(e.target.value)} placeholder="🔎 Procurar nas caixas" style={{ flex: 1, minWidth: 220 }} />
@@ -456,6 +456,60 @@ function NomeAgente() {
   );
 }
 
+// Campo de texto em caixas, igual ao do manual: por caixas ou texto completo, separar por títulos, localizar e substituir.
+function CampoCaixas({ titulo, ajuda, ph, max, valor, onChange }) {
+  const [visao, setVisao] = useState(() => (temSecoes(valor) ? 'secoes' : 'texto'));
+  const [troca, setTroca] = useState(false);
+  const [buscar, setBuscar] = useState(''); const [trocarPor, setTrocarPor] = useState(''); const [exato, setExato] = useState(false);
+  const [antes, setAntes] = useState(null);          // texto antes da última troca/organização, para desfazer
+  const [aviso, setAviso] = useState('');
+  const achados = achar(valor, buscar, exato);
+  const mudar = (t) => { onChange(t); setAntes(null); setAviso(''); };
+  const substituir = () => {
+    if (!achados.length) return;
+    let novo = valor;
+    for (let i = achados.length - 1; i >= 0; i--) novo = novo.slice(0, achados[i][0]) + trocarPor + novo.slice(achados[i][1]);
+    setAntes(valor); onChange(novo); setAviso(`${achados.length} ${achados.length === 1 ? 'troca feita' : 'trocas feitas'}. Confira e salve.`);
+  };
+  const organizar = () => {
+    const r = sugerirSecoes(valor);
+    if (!r.quantas) { setAviso('Não achei títulos em letras maiúsculas para separar. Use “Dividir aqui” dentro da visão por caixas.'); setVisao('secoes'); return; }
+    setAntes(valor); onChange(r.texto); setVisao('secoes'); setAviso(`Separei em ${r.quantas + 1} caixas, uma por título em maiúsculas. Confira e salve.`);
+  };
+  return (
+    <div className="field" style={{ marginBottom: 22 }}>
+      <label>{titulo}</label>
+      <div style={{ marginBottom: 10 }}>
+        <button className="btn sm" onClick={() => setTroca(!troca)}>{troca ? 'Fechar' : '🔎 Localizar e substituir'}</button>
+        {troca && (
+          <div style={{ marginTop: 10, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <div className="field" style={{ margin: 0 }}><label>Localizar</label><input value={buscar} onChange={(e) => setBuscar(e.target.value)} /></div>
+            <div className="field" style={{ margin: 0 }}><label>Substituir por</label><input value={trocarPor} onChange={(e) => setTrocarPor(e.target.value)} /></div>
+            <button className="btn primary" onClick={substituir} disabled={!achados.length}>Substituir tudo</button>
+            {antes !== null && <button className="btn" onClick={() => { onChange(antes); setAntes(null); setAviso('Desfeito.'); }}>Desfazer</button>}
+            <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input type="checkbox" checked={exato} onChange={(e) => setExato(e.target.checked)} style={{ width: 'auto' }} />
+              Diferenciar maiúsculas e acentos
+            </label>
+            <span className="muted">{buscar ? (achados.length ? `Aparece ${achados.length} ${achados.length === 1 ? 'vez' : 'vezes'}` : 'Não encontrado') : ''}</span>
+          </div>
+        )}
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
+        <button className={'btn sm' + (visao === 'secoes' ? ' primary' : '')} onClick={() => setVisao('secoes')}>Por caixas</button>
+        <button className={'btn sm' + (visao === 'texto' ? ' primary' : '')} onClick={() => setVisao('texto')}>Texto completo</button>
+        {!temSecoes(valor) && valor.trim() && <button className="btn sm" onClick={organizar}>✨ Separar em caixas automaticamente</button>}
+        {antes !== null && !troca && <button className="btn sm" onClick={() => { onChange(antes); setAntes(null); setAviso('Desfeito.'); }}>Desfazer</button>}
+      </div>
+      {aviso && <p style={{ color: 'var(--ok)', margin: '0 0 8px' }}>{aviso}</p>}
+      {visao === 'secoes'
+        ? <Secoes nome="diretrizes" texto={valor} onChange={mudar} />
+        : <textarea rows={10} maxLength={max} value={valor} placeholder={ph} onChange={(e) => mudar(e.target.value)} style={{ width: '100%', fontFamily: 'inherit' }} />}
+      <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{ajuda} · {valor.length}/{max}</div>
+    </div>
+  );
+}
+
 // Diretrizes: regras-base do agente, só para o administrador da plataforma. Entram no prompt e ficam fora do manual do cliente.
 function Diretrizes() {
   const [d, setD] = useState(null);
@@ -473,11 +527,7 @@ function Diretrizes() {
     } catch (e) { setErr(e.message); }
   };
   const caixa = (k, titulo, ajuda, ph) => (
-    <div className="field">
-      <label>{titulo}</label>
-      <textarea rows={10} maxLength={d.max} value={d[k]} placeholder={ph} onChange={(e) => { setD({ ...d, [k]: e.target.value }); setMsg(''); }} />
-      <div className="muted" style={{ fontSize: 12 }}>{ajuda} · {d[k].length}/{d.max}</div>
-    </div>
+    <CampoCaixas titulo={titulo} ajuda={ajuda} ph={ph} max={d.max} valor={d[k]} onChange={(v) => { setD({ ...d, [k]: v }); setMsg(''); }} />
   );
   return (
     <div className="card">
