@@ -22,6 +22,8 @@ export default function Bloqueios() {
   const [tel, setTel] = useState('');
   const [duracao, setDuracao] = useState('forever');
   const [ocupado, setOcupado] = useState(false);
+  const [sel, setSel] = useState([]);          // ids marcados
+  const [confirmando, setConfirmando] = useState(false);
 
   const carregar = () => api('/blocks').then((l) => { setItens(l); setErro(''); }).catch((e) => { setItens([]); setErro(e.message); });
   useEffect(() => { carregar(); }, []);
@@ -43,21 +45,41 @@ export default function Bloqueios() {
     catch (e) { setErro(e.message); }
   };
 
+  const alterna = (id) => setSel((a) => (a.includes(id) ? a.filter((x) => x !== id) : [...a, id]));
+  const alternaTodos = (lista) => setSel((a) => {
+    const ids = lista.map((i) => i.id);
+    return ids.every((id) => a.includes(id)) ? a.filter((x) => !ids.includes(x)) : [...new Set([...a, ...ids])];
+  });
+  const liberarSelecionados = async () => {
+    setErro(''); setMsg(''); setOcupado(true);
+    let ok = 0, falhou = 0;
+    for (const id of sel) {
+      try { await api('/blocks/' + encodeURIComponent(id), { method: 'DELETE' }); ok++; } catch { falhou++; }
+    }
+    setSel([]); setConfirmando(false);
+    if (ok) setMsg(ok === 1 ? '1 atendimento liberado.' : `${ok} atendimentos liberados.`);
+    if (falhou) setErro(`${falhou} não ${falhou === 1 ? 'foi liberado' : 'foram liberados'}. Tente de novo.`);
+    await carregar();
+    setOcupado(false);
+  };
+
   const sempre = (itens || []).filter((i) => i.permanente);
   const temp = (itens || []).filter((i) => !i.permanente);
   const tabela = (lista, vazio) => (
     <table>
-      <thead><tr><th>Contato</th><th>Motivo</th><th>Tempo restante</th><th></th></tr></thead>
+      <thead><tr><th style={{ width: 28 }}><input type="checkbox" title="Selecionar todos" disabled={!lista.length}
+        checked={!!lista.length && lista.every((i) => sel.includes(i.id))} onChange={() => { setConfirmando(false); alternaTodos(lista); }} /></th><th>Contato</th><th>Motivo</th><th>Tempo restante</th><th></th></tr></thead>
       <tbody>
         {lista.map((i) => (
           <tr key={i.id}>
+            <td><input type="checkbox" checked={sel.includes(i.id)} onChange={() => { setConfirmando(false); alterna(i.id); }} /></td>
             <td>{i.nome ? <><strong>{i.nome}</strong> <span className="muted">{fmtTel(i.id)}</span></> : fmtTel(i.id)}</td>
             <td>{MOTIVO[i.motivo]}</td>
             <td>{i.permanente ? <span className="muted">Para sempre</span> : fmtResta(i.segundos)}</td>
             <td style={{ textAlign: 'right' }}><button className="btn sm" onClick={() => liberar(i)}>Liberar</button></td>
           </tr>
         ))}
-        {!lista.length && <tr><td colSpan="4" className="muted">{vazio}</td></tr>}
+        {!lista.length && <tr><td colSpan="5" className="muted">{vazio}</td></tr>}
       </tbody>
     </table>
   );
@@ -68,8 +90,6 @@ export default function Bloqueios() {
       <p className="muted" style={{ marginBottom: 18 }}>
         Contatos que o atendente não responde. As mudanças valem na hora, sem precisar enviar nenhum comando pelo WhatsApp.
       </p>
-      {msg && <div style={{ color: 'var(--ok)', marginBottom: 8 }}>{msg}</div>}
-      {erro && <div className="error">{erro}</div>}
 
       <div className="card">
         <h2>Bloquear um contato</h2>
@@ -88,6 +108,31 @@ export default function Bloqueios() {
           <button className="btn primary" disabled={ocupado || !tel.trim()}>Bloquear</button>
         </form>
       </div>
+
+      {msg && <div style={{ color: 'var(--ok)', marginBottom: 8 }}>{msg}</div>}
+      {erro && <div className="error">{erro}</div>}
+
+      {sel.length > 0 && (
+        <div className="card" style={{ position: 'sticky', top: 8, zIndex: 5 }}>
+          {!confirmando ? (
+            <div className="row" style={{ alignItems: 'center', gap: 12 }}>
+              <span><strong>{sel.length}</strong> {sel.length === 1 ? 'contato selecionado' : 'contatos selecionados'}</span>
+              <button className="btn primary sm" onClick={() => setConfirmando(true)}>Liberar selecionados</button>
+              <button className="btn sm" onClick={() => setSel([])}>Limpar seleção</button>
+            </div>
+          ) : (
+            <div>
+              <p style={{ marginBottom: 10 }}>
+                Liberar o atendimento de <strong>{sel.length}</strong> {sel.length === 1 ? 'contato' : 'contatos'}? O atendente volta a responder {sel.length === 1 ? 'esse contato' : 'esses contatos'} na hora.
+              </p>
+              <div className="row" style={{ gap: 8 }}>
+                <button className="btn primary sm" disabled={ocupado} onClick={liberarSelecionados}>Sim, liberar</button>
+                <button className="btn sm" disabled={ocupado} onClick={() => setConfirmando(false)}>Cancelar</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {itens && (
         <>
