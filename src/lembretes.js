@@ -96,6 +96,28 @@ async function enviarUm(companyId, r, emp, con, { forcar = false } = {}) {
   }
 }
 
+// Aviso ao cliente de que o horário foi alterado pelo painel. Vai pelo WhatsApp da empresa e entra no histórico da conversa.
+export const TEXTO_MUDANCA = 'Olá, {nome}! Seu horário de {servico} foi alterado para {dia} às {hora}{com} na {empresa}. Qualquer dúvida, é só avisar por aqui.';
+export async function avisarMudanca(companyId, a) {
+  const emp = await empresaDe(companyId);
+  if (!a.phone) return { ok: false, erro: 'Cliente sem telefone' };
+  const con = await conexaoWhats(companyId);
+  if (!con) return { ok: false, erro: 'O WhatsApp para avisos ainda não está ligado' };
+  const texto = montarTexto(TEXTO_MUDANCA, a, emp);
+  try {
+    const resp = await fetch(con.base + '/send/text', {
+      method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json', token: con.token },
+      body: JSON.stringify({ number: a.phone, text: texto, readchat: true, delay: 2000 }), signal: AbortSignal.timeout(30000),
+    });
+    if (!resp.ok) return { ok: false, erro: `O WhatsApp respondeu ${resp.status}` };
+    const corpo = await resp.json().catch(() => null);
+    await gravarNaConversa(companyId, { phone: a.phone, chat_id: a.chat_id, text: texto }, corpo);
+    return { ok: true, texto };
+  } catch (e) {
+    return { ok: false, erro: e?.name === 'TimeoutError' ? 'O WhatsApp não respondeu a tempo' : 'Não foi possível falar com o WhatsApp' };
+  }
+}
+
 export async function enviarLembretes(companyId) {
   const emp = await empresaDe(companyId);
   if (!ativo(emp)) return 0;

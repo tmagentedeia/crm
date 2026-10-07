@@ -125,6 +125,32 @@ check('falha: tenta no máximo 3 vezes', enviouPara('5532988880008').length === 
 check('depois das tentativas fica como não enviado, com o motivo', psql(`select status||'|'||coalesce(note,'') from company_1.appointment_reminders where appointment_id=${a8}`).startsWith('failed|'));
 falhar = false;
 
+// corrigir o horário de um agendamento (fica registrado; lembrete e aviso ao cliente acompanham)
+const cE = cli('Edita Lima', '5532988880020'); const aE = agenda(cE, 777);
+await espera(1500);
+const alvo = new Date(Date.now() + 1111 * 60000).toISOString();
+const antes = psql(`select extract(epoch from (ends_at - starts_at)) from company_1.appointments where id=${aE}`);
+let ed = await api('POST', `/appointments/${aE}/edit`, { starts_at: alvo, notify: true });
+check('editar horário responde 200', ed.status === 200, JSON.stringify(ed.body));
+check('horário novo gravado e duração mantida', psql(`select (abs(extract(epoch from (starts_at - '${alvo}'::timestamptz))) < 1) and extract(epoch from (ends_at - starts_at)) = ${antes} from company_1.appointments where id=${aE}`) === 't');
+const hist = await api('GET', `/appointments/${aE}/edits`);
+check('histórico guarda quem, de e para', hist.body?.length === 1 && hist.body[0].edited_by && hist.body[0].notified === true, JSON.stringify(hist.body));
+check('lista de agendamentos informa quantas vezes foi alterado', (await api('GET', '/appointments?from=' + new Date().toISOString())).body.find((x) => String(x.id) === aE)?.edits === 1);
+check('lembrete ainda não enviado acompanha o novo horário', psql(`select abs(extract(epoch from (starts_at - '${alvo}'::timestamptz))) < 1 and abs(extract(epoch from (send_at - ('${alvo}'::timestamptz - interval '120 minutes')))) < 1 from company_1.appointment_reminders where appointment_id=${aE}`) === 't');
+const av = enviouPara('5532988880020').filter((x) => /alterado/.test(x.corpo.text));
+check('cliente avisado da mudança', av.length === 1 && /Edita/.test(av[0].corpo.text) && !/\{/.test(av[0].corpo.text), JSON.stringify(av));
+await espera(1000);
+check('o aviso entrou no histórico da conversa', Number(psql("select count(*) from chat_lembrete_teste where message->>'content' like '%foi alterado%'")) === 1);
+ed = await api('POST', `/appointments/${aE}/edit`, { starts_at: new Date(Date.now() + 1222 * 60000).toISOString() });
+check('sem pedir aviso, o cliente não recebe mensagem', ed.status === 200 && ed.body.notified === false && enviouPara('5532988880020').filter((x) => /alterado/.test(x.corpo.text)).length === 1);
+const cF = cli('Outro Cliente', '5532988880021'); const aF = agenda(cF, 2000);
+ed = await api('POST', `/appointments/${aF}/edit`, { starts_at: new Date(Date.now() + 1222 * 60000).toISOString() });
+check('horário já ocupado: recusa (409)', ed.status === 409, JSON.stringify(ed.body));
+psql(`update company_1.appointments set status='cancelled' where id=${aF}`);
+ed = await api('POST', `/appointments/${aF}/edit`, { starts_at: new Date(Date.now() + 3000 * 60000).toISOString() });
+check('agendamento cancelado não pode ser alterado', ed.status === 409, JSON.stringify(ed.body));
+check('data inválida: 400', (await api('POST', `/appointments/${aE}/edit`, { starts_at: 'xx' })).status === 400);
+
 psql(`update public.companies set wa_api_url=null, wa_api_token=null, reminder_minutes=null, reminder_text=null, chat_table=null, whatsapp_instance='${instOrig}' where id=1`);
 psql("drop table if exists chat_lembrete_teste");
 psql("delete from company_1.appointment_reminders; delete from company_1.appointments"); psql("delete from company_1.customers where phone like '55329888800%'");

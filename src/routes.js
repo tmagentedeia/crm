@@ -7,7 +7,7 @@ import { registerDiretrizesRoutes, textoDeDiretrizes } from './diretrizes.js';
 import { registerFerramentasRoutes, textoDeFerramentas } from './ferramentas.js';
 import { registerContatosRoutes, chavesDePerfil, definirAssunto, textoDeCadastroContato } from './contatos.js';
 import { registerCampaignRoutes } from './campaigns.js';
-import { registerLembretesRoutes } from './lembretes.js';
+import { registerLembretesRoutes, avisarMudanca } from './lembretes.js';
 import { registerGruposCampanha } from './grupos_campanha.js';
 import { registerBirthdayRoutes } from './aniversario.js';
 import { registerDocumentRoutes } from './documentos.js';
@@ -895,7 +895,8 @@ export function buildRouter() {
     const { rows } = await q(
       `SELECT a.*, c.name AS customer_name, c.phone AS customer_phone,
               sv.name AS service_name, b.name AS professional_name, b.color AS professional_color,
-              b.google_calendar_id AS professional_google_calendar_id
+              b.google_calendar_id AS professional_google_calendar_id,
+              (SELECT count(*)::int FROM appointment_edits e WHERE e.appointment_id=a.id) AS edits
        FROM appointments a
        JOIN customers c ON c.id=a.customer_id
        JOIN services sv ON sv.id=a.service_id
@@ -1032,6 +1033,42 @@ export function buildRouter() {
     res.json({ booking_mode: c.booking_mode || 'auto', notify_phone: normPhone(c.phone) || null, adm_name: c.adm_name || null });
   }));
   // guarda o id do evento espelhado no Google Agenda (string vazia = remove)
+  // Corrigir a data/hora de um agendamento (fica registrado). notify=true avisa o cliente pelo WhatsApp.
+  r.post('/appointments/:id/edit', wrap(async (req, res) => {
+    const novo = new Date(req.body?.starts_at);
+    if (!req.body?.starts_at || isNaN(novo)) return res.status(400).json({ error: 'Informe a nova data e hora' });
+    const cid = currentCompany();
+    const quem = req.user.id ? (await qg('SELECT name FROM users WHERE id=$1', [req.user.id])).rows[0]?.name : null;
+    const out = await tx(cid, async (t) => {
+      const a = (await t('SELECT * FROM appointments WHERE id=$1 FOR UPDATE', [req.params.id])).rows[0];
+      if (!a) return { status: 404, error: 'Não encontrado' };
+      if (!['pending', 'scheduled'].includes(a.status)) return { status: 409, error: 'Só dá para mudar o horário de um agendamento marcado. Reabra o agendamento antes.' };
+      if (Math.abs(new Date(a.starts_at) - novo) < 1000) return { status: 400, error: 'Esse já é o horário do agendamento' };
+      const up = (await t('UPDATE appointments SET starts_at=$2::timestamptz, ends_at=$2::timestamptz + (ends_at - starts_at) WHERE id=$1 RETURNING *', [a.id, novo.toISOString()])).rows[0];
+      await t('INSERT INTO appointment_edits (appointment_id, edited_by, from_starts_at, to_starts_at) VALUES ($1,$2,$3,$4)', [a.id, quem, a.starts_at, up.starts_at]);
+      // o lembrete que ainda não saiu acompanha o novo horário
+      const emp = (await qg('SELECT reminder_minutes FROM companies WHERE id=$1', [cid])).rows[0];
+      if (emp?.reminder_minutes) await t("UPDATE appointment_reminders SET starts_at=$2, send_at=$2::timestamptz - make_interval(mins => $3) WHERE appointment_id=$1 AND status='scheduled'", [a.id, up.starts_at, emp.reminder_minutes]);
+      else await t("UPDATE appointment_reminders SET starts_at=$2 WHERE appointment_id=$1 AND status='scheduled'", [a.id, up.starts_at]);
+      return { row: up };
+    });
+    if (out.error) return res.status(out.status).json({ error: out.error });
+    let notified = false, notify_error = null;
+    if (req.body?.notify === true) {
+      const d = (await q(`SELECT c.phone, c.chat_id, btrim(concat_ws(' ', c.name, c.last_name)) AS customer_name, s.name AS service_name,
+                                 b.name AS professional_name, COALESCE(b.is_default,false) AS professional_default, a.starts_at
+                          FROM appointments a JOIN customers c ON c.id=a.customer_id LEFT JOIN services s ON s.id=a.service_id LEFT JOIN professionals b ON b.id=a.professional_id
+                          WHERE a.id=$1`, [out.row.id])).rows[0];
+      const env = await avisarMudanca(cid, d);
+      notified = env.ok; notify_error = env.ok ? null : env.erro;
+      if (notified) await q('UPDATE appointment_edits SET notified=true WHERE id=(SELECT max(id) FROM appointment_edits WHERE appointment_id=$1)', [out.row.id]);
+    }
+    res.json({ ...out.row, notified, notify_error });
+    apptSnapshot(out.row.id).then((sn) => notifyN8n('updated', sn)).catch(() => {});
+  }));
+  r.get('/appointments/:id/edits', wrap(async (req, res) => {
+    res.json((await q('SELECT id, edited_by, from_starts_at, to_starts_at, notified, created_at FROM appointment_edits WHERE appointment_id=$1 ORDER BY created_at DESC, id DESC', [req.params.id])).rows);
+  }));
   r.patch('/appointments/:id', wrap(async (req, res) => {
     const { google_event_id } = req.body;
     if (google_event_id === undefined) return res.status(400).json({ error: 'Nada para atualizar' });
@@ -1152,8 +1189,10 @@ export function buildRouter() {
        )
        SELECT professional_id, name AS professional_name,
               to_char(t_start,'HH24:MI') AS time,
-              (t_start AT TIME ZONE $4) AS starts_at
-       FROM slots
+              to_char(t_start,'YYYY-MM-DD"T"HH24:MI:SS') ||
+                CASE WHEN off_min < 0 THEN '-' ELSE '+' END ||
+                to_char(abs(off_min)/60,'FM00') || ':' || to_char(abs(off_min)%60,'FM00') AS starts_at
+       FROM (SELECT slots.*, (EXTRACT(EPOCH FROM (t_start - ((t_start AT TIME ZONE $4) AT TIME ZONE 'UTC')))/60)::int AS off_min FROM slots) slots
        WHERE (break_start IS NULL OR NOT (t_start::time < break_end AND t_end::time > break_start))
          AND (t_start AT TIME ZONE $4) > now()
          AND NOT EXISTS (SELECT 1 FROM appointments a WHERE a.professional_id=slots.professional_id

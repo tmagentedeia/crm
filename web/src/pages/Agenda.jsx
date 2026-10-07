@@ -64,6 +64,10 @@ export default function Agenda() {
   const [modal, setModal] = useState(null);
   const sel = useSelecao(appts);
   const [aviso, setAviso] = useState('');
+  const [editando, setEditando] = useState(null);
+  const [recado, setRecado] = useState({});      // resultado da última mudança, mostrado no próprio agendamento
+  const [hist, setHist] = useState({});          // histórico de mudanças aberto por agendamento
+  const verHist = async (id) => { if (hist[id]) { setHist({ ...hist, [id]: null }); return; } setHist({ ...hist, [id]: await api(`/appointments/${id}/edits`) }); };
 
   const load = useCallback(async () => {
     const from = new Date(date + 'T00:00:00').toISOString();
@@ -126,12 +130,16 @@ export default function Agenda() {
                   <div className="muted">{a.service_name} · {money(a.price)}</div>
                   <div className="row" style={{ marginTop: 8 }}>
                     {a.status === 'pending' && <><button className="btn sm ok" onClick={() => responder(a.id, 'confirm')}>Confirmar</button><button className="btn sm bad" onClick={() => responder(a.id, 'reject')}>Recusar</button></>}
+                    {(a.status === 'scheduled' || a.status === 'pending') && <button className="btn sm" onClick={() => setEditando(a)}>Alterar horário</button>}
                     {a.status === 'scheduled' && <button className="btn sm" onClick={() => setStatus(a.id, 'cancelled')}>Cancelar</button>}
                     {a.status !== 'pending' && a.status !== 'attended' && <button className="btn sm ok" onClick={() => setStatus(a.id, 'attended')}>Compareceu</button>}
                     {a.status !== 'pending' && a.status !== 'no_show' && <button className="btn sm bad" onClick={() => setStatus(a.id, 'no_show')}>Faltou</button>}
                     {a.status !== 'pending' && a.status !== 'scheduled' && <button className="btn sm" onClick={() => setStatus(a.id, 'scheduled')}>Reabrir</button>}
                     <button className="btn sm" onClick={() => remove(a.id)}>Excluir</button>
                   </div>
+                  {recado[a.id] && <p className="muted" style={{ marginTop: 6 }}>{recado[a.id]}</p>}
+                  {a.edits > 0 && <button type="button" className="btn sm" style={{ marginTop: 6 }} onClick={() => verHist(a.id)}>Horário alterado {a.edits}x {hist[a.id] ? '▴' : '▾'}</button>}
+                  {hist[a.id] && <ul className="muted" style={{ margin: '6px 0 0', paddingLeft: 18 }}>{hist[a.id].map((h) => <li key={h.id}>{quando(h.created_at)}{h.edited_by ? ` por ${h.edited_by}` : ''}: de {quando(h.from_starts_at)} para {quando(h.to_starts_at)}{h.notified ? ' · cliente avisado' : ''}</li>)}</ul>}
                 </div>
               ))}
               {!mine.length && <p className="muted">Sem agendamentos neste dia.</p>}
@@ -139,9 +147,44 @@ export default function Agenda() {
           );
         })}
       </div>
+      {editando && <EditarHorario a={editando} onClose={() => setEditando(null)} onSaved={(r) => {
+        setRecado({ ...recado, [editando.id]: 'Horário alterado.' + (r.notified ? ' O cliente foi avisado.' : r.notify_error ? ` O cliente não foi avisado: ${r.notify_error}.` : '') });
+        setHist({ ...hist, [editando.id]: null }); setEditando(null); load();
+      }} />}
       {modal && <NewAppointment init={modal} date={date} professionals={professionals} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
       </>}
     </>
+  );
+}
+
+const quando = (d) => new Date(d).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+const paraCampo = (d) => { const x = new Date(d); const p = (n) => String(n).padStart(2, '0'); return `${x.getFullYear()}-${p(x.getMonth() + 1)}-${p(x.getDate())}T${p(x.getHours())}:${p(x.getMinutes())}`; };
+
+function EditarHorario({ a, onClose, onSaved }) {
+  const [quandoNovo, setQuandoNovo] = useState(paraCampo(a.starts_at));
+  const [avisar, setAvisar] = useState(false);
+  const [err, setErr] = useState('');
+  const [salvando, setSalvando] = useState(false);
+  async function save(e) {
+    e.preventDefault(); setErr(''); setSalvando(true);
+    try { onSaved(await api(`/appointments/${a.id}/edit`, { method: 'POST', body: { starts_at: new Date(quandoNovo).toISOString(), notify: avisar } })); }
+    catch (e2) { setErr(e2.message); setSalvando(false); }
+  }
+  return (
+    <div className="modal-bg" onClick={onClose}>
+      <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={save}>
+        <h2>Alterar horário</h2>
+        <p className="muted">{a.customer_name || a.customer_phone} · {a.service_name} · hoje marcado para {quando(a.starts_at)}</p>
+        {err && <div className="error">{err}</div>}
+        <div className="field"><label>Novo dia e horário</label><input type="datetime-local" value={quandoNovo} onChange={(e) => setQuandoNovo(e.target.value)} required /></div>
+        <label className="row" style={{ gap: 8, marginBottom: 12 }}>
+          <input type="checkbox" style={{ width: 'auto', margin: 0 }} checked={avisar} onChange={(e) => setAvisar(e.target.checked)} />
+          <span>Avisar o cliente da mudança pelo WhatsApp</span>
+        </label>
+        <p className="muted">A mudança fica registrada no agendamento.</p>
+        <div className="row"><button className="btn primary" disabled={salvando}>Salvar</button><button type="button" className="btn" onClick={onClose}>Cancelar</button></div>
+      </form>
+    </div>
   );
 }
 

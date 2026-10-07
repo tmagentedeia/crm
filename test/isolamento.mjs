@@ -62,6 +62,7 @@ const mon = new Date(Date.now() + 14 * 864e5); while (mon.getDay() !== 1) mon.se
 const day = mon.toISOString().slice(0, 10);
 const avA = await call('GET', `/n8n/availability?date=${day}&service_id=${idSv}`, { n8n: 1 });
 check('disponibilidade A', avA.status === 200 && avA.body.length > 0, JSON.stringify(avA).slice(0, 200));
+check('disponibilidade: starts_at já no horário local com -03:00 (igual ao campo time)', avA.body.length > 0 && avA.body.every((x) => x.starts_at === `${day}T${x.time}:00-03:00`), JSON.stringify(avA.body[0]));
 const avB = await call('GET', `/n8n/availability?date=${day}&service_id=${svB}`, { n8n: 2 });
 check('disponibilidade B', avB.status === 200 && avB.body.length > 0 && avB.body.every((x) => x.professional_name === 'Joana'), JSON.stringify(avB).slice(0, 200));
 check('disponibilidade: serviço de A na empresa 2 = 400', (await call('GET', `/n8n/availability?date=${day}&service_id=${idSv}`, { n8n: 2 })).status === 400);

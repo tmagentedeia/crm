@@ -54,6 +54,18 @@ CREATE TABLE IF NOT EXISTS appointment_reminders (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS appointment_reminders_status ON appointment_reminders (status, send_at);`;
+// Correções de data/hora de um agendamento: fica registrado quem mudou, quando e de/para
+const EDICOES_AGENDAMENTO_SQL = `
+CREATE TABLE IF NOT EXISTS appointment_edits (
+  id BIGSERIAL PRIMARY KEY,
+  appointment_id BIGINT NOT NULL REFERENCES appointments(id) ON DELETE CASCADE,
+  edited_by TEXT,
+  from_starts_at TIMESTAMPTZ NOT NULL,
+  to_starts_at TIMESTAMPTZ NOT NULL,
+  notified BOOLEAN NOT NULL DEFAULT false,   -- o cliente foi avisado da mudança?
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS appointment_edits_appt ON appointment_edits (appointment_id, created_at);`;
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const baseline = fs.readFileSync(path.join(dir, '..', 'db', 'tenant.sql'), 'utf8');
 
@@ -253,6 +265,8 @@ export const TENANT_STEPS = [
   { version: 55, sql: AGENDA_UNICA_UMA_SQL },
   // 56: lembretes de agendamento (lista de agendados e enviados)
   { version: 56, sql: LEMBRETES_SQL },
+  // 57: histórico de correções de data/hora do agendamento
+  { version: 57, sql: EDICOES_AGENDAMENTO_SQL },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 
@@ -308,6 +322,7 @@ export async function createCompanySchema(cx, companyId) {
   await cx.query(AGENDA_UNICA_SQL);
   await cx.query(AGENDA_UNICA_UMA_SQL);
   await cx.query(LEMBRETES_SQL);
+  await cx.query(EDICOES_AGENDAMENTO_SQL);
   await cx.query('SET LOCAL search_path TO public');
   await cx.query('INSERT INTO tenant_versions (company_id, version) VALUES ($1, 1)', [companyId]);
 }
