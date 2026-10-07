@@ -5,7 +5,7 @@
 #  - modelos.mjs: salvar como modelo e começar do modelo
 #  - acesso_admin.mjs: "abrir painel" do administrador
 #  - sessao.mjs: sessão do painel renova com o uso
-#  - senha.mjs: cada pessoa (dono ou equipe) troca a própria senha
+#  - senha.mjs: alterar senha na tela de login (dono ou equipe), sem estar logado
 #  - venda.mjs: venda com valor (pagamento aceito ou pedido pago) vira cliente
 #  - bloqueios.mjs: lista de atendimentos bloqueados (precisa do redis-server instalado)
 #  - chave_global.mjs: chave global desligada com ALLOW_GLOBAL_KEY=false (segundo servidor, porta 3998)

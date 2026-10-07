@@ -61,22 +61,22 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
-// Cada pessoa troca a própria senha (dono ou equipe): informa a atual e define a nova.
-// Não vale no acesso temporário do administrador ("Abrir painel"): ali a sessão é do responsável da empresa, e quem entrou não sabe a senha dele.
-app.post('/api/auth/password', requireUser, async (req, res) => {
-  if (req.user.imp) return res.status(403).json({ error: 'Você está vendo o painel desta empresa como administrador. A senha só pode ser trocada pelo próprio usuário.' });
+// Alterar senha na própria tela de login (dono ou equipe): quem entrou com uma senha provisória troca por uma sua.
+// Prova quem é com o e-mail e a senha atual, igual ao login; por isso funciona sem estar logado e não revela se o e-mail existe.
+app.post('/api/auth/password', async (req, res) => {
+  const email = String(req.body.email || '').trim();
   const atual = String(req.body.current || '');
   const nova = String(req.body.password || '');
-  if (!atual) return res.status(400).json({ error: 'Informe a senha atual' });
+  if (!email || !atual) return res.status(400).json({ error: 'Informe o e-mail e a senha atual' });
   if (nova.length < 8) return res.status(400).json({ error: 'A senha nova precisa ter ao menos 8 caracteres' });
   if (nova.length > 200) return res.status(400).json({ error: 'A senha nova é longa demais' });
   try {
-    const u = (await qg('SELECT id, company_id, role, active, password_hash FROM users WHERE id=$1', [req.user.id])).rows[0];
-    if (!u || !u.active) return res.status(401).json({ error: 'Sessão inválida ou expirada' });
-    if (!(await bcrypt.compare(atual, u.password_hash))) return res.status(400).json({ error: 'A senha atual está incorreta' });
+    const u = (await qg('SELECT id, active, password_hash FROM users WHERE lower(email)=lower($1)', [email])).rows[0];
+    if (!u || !u.active || !(await bcrypt.compare(atual, u.password_hash)))
+      return res.status(401).json({ error: 'E-mail ou senha atual incorretos' });
     if (nova === atual) return res.status(400).json({ error: 'A senha nova precisa ser diferente da atual' });
     await qg('UPDATE users SET password_hash=$2 WHERE id=$1', [u.id, await bcrypt.hash(nova, 10)]);
-    res.json({ ok: true, token: signToken(u) });
+    res.json({ ok: true });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Erro interno' }); }
 });
 

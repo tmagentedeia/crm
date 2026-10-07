@@ -18,15 +18,7 @@ export const IconeCadeado = ({ size = 14 }) => (
   </svg>
 );
 
-export const IconeChave = ({ size = 18 }) => (
-  <svg {...base} width={size} height={size}>
-    <circle cx="8" cy="15" r="3.6" />
-    <path d="M10.6 12.4L19 4" />
-    <path d="M16 7l2.5 2.5" />
-  </svg>
-);
-
-export const IconeSair =({ size = 18 }) => (
+export const IconeSair = ({ size = 18 }) => (
   <svg {...base} width={size} height={size}>
     <path d="M10 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4" />
     <path d="M16 8l4 4-4 4" />

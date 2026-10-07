@@ -85,7 +85,6 @@ export const ADMIN_DA_EMPRESA = new Set(['owner']);
 export function rotaPermitida(telas, segmento, metodo) {
   const leitura = metodo === 'GET' || metodo === 'HEAD';
   if (segmento === 'me') return true;
-  if (segmento === 'auth') return true; // cada pessoa troca a própria senha (a rota exige a senha atual)
   if (leitura && SEMPRE_LEITURA.includes(segmento)) return true;
   for (const t of telas) {
     if (ROTAS_DA_TELA[t]?.includes(segmento)) return true;
