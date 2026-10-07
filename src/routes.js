@@ -25,7 +25,7 @@ import { TIPOS_ITEM } from './produtos.js';
 import { registerSalesRoutes } from './vendas.js';
 import { registerCommissionRoutes } from './comissoes.js';
 import { registerListaEventoRoutes } from './lista_evento.js';
-import { contarConversas } from './conversas.js';
+import { contarConversas, conversasPorDiaSemana } from './conversas.js';
 import { registerParceriasRoutes, textoDeParcerias } from './parcerias.js';
 import { registerCasaDeShowsRoutes, historicoCasaDeShows } from './casa_de_shows.js';
 
@@ -1283,6 +1283,28 @@ export function buildRouter() {
       profissionais: byProfessional.rows, clientes: leads.rows,
       pedidos: ped.rows[0], musicas: musicas.rows, recebido: rec.rows[0], ingressos: ing.rows[0], conversas: conv,
     });
+  }));
+
+  // Gráfico por dia da semana (0 = domingo, horário de Brasília). O cliente escolhe a métrica e o período na própria tela.
+  //   atendimentos: pessoas que conversaram com o agente · agendamentos: realizados · ingressos: vendas de ingresso confirmadas
+  r.get('/dashboard/weekday', wrap(async (req, res) => {
+    const metric = String(req.query.metric || 'atendimentos');
+    if (!['atendimentos', 'agendamentos', 'ingressos'].includes(metric)) return res.status(400).json({ error: 'Escolha o que o gráfico deve mostrar.' });
+    const days = Math.min(Math.max(Math.floor(Number(req.query.days)) || 30, 1), 365);
+    let linhas = [], indisponivel = false;
+    if (metric === 'atendimentos') {
+      const cfg = (await qg('SELECT chat_table, whatsapp_instance, conv_db_url FROM companies WHERE id=$1', [currentCompany()])).rows[0] || {};
+      const c = await conversasPorDiaSemana(cfg, days);
+      if (!c || c.total === null) indisponivel = true; else linhas = c.dias;
+    } else if (metric === 'agendamentos') {
+      linhas = (await q(`SELECT weekday, COUNT(*)::int AS total FROM v_dashboard_base WHERE status='attended'
+                         AND starts_at >= now() - make_interval(days => $1) GROUP BY weekday ORDER BY weekday`, [days])).rows;
+    } else {
+      linhas = (await q(`SELECT EXTRACT(DOW FROM created_at AT TIME ZONE 'America/Sao_Paulo')::int AS weekday, COUNT(*)::int AS total
+                         FROM shows_sales WHERE status IN ('confirmed','attended') AND created_at >= now() - make_interval(days => $1)
+                         GROUP BY 1 ORDER BY 1`, [days])).rows;
+    }
+    res.json({ metric, days, indisponivel, por_dia_semana: linhas });
   }));
 
 

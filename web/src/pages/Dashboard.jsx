@@ -17,12 +17,17 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGri
 import { api, money, WEEKDAYS } from '../api.js';
 import { moduleOn } from '../modules.js';
 
-function Chart({ title, data, x, layout, vazio, nome }) {
+function Chart({ title, data, x, layout, vazio, nome, acoes }) {
   const color = useChartColor();
   const horizontal = layout === 'vertical';
   return (
     <div className="card">
-      <h2>{title}</h2>
+      {acoes ? (
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+          <h2 style={{ margin: 0 }}>{title}</h2>
+          <div className="row" style={{ gap: 8 }}>{acoes}</div>
+        </div>
+      ) : <h2>{title}</h2>}
       <div style={{ height: 260, color: 'var(--muted)' }}>
         {data.length ? (
           <ResponsiveContainer>
@@ -49,14 +54,49 @@ function Chart({ title, data, x, layout, vazio, nome }) {
   );
 }
 
+// Movimento por dia da semana: o cliente escolhe o que ver e em qual período, e a resposta aparece aqui mesmo no gráfico
+function GraficoSemana({ mods }) {
+  const metricas = [
+    { id: 'atendimentos', label: 'Atendimentos', nome: 'Atendimentos' },
+    ...(moduleOn(mods, 'agenda') ? [{ id: 'agendamentos', label: 'Agendamentos realizados', nome: 'Agendamentos' }] : []),
+    ...(moduleOn(mods, 'casa_de_shows') ? [{ id: 'ingressos', label: 'Vendas de ingresso', nome: 'Vendas' }] : []),
+  ];
+  const [metric, setMetric] = useState('atendimentos');
+  const [days, setDays] = useState(30);
+  const [r, setR] = useState(null);
+  useEffect(() => {
+    setR(null);
+    api(`/dashboard/weekday?metric=${metric}&days=${days}`).then(setR).catch(() => setR({ erro: true, por_dia_semana: [] }));
+  }, [metric, days]);
+
+  const week = WEEKDAYS.map((n, i) => ({ dia: n.slice(0, 3), total: r?.por_dia_semana?.find((x) => x.weekday === i)?.total || 0 }));
+  const mostra = r && !r.erro && !r.indisponivel;
+  const vazio = !r ? 'Carregando…' : r.erro ? 'Não foi possível carregar agora.' : 'A contagem começa quando o agente for ligado ao painel.';
+  const atual = metricas.find((m) => m.id === metric) || metricas[0];
+  return (
+    <Chart title="Movimento por dia da semana" data={mostra ? week : []} x="dia" nome={atual.nome} vazio={vazio}
+      acoes={(
+        <>
+          {metricas.length > 1 && (
+            <select style={{ width: 'auto' }} value={metric} onChange={(e) => setMetric(e.target.value)}>
+              {metricas.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+            </select>
+          )}
+          <select style={{ width: 'auto' }} value={days} onChange={(e) => setDays(Number(e.target.value))}>
+            <option value={7}>Últimos 7 dias</option><option value={30}>Últimos 30 dias</option><option value={90}>Últimos 90 dias</option>
+          </select>
+        </>
+      )} />
+  );
+}
+
 export default function Dashboard({ company }) {
   const [days, setDays] = useState(30);
   const [d, setD] = useState(null);
   useEffect(() => { api('/dashboard?days=' + days).then(setD); }, [days]);
   if (!d) return <p className="muted">Carregando…</p>;
 
-  const week = WEEKDAYS.map((n, i) => ({ dia: n.slice(0, 3), total: d.por_dia_semana.find((x) => x.weekday === i)?.total || 0 }));
-  const cli = Object.fromEntries(d.clientes.map((c) => [c.status, c.total]));
+  const cli =Object.fromEntries(d.clientes.map((c) => [c.status, c.total]));
   const ticket = d.atendimentos ? d.faturamento / d.atendimentos : 0;
   const mods = company?.modules;
   const agenda = moduleOn(mods, 'agenda'), pedidos = moduleOn(mods, 'pedidos'), financeiro = moduleOn(mods, 'financeiro'), shows = moduleOn(mods, 'casa_de_shows');
@@ -82,7 +122,7 @@ export default function Dashboard({ company }) {
         <div className="card stat"><span className="muted">Clientes / Leads</span><div className="v">{cli.client || 0} / {cli.lead || 0}</div></div>
       </div>
       <div className="grid cols-2">
-        {agenda && <Chart title="Dias com mais agendamentos" data={week} x="dia" />}
+        <GraficoSemana mods={mods} />
         {agenda && <Chart title="Serviços mais procurados" data={d.servicos} x="service" layout="vertical" />}
         {agenda && <Chart title="Profissionais mais requisitados" data={d.profissionais} x="professional" layout="vertical" />}
         {pedidos && <Chart title="Músicas mais pedidas" data={d.musicas} x="song" layout="vertical" nome="Pedidos" vazio="Sem pedidos no período." />}
