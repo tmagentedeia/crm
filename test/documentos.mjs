@@ -14,13 +14,14 @@ const call = async (method, path, { token, body, key } = {}) => {
 const psql = (sql) => execSync(`psql "${process.env.DATABASE_URL}" -tAc "${sql}"`).toString().trim();
 const A = (await call('POST', '/api/auth/login', { body: { email: 'demo@demo.com', password: 'demo1234' } })).body;
 const B = (await call('POST', '/api/auth/login', { body: { email: 'dois@x.com', password: 'senhasenha' } })).body;
+psql("update public.companies set doc_slots=null, doc_nivel=null where id=(select company_id from public.users where email='dois@x.com')");   // sem limite de vagas
 psql('delete from company_1.doc_files; delete from company_1.doc_templates; delete from company_1.doc_settings');
 psql(`delete from company_${B.company.id}.doc_files; delete from company_${B.company.id}.doc_templates; delete from company_${B.company.id}.doc_settings`);
 
 check('status informa que o PDF está ligado', (await call('GET', '/api/documents/status', { token: A.token })).body?.configured === true);
 check('serviço de PDF responde ao teste', (await call('GET', '/api/documents/health', { token: A.token })).body?.ok === true);
 const tb = await call('POST', '/api/documents/templates', { token: B.token, body: { name: 'x', kind: 'contrato', html: '<p>x</p>' } });
-check('empresa comum cria o próprio modelo (sem limite de vagas)', tb.status === 201);
+check('empresa comum cria o próprio modelo (sem limite de vagas)', tb.status === 201, JSON.stringify(tb.body));
 check('o modelo da empresa 2 não aparece na 1', (await call('GET', '/api/documents/templates', { token: A.token })).body.every((t) => t.name !== 'x'));
 await call('DELETE', `/api/documents/templates/${tb.body?.id}`, { token: B.token });
 check('modelo vazio recusado', (await call('POST', '/api/documents/templates', { token: A.token, body: { name: 'x', kind: 'contrato', html: '  ' } })).status === 400);

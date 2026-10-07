@@ -130,7 +130,7 @@ const meus = (await T('GET', '/api/orders?phone=' + P1)).body;
 check('pedidos do cliente por telefone (próxima live + fila)', Array.isArray(meus.orders) && meus.orders.length > 0 && meus.orders.every((x) => x.id && x.song !== undefined) && 'next_live' in meus, JSON.stringify(meus).slice(0, 200));
 check('telefone sem pedidos devolve lista vazia', ((await T('GET', '/api/orders?phone=32900000000')).body.orders || [1]).length === 0);
 // ---- cortesia do 1º pedido ----
-const PC = '553288880099';
+const PC = '55328888' + String(Math.floor(1000 + Math.random() * 9000));   // telefone novo: a cortesia só vale para contato novo
 const c1 = (await T('POST', '/api/orders', { phone: PC, name: 'Cliente Cortesia', song: 'Primeira' })).body;
 check('1º pedido sem pagamento avisa o prazo da cortesia', c1.courtesy_in_minutes === 15 && c1.kind === 'paid', JSON.stringify(c1));
 check('dentro do prazo ainda aguarda pagamento', ((await T('GET', '/api/orders?phone=' + PC)).body.orders[0] || {}).kind === 'paid');

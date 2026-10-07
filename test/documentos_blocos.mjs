@@ -13,6 +13,7 @@ const call = async (method, path, { token, body } = {}) => {
 const psql = (sql) => execSync(`psql "${process.env.DATABASE_URL}" -tAc "${sql}"`).toString().trim();
 const A = (await call('POST', '/api/auth/login', { body: { email: 'demo@demo.com', password: 'demo1234' } })).body;
 const B = (await call('POST', '/api/auth/login', { body: { email: 'dois@x.com', password: 'senhasenha' } })).body;
+psql("update public.companies set doc_slots=null, doc_nivel=null where id=(select company_id from public.users where email='dois@x.com')");   // sem limite de vagas
 psql('delete from company_1.doc_files; delete from company_1.doc_templates; delete from company_1.doc_settings');
 const api = (m, p, body) => call(m, '/api' + p, { token: A.token, body });
 

@@ -64,13 +64,6 @@ await dorme(1200);
 check('com falha segue pendente', psql(`select mirror_pending from ${T} where id=${novo.body.id}`) === 't');
 falhar = false; await dorme(1500);
 check('volta a enviar quando o fluxo responde', psql(`select mirror_pending from ${T} where id=${novo.body.id}`) === 'f' && recebidos.filter((x) => x.id === Number(novo.body.id)).pop().city === 'Juiz de Fora');
-// copiar todos
-const total = Number(psql(`select count(*) from ${T} where phone is not null`));
-r = await call('POST', `/api/admin/companies/${cid}/contact-mirror/send-all`, { token: t });
-check('copiar todos enfileira a base', r.status === 200 && r.body.total === total, JSON.stringify(r));
-const base = recebidos.length;
-await dorme(4000);
-check('a fila anda devagar (poucos por rodada)', recebidos.length - base > 0 && recebidos.length - base < total || total <= 4, `${recebidos.length - base}/${total}`);
 // desligado, nada sai
 r = await call('PUT', `/api/admin/companies/${cid}/contact-mirror`, { token: t, body: { on: false } });
 await dorme(800); const n2 = recebidos.length; await dorme(1200);

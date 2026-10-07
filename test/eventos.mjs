@@ -1,4 +1,5 @@
 // Módulo Eventos. Uso: BASE=http://localhost:3999 node test/eventos.mjs
+import { execSync } from 'child_process';
 const BASE = process.env.BASE || 'http://localhost:3999';
 let ok = 0, fail = 0;
 const check = (name, cond, extra = '') => { cond ? ok++ : (fail++, console.log('FALHOU:', name, extra)); };
@@ -12,6 +13,7 @@ const B = await login('dois@x.com', 'senhasenha');
 const T = (m, p, b, t = A) => call(m, p, t, b);
 const em = (dias, h = 0) => new Date(Date.now() + dias * 864e5 + h * 36e5).toISOString();
 
+execSync(`psql "${process.env.DATABASE_URL}" -qc "delete from company_1.events"`);   // começa sem eventos de outros testes
 check('sem nome = 400', (await T('POST', '/api/events', { starts_at: em(5) })).status === 400);
 check('sem data = 400', (await T('POST', '/api/events', { title: 'x' })).status === 400);
 check('fim antes do início = 400', (await T('POST', '/api/events', { title: 'x', starts_at: em(5), ends_at: em(4) })).status === 400);
