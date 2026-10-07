@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Nome } from '../menu.jsx';
 import { api, fmtTime, money, WEEKDAYS } from '../api.js';
+import GradeHorarios from '../GradeHorarios.jsx';
 import { useSelecao, ApagarSelecionados, resumoApagado } from '../selecao.jsx';
 
 const STATUS = { pending: 'Aguardando confirmação', scheduled: 'Agendado', attended: 'Compareceu', no_show: 'Faltou', cancelled: 'Cancelado' };
@@ -20,7 +21,6 @@ function HorarioEmpresa({ cfg, onChange }) {
   const [msg, setMsg] = useState(''); const [err, setErr] = useState(''); const [busy, setBusy] = useState(false);
   const [aberto, setAberto] = useState(false);
   const resumo = (cfg.schedules || []).length ? cfg.schedules.map((s) => WEEKDAYS[s.weekday].slice(0, 3)).join(' · ') : 'nenhum dia definido';
-  const set = (i, k, v) => setGrade(grade.map((s, j) => (j === i ? { ...s, [k]: v } : s)));
   const salvar = async (corpo, ok) => {
     setMsg(''); setErr(''); setBusy(true);
     try { await api('/agenda/config', { method: 'PUT', body: corpo }); setMsg(ok); await onChange(); }
@@ -42,19 +42,7 @@ function HorarioEmpresa({ cfg, onChange }) {
       {msg && !aberto && <p style={{ color: 'var(--ok)', marginTop: 8 }}>{msg}</p>}
       {aberto && <div style={{ marginTop: 12 }}>
       {!cfg.scheduling_enabled && <p className="muted" style={{ marginBottom: 10 }}>Os agendamentos estão desativados: o horário abaixo serve só para informar quando a empresa atende.</p>}
-      <div className="sched-row muted"><span>Dia</span><span>Entrada</span><span>Saída</span><span>Pausa de</span><span>até</span></div>
-      {grade.map((s, i) => (
-        <div className="sched-row" key={s.weekday} style={{ opacity: s.on ? 1 : 0.55 }}>
-          <label style={{ margin: 0, color: 'var(--text)' }}>
-            <input type="checkbox" checked={s.on} onChange={(e) => set(i, 'on', e.target.checked)} style={{ width: 'auto', marginRight: 6 }} />
-            {WEEKDAYS[s.weekday].slice(0, 3)}
-          </label>
-          <input type="time" disabled={!s.on} value={s.start_time} onChange={(e) => set(i, 'start_time', e.target.value)} />
-          <input type="time" disabled={!s.on} value={s.end_time} onChange={(e) => set(i, 'end_time', e.target.value)} />
-          <input type="time" disabled={!s.on} value={s.break_start} onChange={(e) => set(i, 'break_start', e.target.value)} />
-          <input type="time" disabled={!s.on} value={s.break_end} onChange={(e) => set(i, 'break_end', e.target.value)} />
-        </div>
-      ))}
+      <GradeHorarios grade={grade} setGrade={setGrade} />
       <div className="row" style={{ marginTop: 14, alignItems: 'center', gap: 12 }}>
         <button className="btn primary" onClick={salvarGrade} disabled={busy}>Salvar horário</button>
         {msg && <span style={{ color: 'var(--ok)' }}>{msg}</span>}

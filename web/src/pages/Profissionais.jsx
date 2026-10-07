@@ -1,3 +1,4 @@
+import GradeHorarios from '../GradeHorarios.jsx';
 import ImportarAqui from '../ImportarAqui.jsx';
 import React, { useEffect, useState } from 'react';
 import { Nome } from '../menu.jsx';
@@ -76,7 +77,6 @@ export default function Profissionais() {
     const k = String(id);
     setEdit({ ...edit, service_ids: cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k] });
   };
-  const setSched = (i, k, v) => setEdit({ ...edit, sched: edit.sched.map((s, j) => (j === i ? { ...s, [k]: v } : s)) });
   const excluir = async (b) => {
     if (!window.confirm(`Excluir "${b.name}" de vez? Não dá para desfazer.`)) return;
     try { await api('/professionals/' + b.id + '/permanent', { method: 'DELETE' }); load(); } catch (e) {
@@ -172,19 +172,7 @@ export default function Profissionais() {
               </div>
             )}
             <label>Horários de trabalho</label>
-            <div className="sched-row muted"><span>Dia</span><span>Entrada</span><span>Saída</span><span>Pausa de</span><span>até</span></div>
-            {edit.sched.map((s, i) => (
-              <div className="sched-row" key={s.weekday} style={{ opacity: s.on ? 1 : 0.55 }}>
-                <label style={{ margin: 0, color: 'var(--text)' }}>
-                  <input type="checkbox" checked={s.on} onChange={(e) => setSched(i, 'on', e.target.checked)} style={{ width: 'auto', marginRight: 6 }} />
-                  {WEEKDAYS[s.weekday].slice(0, 3)}
-                </label>
-                <input type="time" disabled={!s.on} value={s.start_time} onChange={(e) => setSched(i, 'start_time', e.target.value)} />
-                <input type="time" disabled={!s.on} value={s.end_time} onChange={(e) => setSched(i, 'end_time', e.target.value)} />
-                <input type="time" disabled={!s.on} value={s.break_start} onChange={(e) => setSched(i, 'break_start', e.target.value)} />
-                <input type="time" disabled={!s.on} value={s.break_end} onChange={(e) => setSched(i, 'break_end', e.target.value)} />
-              </div>
-            ))}
+            <GradeHorarios grade={edit.sched} setGrade={(sched) => setEdit({ ...edit, sched })} />
             <div className="row" style={{ marginTop: 14 }}><button className="btn primary">Salvar</button><button type="button" className="btn" onClick={() => setEdit(null)}>Cancelar</button></div>
           </form>
         </div>
