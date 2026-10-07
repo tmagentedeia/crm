@@ -598,12 +598,15 @@ export function buildRouter() {
   // filtros da listagem: tipo, busca, situação no Clube ('member','former','supporter','none') e nível
   const FILTRO = `($1::text IS NULL OR c.status=$1)
        AND ($2::text IS NULL OR NOT EXISTS (SELECT 1 FROM unnest(regexp_split_to_array(btrim($2), '\\s+')) AS t(w)
-            WHERE concat_ws(' ', c.name, c.last_name, c.phone, c.subject, c.city) NOT ILIKE '%'||t.w||'%'))
+            WHERE concat_ws(' ', c.name, c.last_name, c.phone, c.subject, c.city) NOT ILIKE '%'||t.w||'%')
+            OR ($6::text IS NOT NULL AND c.phone=$6))
        AND ($3::text IS NULL OR ($3='none' AND c.club_status IS NULL) OR c.club_status=$3)
        AND ($4::bigint IS NULL OR c.club_level_id=$4)
        AND ($5::text IS NULL OR $5 = ANY(c.client_kinds))`;
   const filtroArgs = (qs) => [qs.status || null, qs.search || null, qs.club || null,
-    /^\d+$/.test(String(qs.level || '')) ? qs.level : null, /^[A-Za-z0-9_]{1,40}$/.test(String(qs.kind || '')) ? qs.kind : null];
+    /^\d+$/.test(String(qs.level || '')) ? qs.level : null, /^[A-Za-z0-9_]{1,40}$/.test(String(qs.kind || '')) ? qs.kind : null,
+    // busca que parece telefone (com 9, +55, traços…): também acha pelo número como está guardado
+    /^[\d\s()+.-]+$/.test(String(qs.search || '')) && digits(qs.search).length >= 10 ? custPhone(qs.search) : null];
 
   // Campos da ficha (aniversário, cidade, Clube). Devolve { erro } ou { campos } só com o que veio no corpo.
   async function lerFicha(body, atual = null) {
@@ -741,7 +744,7 @@ export function buildRouter() {
     try { res.json({ csv: await baixarPlanilha(url) }); } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
   }));
   r.get('/customers/by-phone/:phone', wrap(async (req, res) => {
-    const { rows } = await q(`${CUST} WHERE c.phone=$1`, [digits(req.params.phone)]);
+    const { rows } = await q(`${CUST} WHERE c.phone=$1`, [custPhone(req.params.phone)]);
     rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Não encontrado' });
   }));
   r.get('/customers/:id', wrap(async (req, res) => {
@@ -919,7 +922,7 @@ export function buildRouter() {
          AND ($6::text IS NULL OR a.google_event_id = $6)
        ORDER BY a.starts_at`,
       [from || null, to || null, professional_id || null,
-       phone ? digits(phone) : null, status || null, google_event_id || null]);
+       phone ? custPhone(phone) : null, status || null, google_event_id || null]);
     res.json(rows);
   }));
   r.post('/appointments', wrap(async (req, res) => {
@@ -1117,7 +1120,7 @@ export function buildRouter() {
        FROM waitlist w JOIN customers c ON c.id=w.customer_id LEFT JOIN professionals b ON b.id=w.professional_id
        WHERE ($1::text IS NULL OR w.status=$1) AND ($2::text IS NULL OR c.phone=$2)
        ORDER BY (w.status='waiting') DESC, w.desired_at`,
-      [status || null, phone ? digits(phone) : null]);
+      [status || null, phone ? custPhone(phone) : null]);
     res.json(rows);
   }));
   // body: { phone, name?, desired_at, professional_id | professional_name? } — sem profissional = qualquer um
