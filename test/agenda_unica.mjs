@@ -41,6 +41,12 @@ const dia = amanha.toISOString().slice(0, 10);
 const av = await get(`availability?date=${dia}&service_id=${sv.body.id}`);
 check('horários livres vêm da agenda única', av.body.length > 0 && av.body[0].professional_id === idUnica, JSON.stringify(av.body).slice(0, 200));
 
+const min = (h) => Number(h.slice(0, 2)) * 60 + Number(h.slice(3, 5));
+check('horários oferecidos andam na duração do serviço (30 min)', av.body.length > 1 && av.body.every((x, i) => i === 0 || min(x.time) - min(av.body[i - 1].time) === 30), JSON.stringify(av.body.map((x) => x.time).slice(0, 6)));
+const sv45 = await call('POST', '/api/services', { token: T, body: { name: 'Longa', price: 100, duration_min: 45 } });
+const av45 = await get(`availability?date=${dia}&service_id=${sv45.body.id}`);
+check('serviço de 45 min oferece de 45 em 45', av45.body.length > 1 && av45.body.every((x, i) => i === 0 || min(x.time) - min(av45.body[i - 1].time) === 45), JSON.stringify(av45.body.map((x) => x.time).slice(0, 6)));
+
 const ap = await call('POST', '/api/appointments', { token: T, body: { customer_id: cu.body.id, service_id: sv.body.id, starts_at: av.body[0].starts_at } });
 check('agenda sem informar profissional', ap.status === 201 && ap.body.professional_id === idUnica, JSON.stringify(ap.body));
 

@@ -1190,7 +1190,7 @@ export function buildRouter() {
     const dur = sv.rows[0].duration_min;
     const tz = (await qg('SELECT timezone FROM companies WHERE id=$1', [req.user.companyId])).rows[0].timezone;
 
-    // slots de 15 em 15 min dentro do expediente, fora da pausa, sem conflito e no futuro
+    // horários oferecidos de acordo com o serviço: um a cada duração do serviço (30 min → 09:00, 09:30, 10:00…), dentro do expediente, fora da pausa, sem conflito e no futuro
     const { rows } = await q(
       `WITH b AS (
          SELECT b.id AS professional_id, b.name, s.start_time, s.end_time, s.break_start, s.break_end
@@ -1203,7 +1203,7 @@ export function buildRouter() {
          FROM b, generate_series(
            ($1::date + b.start_time)::timestamp,
            ($1::date + b.end_time)::timestamp - make_interval(mins => $2),
-           interval '15 minutes') g
+           make_interval(mins => GREATEST($2::int, 5))) g
        )
        SELECT professional_id, name AS professional_name,
               to_char(t_start,'HH24:MI') AS time,
