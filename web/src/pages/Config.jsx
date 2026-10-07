@@ -124,7 +124,7 @@ export default function Config() {
       <p className="muted" style={{ marginBottom: 18 }}>Identidade e regras da sua empresa</p>
       {msg && <div className="card" style={{ marginBottom: 12, color: 'var(--ok)' }}>{msg}</div>}
       {err && <div className="error">{err}</div>}
-      <form onSubmit={(e) => { e.preventDefault(); save({ name: s.name, phone: s.phone, admin_name: s.admin_name || '', admin_phone: s.admin_phone || '', admin_email: s.admin_email || '', inactive_days: Number(s.inactive_days), reminder_minutes: s.reminder_minutes ? Number(s.reminder_minutes) : null }); }}>
+      <form onSubmit={(e) => { e.preventDefault(); save({ name: s.name, phone: s.phone, admin_name: s.admin_name || '', admin_phone: s.admin_phone || '', admin_email: s.admin_email || '', inactive_days: Number(s.inactive_days), reminder_minutes: s.reminder_minutes ? Number(s.reminder_minutes) : null, reminder_text: s.reminder_text || '' }); }}>
         <div className="grid cols-3" style={{ alignItems: 'start' }}>
           <div className="card">
               <h2>Logotipo</h2>
@@ -156,6 +156,13 @@ export default function Config() {
             </select>
             <p className="muted" style={{ marginTop: 4 }}>Um aviso só. Quem agenda com menos de {s.reminder_minutes ? Math.round((Number(s.reminder_minutes) + 60) / 6) / 10 : '—'}h de antecedência não recebe (acabou de marcar).</p>
           </div>
+          {s.reminder_minutes && (
+            <div className="field">
+              <label>Mensagem do lembrete</label>
+              <textarea rows={4} maxLength={800} value={s.reminder_text || ''} placeholder="Em branco: usa a mensagem padrão" onChange={(e) => setS({ ...s, reminder_text: e.target.value })} />
+              <p className="muted" style={{ marginTop: 4 }}>Padrão: “Olá, {'{nome}'}! Passando para lembrar do seu horário de {'{servico}'} {'{dia}'} às {'{hora}'}{'{com}'} na {'{empresa}'}. Se não puder comparecer, é só avisar por aqui.” Você pode escrever do seu jeito e usar {'{nome}'}, {'{servico}'}, {'{dia}'}, {'{hora}'}, {'{profissional}'} e {'{empresa}'}: o painel troca pelos dados de cada agendamento.</p>
+            </div>
+          )}
           </div>
           <div className="card">
           <h2>Dados do administrador</h2>

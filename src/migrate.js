@@ -35,6 +35,7 @@ try {
     await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS campaign_webhook_url TEXT');
     // ligações próprias da empresa (Redis dos bloqueios e banco das conversas do agente), guardadas cifradas; vazio = vale o do servidor
     await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS redis_url TEXT');
+    await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS reminder_text TEXT');
     await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS scheduling_enabled BOOLEAN NOT NULL DEFAULT true');
     await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS conv_db_url TEXT');
     await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS wa_api_url TEXT');

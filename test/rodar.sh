@@ -10,6 +10,7 @@
 #  - bloqueios.mjs: lista de atendimentos bloqueados (precisa do redis-server instalado)
 #  - conexoes.mjs: Redis e banco de conversas próprios de uma empresa (cifrados; vazio = padrão do servidor)
 #  - agenda_unica.mjs: empresa sem profissional atende por uma agenda com o nome da empresa
+#  - lembretes.mjs: lembrete de agendamento enviado pelo painel (WhatsApp falso)
 #  - chave_global.mjs: chave global desligada com ALLOW_GLOBAL_KEY=false (segundo servidor, porta 3998)
 # Precisa de um Postgres de teste (PGBASE = conexão sem banco, ex.: postgres://postgres@/postgres?host=/var/tmp/pgtest&port=55432)
 set -e
@@ -90,7 +91,7 @@ export REDIS_URL=redis://127.0.0.1:56379
 FAKE_GOTENBERG_PORT=53000 node test/fake_gotenberg.mjs &
 PIDG=$!
 export GOTENBERG_URL=http://127.0.0.1:53000
-PORT=3999 ESPELHO_TICK_MS=300 LISTA_PAUSA_RAPIDA=1 node src/index.js > /tmp/crm-test.log 2>&1 &
+PORT=3999 LEMBRETE_TICK_MS=300 ESPELHO_TICK_MS=300 LISTA_PAUSA_RAPIDA=1 node src/index.js > /tmp/crm-test.log 2>&1 &
 PID=$!
 PORT=3998 ALLOW_GLOBAL_KEY=false node src/index.js > /tmp/crm-test2.log 2>&1 &
 PID2=$!
@@ -117,6 +118,7 @@ BASE=http://localhost:3999 node test/casa_de_shows_clube.mjs || R=1
 BASE=http://localhost:3999 node test/parcerias.mjs || R=1
 BASE=http://localhost:3999 node test/lista_evento.mjs || R=1
 BASE=http://localhost:3999 node test/lista_evento_envio.mjs || R=1
+BASE=http://localhost:3999 node test/lembretes.mjs || R=1
 BASE=http://localhost:3999 node test/contratacoes.mjs || R=1
 BASE=http://localhost:3999 node test/indicacoes.mjs || R=1
 BASE=http://localhost:3999 node test/documentos.mjs || R=1

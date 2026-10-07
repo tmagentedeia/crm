@@ -19,6 +19,7 @@ import { startCampaignScheduler, verificarHistorico } from './campaigns.js';
 import { registerEspelhoAdmin, startEspelhoContatos } from './espelho_contatos.js';
 import { registerPlanilhaAdmin } from './planilha_contatos.js';
 import { startListaScheduler } from './lista_evento.js';
+import { startLembretes } from './lembretes.js';
 import { startLimpezaIngressos } from './documentos.js';
 import { birthdayTickAll } from './aniversario.js';
 import { registerDocumentoPublico } from './documentos.js';
@@ -92,18 +93,19 @@ const comUpgrade = async (c) => (c ? { ...c, upgrade: await upgradeInfo(), login
 
 // ---------- Configurações da empresa ----------
 app.get('/api/company', requireUser, async (req, res) => {
-  const { rows } = await qg('SELECT id,name,phone,admin_name,admin_phone,admin_email,inactive_days,logo,max_professionals,reminder_minutes,modules,locked_modules,menu_custom,module_labels FROM companies WHERE id=$1', [req.user.companyId]);
+  const { rows } = await qg('SELECT id,name,phone,admin_name,admin_phone,admin_email,inactive_days,logo,max_professionals,reminder_minutes,reminder_text,modules,locked_modules,menu_custom,module_labels FROM companies WHERE id=$1', [req.user.companyId]);
   res.json(await comUpgrade(rows[0]));
 });
 
 app.put('/api/company', requireUser, async (req, res) => {
-  const { name, phone, inactive_days, logo, reminder_minutes, menu_custom, admin_name, admin_phone, admin_email } = req.body;
+  const { name, phone, inactive_days, logo, reminder_minutes, reminder_text, menu_custom, admin_name, admin_phone, admin_email } = req.body;
   if (admin_email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(admin_email).trim())) return res.status(400).json({ error: 'E-mail do administrador inválido' });
   const adm = (v) => (v === undefined ? null : String(v ?? '').trim());
   const menu = menu_custom === undefined ? undefined : cleanMenuCustom(menu_custom);
   if (menu === null) return res.status(400).json({ error: 'Nome ou ícone do menu inválido (nome até 30 letras, ícone curto)' });
   if (reminder_minutes != null && (!Number.isInteger(Number(reminder_minutes)) || Number(reminder_minutes) < 30 || Number(reminder_minutes) > 4320))
     return res.status(400).json({ error: 'Antecedência do lembrete deve ficar entre 30 minutos e 72 horas' });
+  if (reminder_text != null && String(reminder_text).length > 800) return res.status(400).json({ error: 'A mensagem do lembrete é grande demais (até 800 letras)' });
   // logo: data URL de imagem, ou null para remover (string vazia = remover)
   if (logo && (!/^data:image\/(png|jpeg|webp|svg\+xml);base64,/.test(logo) || logo.length > 700000))
     return res.status(400).json({ error: 'Logotipo inválido ou grande demais' });
@@ -115,11 +117,13 @@ app.put('/api/company', requireUser, async (req, res) => {
      menu_custom = CASE WHEN $9::boolean THEN $10::jsonb ELSE menu_custom END,
      admin_name = CASE WHEN $11::text IS NULL THEN admin_name ELSE NULLIF($11,'') END,
      admin_phone = CASE WHEN $12::text IS NULL THEN admin_phone ELSE NULLIF($12,'') END,
-     admin_email = CASE WHEN $13::text IS NULL THEN admin_email ELSE NULLIF($13,'') END
-     WHERE id=$1 RETURNING id,name,phone,admin_name,admin_phone,admin_email,inactive_days,logo,max_professionals,reminder_minutes,modules,locked_modules,menu_custom,module_labels`,
+     admin_email = CASE WHEN $13::text IS NULL THEN admin_email ELSE NULLIF($13,'') END,
+     reminder_text = CASE WHEN $14::boolean THEN NULLIF(trim($15),'') ELSE reminder_text END
+     WHERE id=$1 RETURNING id,name,phone,admin_name,admin_phone,admin_email,inactive_days,logo,max_professionals,reminder_minutes,reminder_text,modules,locked_modules,menu_custom,module_labels`,
     [req.user.companyId, name, phone, inactive_days, logo !== undefined, logo ?? null,
      reminder_minutes !== undefined, reminder_minutes == null ? null : Number(reminder_minutes),
-     menu !== undefined, JSON.stringify(menu ?? {}), adm(admin_name), adm(admin_phone), adm(admin_email)]);
+     menu !== undefined, JSON.stringify(menu ?? {}), adm(admin_name), adm(admin_phone), adm(admin_email),
+     reminder_text !== undefined, reminder_text == null ? '' : String(reminder_text)]);
   res.json(await comUpgrade(rows[0]));
 });
 
@@ -531,6 +535,7 @@ app.listen(process.env.PORT || 3000, () => console.log('CRM rodando na porta', p
 startCampaignScheduler();
 startEspelhoContatos();
 startListaScheduler();
+startLembretes();
 startLimpezaIngressos();
 // aniversariantes: confere de hora em hora (a fila de cada empresa é montada no máximo uma vez por dia)
 setTimeout(birthdayTickAll, 20000).unref();
