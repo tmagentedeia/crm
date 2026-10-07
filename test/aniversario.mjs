@@ -80,7 +80,7 @@ check('segundo envio não sai colado', (await call('POST', '/n8n/campaigns/claim
 if (cl.body?.recipient_id) await call('POST', `/n8n/campaigns/recipients/${cl.body.recipient_id}/report`, { headers: N8N, body: { ok: true } });
 
 // uma campanha comum pode ser iniciada com a de aniversariantes ligada, e a permanente não pode ser parada pela lista
-const cm = await call('POST', '/api/campaigns', { token: A.token, body: { name: 'Comum', messages: ['Olá {nome}, novidades! Se não quiser mais receber, é só avisar, tá?', 'Oi {nome}, novidades. Se preferir não receber, me avisa, ok?', '{nome}, novidades por aqui. Qualquer coisa é só pedir para sair, tudo bem?'], interval_min: 5, interval_max: 10, batch_size: 30, batch_pause_min: 60, daily_limit: 100, recipients: { mode: 'selected', ids: [cC] } } });
+const cm = await call('POST', '/api/campaigns', { token: A.token, body: { name: 'Comum', messages: ['Olá {nome}, novidades! Se não quiser mais receber, é só avisar, tá?', 'Oi {nome}, novidades. Se preferir não receber, me avisa, ok?', '{nome}, novidades por aqui. Qualquer coisa é só pedir para sair, tudo bem?'], interval_min: 10, interval_max: 15, batch_size: 30, batch_pause_min: 60, daily_limit: 100, recipients: { mode: 'selected', ids: [cC] } } });
 const st = await call('POST', `/api/campaigns/${cm.body.id}/start`, { token: A.token, body: { accept: true } });
 check('campanha comum inicia junto', cm.status === 201 && st.status === 200, JSON.stringify([cm.body, st.body]));
 await call('POST', `/api/campaigns/${cm.body.id}/stop`, { token: A.token });

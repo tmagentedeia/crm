@@ -43,7 +43,7 @@ check('ficha avisa', (await T('GET', '/api/customers/' + ids[0])).body.campaign_
 const msgs = ['Olá {nome}, temos novidades! Se não quiser mais receber, é só avisar, tá?',
               'Oi {nome}, passando para avisar das novidades. Se preferir não receber, me avisa, ok?',
               '{nome}, novidades por aqui. Qualquer coisa é só pedir para sair, tudo bem?'];
-const cfg = { name: 'Exceções', messages: msgs, interval_min: 5, interval_max: 10, batch_size: 30, batch_pause_min: 60, daily_limit: 100, recipients: { mode: 'selected', ids } };
+const cfg = { name: 'Exceções', messages: msgs, interval_min: 10, interval_max: 15, batch_size: 30, batch_pause_min: 60, daily_limit: 100, recipients: { mode: 'selected', ids } };
 const sim = (await T('POST', '/api/campaigns/simulate', cfg)).body;
 check('simulação conta sem as exceções', sim.total === 4 && sim.ignorados === 2, JSON.stringify(sim));
 const rascunho = (await T('POST', '/api/campaigns', cfg)).body;

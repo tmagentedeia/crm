@@ -82,6 +82,7 @@ export default function Admin() {
     } catch (e) { erroEm(s.id, e.message); }
   };
   const [up, setUp] = useState({ phone: '', text: '' }); // contato e texto do aviso de upgrade
+  const [opCamp, setOpCamp] = useState(null); // { id, dia, min } — limites de envio de campanhas da empresa em edição
   const [opAgenda, setOpAgenda] = useState(null); // id da empresa cujas opções da Agenda estão abertas
   const [opcoes, setOpcoes] = useState(null); // id da empresa cujas opções do Atendente estão abertas
   const [nomes, setNomes] = useState(null); // { id, empresa, modulo, valores } — nomes do módulo em edição
@@ -187,6 +188,16 @@ export default function Admin() {
       setEm((x) => { const n = { ...x }; delete n[trocaEmail.id]; return n; });
       setTrocaEmail(null); load();
     } catch (e) { erroEm(trocaEmail.id, e.message); }
+  }
+  async function salvarLimitesCamp(vazio) {
+    setErr(''); setMsg(''); setOnde(null);
+    const emp = list.find((x) => x.id === opCamp.id);
+    try {
+      await api('/admin/companies/' + opCamp.id, { method: 'PUT', body: vazio ? { campaign_daily_max: null, campaign_interval_min: null } : {
+        campaign_daily_max: opCamp.dia === '' ? null : Number(opCamp.dia), campaign_interval_min: opCamp.min === '' ? null : Number(opCamp.min) } });
+      okEm(opCamp.id, `Limites de campanha de "${emp?.name || ''}" ${vazio ? 'voltaram ao padrão' : 'atualizados'}.`);
+      setOpCamp(null); load();
+    } catch (e) { erroEm(opCamp.id, e.message); }
   }
   async function salvarModo(s, modo) {
     setErr(''); setMsg(''); setOnde(null);
@@ -359,6 +370,29 @@ export default function Admin() {
           </div>
         </div>
       )}
+
+      {opCamp && (() => {
+        const emp = list.find((x) => x.id === opCamp.id);
+        if (!emp) return null;
+        return (
+          <div className="modal-bg" onClick={() => setOpCamp(null)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <h2>Opções de Campanhas — {emp.name}</h2>
+              <p className="muted">Estes limites valem para as campanhas novas da empresa: ela escolhe livremente, mas não passa do máximo por dia nem fica abaixo do intervalo mínimo. As campanhas já em andamento seguem como foram criadas. Em branco vale o padrão.</p>
+              <div className="field"><label>Máximo de envios por dia <span className="muted">(padrão 100; até 1000)</span></label>
+                <input type="number" min="1" max="1000" placeholder="100" value={opCamp.dia} onChange={(e) => setOpCamp({ ...opCamp, dia: e.target.value })} /></div>
+              <div className="field"><label>Intervalo mínimo entre mensagens, em minutos <span className="muted">(padrão 10; até 120)</span></label>
+                <input type="number" min="1" max="120" placeholder="10" value={opCamp.min} onChange={(e) => setOpCamp({ ...opCamp, min: e.target.value })} /></div>
+              {err && (onde == null || onde === emp.id) && <div className="error">{err}</div>}
+              <div className="row">
+                <button className="btn primary" onClick={() => salvarLimitesCamp(false)}>Salvar</button>
+                <button className="btn" onClick={() => salvarLimitesCamp(true)}>Voltar ao padrão</button>
+                <button className="btn" onClick={() => setOpCamp(null)}>Cancelar</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {opAgenda && (() => {
         const emp = list.find((x) => x.id === opAgenda);
@@ -575,12 +609,13 @@ export default function Admin() {
                         title={s.locked_modules?.[m.key] === true ? 'Aparece apagada para a empresa (convite de upgrade). Toque para esconder.' : 'Escondida da empresa. Toque para mostrar apagada, com convite de upgrade.'}
                         onClick={(e) => { e.preventDefault(); alternarVitrine(s, m.key); }}>{s.locked_modules?.[m.key] === true ? <IconeCadeado size={13} /> : <IconeOlho cortado size={13} />}</button>
                     )}
-                    {(ROTULOS[m.key] || m.key === 'atendente' || m.key === 'agenda') && moduleOn(s.modules, m.key) && (
-                      <button type="button" className="btn sm" style={{ padding: '0 6px' }} title={m.key === 'atendente' ? 'Opções do atendente' : m.key === 'agenda' ? 'Opções da agenda' : 'Personalizar os nomes deste módulo'}
+                    {(ROTULOS[m.key] || m.key === 'atendente' || m.key === 'agenda' || m.key === 'campanhas') && moduleOn(s.modules, m.key) && (
+                      <button type="button" className="btn sm" style={{ padding: '0 6px' }} title={m.key === 'atendente' ? 'Opções do atendente' : m.key === 'agenda' ? 'Opções da agenda' : m.key === 'campanhas' ? 'Limites de envio das campanhas' : 'Personalizar os nomes deste módulo'}
                         onClick={(e) => {
                           e.preventDefault();
                           if (m.key === 'atendente') setOpcoes(s.id);
                           else if (m.key === 'agenda') setOpAgenda(s.id);
+                          else if (m.key === 'campanhas') setOpCamp({ id: s.id, dia: s.campaign_daily_max ?? '', min: s.campaign_interval_min ?? '' });
                           else setNomes({ id: s.id, empresa: s.name, modulo: m.key, valores: { ...(s.module_labels?.[m.key] || {}) } });
                         }}>✏️</button>
                     )}

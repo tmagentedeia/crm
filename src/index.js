@@ -15,7 +15,7 @@ import { listar as listarBloqueios, bloquear, liberar, numeroDoContato, nomeVali
 import { cifrar, decifrar, servidorDe } from './segredo.js';
 import { requireUser, requireN8n, requireAdmin, isAdmin, signToken, signImpersonationToken } from './auth.js';
 import { buildRouter } from './routes.js';
-import { startCampaignScheduler, verificarHistorico } from './campaigns.js';
+import { startCampaignScheduler, verificarHistorico, TETO_ADMIN } from './campaigns.js';
 import { registerEspelhoAdmin, startEspelhoContatos } from './espelho_contatos.js';
 import { registerPlanilhaAdmin } from './planilha_contatos.js';
 import { startListaScheduler } from './lista_evento.js';
@@ -295,7 +295,7 @@ app.get('/api/admin/diagnostico', requireUser, requireAdmin, async (req, res) =>
 
 app.get('/api/admin/companies', requireUser, requireAdmin, async (req, res) => {
   const { rows } = await qg(
-    `SELECT c.id, c.name, c.max_professionals, c.doc_slots, c.doc_extras, c.doc_nivel, c.billing_due_day, c.billing_exempt, (SELECT count(*) FROM partner_referrals pr WHERE pr.company_id=c.id)::int AS referrals_total, c.created_at, c.modules, c.locked_modules, c.module_labels, c.whatsapp_instance, c.chat_table, c.redis_prefix, c.redis_url, c.conv_db_url, c.contact_mirror_url, c.contact_mirror_on, c.contact_sheet_url, c.wa_api_url, (c.wa_api_token IS NOT NULL) AS wa_api_set, right(c.wa_api_token, 4) AS wa_api_fim, c.booking_mode, c.api_key_hint, c.api_key_created_at,
+    `SELECT c.id, c.name, c.max_professionals, c.doc_slots, c.doc_extras, c.doc_nivel, c.billing_due_day, c.billing_exempt, (SELECT count(*) FROM partner_referrals pr WHERE pr.company_id=c.id)::int AS referrals_total, c.created_at, c.modules, c.locked_modules, c.module_labels, c.whatsapp_instance, c.chat_table, c.redis_prefix, c.redis_url, c.conv_db_url, c.contact_mirror_url, c.contact_mirror_on, c.contact_sheet_url, c.wa_api_url, (c.wa_api_token IS NOT NULL) AS wa_api_set, right(c.wa_api_token, 4) AS wa_api_fim, c.booking_mode, c.campaign_daily_max, c.campaign_interval_min, c.api_key_hint, c.api_key_created_at,
             (SELECT u.email FROM users u WHERE u.company_id = c.id ORDER BY (u.role = 'owner') DESC, u.id LIMIT 1) AS owner_email
      FROM companies c ORDER BY c.id`);
   // profissionais ativos: contados dentro do schema de cada empresa
@@ -346,9 +346,24 @@ app.put('/api/admin/companies/:id', requireUser, requireAdmin, async (req, res) 
   const mexeNivel = req.body.doc_nivel !== undefined;
   const docNivel = req.body.doc_nivel === '' || req.body.doc_nivel === null ? null : req.body.doc_nivel;
   if (mexeNivel && docNivel !== null && !['simples', 'completo'].includes(docNivel)) return res.status(400).json({ error: 'Nível de documento inválido' });
+  // limites de campanha: vazio = padrão; ausente = não mexe
+  const mexeCamp = req.body.campaign_daily_max !== undefined || req.body.campaign_interval_min !== undefined;
+  const faixa = (v, max, nome) => {
+    if (v === undefined) return { ok: true, mexe: false };
+    if (v === null || v === '') return { ok: true, mexe: true, v: null };
+    const n = Number(v);
+    return Number.isInteger(n) && n >= 1 && n <= max ? { ok: true, mexe: true, v: n } : { ok: false, erro: `${nome}: use um número inteiro de 1 a ${max}, ou vazio para o padrão` };
+  };
+  const cd = faixa(req.body.campaign_daily_max, TETO_ADMIN.DAILY_MAX, 'Limite de envios por dia');
+  const ci = faixa(req.body.campaign_interval_min, TETO_ADMIN.INTERVAL_MIN, 'Intervalo mínimo');
+  if (!cd.ok || !ci.ok) return res.status(400).json({ error: cd.erro || ci.erro });
   const bm = req.body.booking_mode;
   if (bm !== undefined && !['auto', 'confirm'].includes(bm)) return res.status(400).json({ error: 'Modo de agendamento inválido' });
   const { rows } = await qg('UPDATE companies SET max_professionals=CASE WHEN $4::boolean THEN $2::int ELSE max_professionals END, booking_mode=COALESCE($3, booking_mode), doc_slots=CASE WHEN $5::boolean THEN $6::int ELSE doc_slots END, doc_nivel=CASE WHEN $7::boolean THEN $8::text ELSE doc_nivel END, doc_extras=CASE WHEN $9::boolean THEN $10::int ELSE doc_extras END WHERE id=$1 RETURNING id, name, max_professionals, doc_slots, doc_extras, doc_nivel, booking_mode', [req.params.id, max_professionals, bm ?? null, mexeLimite, mexeVagas, docSlots, mexeNivel, docNivel, mexeExtras, mexeExtras ? docExtras : 0]);
+  if (rows[0] && mexeCamp) {
+    await qg('UPDATE companies SET campaign_daily_max=CASE WHEN $2::boolean THEN $3::int ELSE campaign_daily_max END, campaign_interval_min=CASE WHEN $4::boolean THEN $5::int ELSE campaign_interval_min END WHERE id=$1', [req.params.id, cd.mexe, cd.v ?? null, ci.mexe, ci.v ?? null]);
+    Object.assign(rows[0], (await qg('SELECT campaign_daily_max, campaign_interval_min FROM companies WHERE id=$1', [req.params.id])).rows[0]);
+  }
   rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Empresa não encontrada' });
 });
 

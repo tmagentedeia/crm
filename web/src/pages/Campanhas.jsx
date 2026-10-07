@@ -3,63 +3,6 @@ import { api, fmtPhone, lerEmpresa } from '../api.js';
 import { useSelecao, CelulaTodos, CelulaLinha, ApagarSelecionados, resumoApagado } from '../selecao.jsx';
 import { Nome } from "../menu.jsx";
 
-const Lapis = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
-);
-
-// Limites de envio desta empresa: todos veem; só o administrador edita (lápis), logo ao lado, com o resultado ali mesmo.
-function LimitesEnvio({ lim, salvou }) {
-  const [aberto, setAberto] = useState(false);
-  const [dia, setDia] = useState('');
-  const [min, setMin] = useState('');
-  const [msg, setMsg] = useState({ texto: '', ruim: false });
-  const [gravando, setGravando] = useState(false);
-  const abrir = () => { setDia(lim.personalizado ? String(lim.daily_max) : ''); setMin(lim.personalizado ? String(lim.interval_min) : ''); setMsg({ texto: '', ruim: false }); setAberto(true); };
-  const gravar = async (vazio) => {
-    setGravando(true); setMsg({ texto: '', ruim: false });
-    try {
-      const r = await api('/campaigns/limits', { method: 'PUT', body: vazio ? {} : { daily_max: dia === '' ? null : Number(dia), interval_min: min === '' ? null : Number(min) } });
-      salvou(r); setAberto(false);
-      setMsg({ texto: vazio ? 'Voltou ao padrão.' : 'Limites salvos.', ruim: false });
-    } catch (e) { setMsg({ texto: e.message, ruim: true }); }
-    setGravando(false);
-  };
-  return (
-    <div className="card" style={{ marginBottom: 14, padding: '10px 14px' }}>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <span>Limites de envio desta empresa: até <strong>{lim.daily_max}</strong> envios por dia e intervalo mínimo de <strong>{lim.interval_min}</strong> min entre mensagens.</span>
-        {lim.pode_editar && !aberto && (
-          <button type="button" className="btn sm" title="Editar os limites desta empresa" aria-label="Editar os limites de envio desta empresa" style={{ padding: '2px 6px', display: 'inline-flex', alignItems: 'center' }} onClick={abrir}><Lapis /></button>
-        )}
-        {msg.texto && !aberto && <span style={{ color: msg.ruim ? 'var(--bad)' : 'var(--muted)', fontSize: 13 }}>{msg.texto}</span>}
-      </div>
-      {aberto && (
-        <div style={{ marginTop: 10 }}>
-          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-            <label className="field" style={{ flex: '0 0 auto' }}>
-              <div>Limite de envios por dia</div>
-              <div className="muted">(vazio = padrão {lim.padrao.daily_max}; até {lim.teto.daily_max})</div>
-              <input type="number" min="1" max={lim.teto.daily_max} value={dia} style={{ width: 110 }} onChange={(e) => setDia(e.target.value)} />
-            </label>
-            <label className="field" style={{ flex: '0 0 auto' }}>
-              <div>Intervalo mínimo entre mensagens</div>
-              <div className="muted">(vazio = padrão {lim.padrao.interval_min} min; até {lim.teto.interval_min})</div>
-              <input type="number" min="1" max={lim.teto.interval_min} value={min} style={{ width: 110 }} onChange={(e) => setMin(e.target.value)} />
-            </label>
-          </div>
-          <p className="muted" style={{ marginTop: 6 }}>Vale para as campanhas novas desta empresa (e para as que ainda não começaram). As que já estão em andamento seguem como foram criadas.</p>
-          <div className="row" style={{ gap: 8 }}>
-            <button type="button" className="btn primary" disabled={gravando} onClick={() => gravar(false)}>Salvar</button>
-            <button type="button" className="btn" disabled={gravando} onClick={() => gravar(true)}>Voltar ao padrão</button>
-            <button type="button" className="btn" disabled={gravando} onClick={() => setAberto(false)}>Cancelar</button>
-          </div>
-          {msg.texto && <p style={{ color: msg.ruim ? 'var(--bad)' : 'var(--muted)', marginTop: 6 }}>{msg.texto}</p>}
-        </div>
-      )}
-    </div>
-  );
-}
-
 const FIM_OK = /(t[áa]|ok|tudo bem)\s*\?\s*$/i;
 const FRASES_SAIDA = [
   'Se não quiser mais receber, é só avisar, tá?',
@@ -72,7 +15,7 @@ const STATUS = {
 const STATUS_ENVIO = { pending: 'Na fila', sending: 'Enviando', sent: 'Enviada', failed: 'Não enviada', cancelled: 'Cancelada' };
 const PADRAO = {
   name: '', messages: ['', '', ''],
-  interval_min: 5, interval_max: 10, batch_size: 20, batch_pause_min: 60, daily_limit: 50,
+  interval_min: 10, interval_max: 15, batch_size: 20, batch_pause_min: 60, daily_limit: 50,
   mode: 'clients', ids: [], allow_excluded: false,
 };
 const AVISO = 'Os limites definidos aqui são baseados em critérios subjetivos. O risco varia muito de acordo com o seu histórico de interações com os contatos e de número para número: já houve relatos de bloqueio com apenas 10 envios por dia, assim como números que fizeram mais de 100 envios por dia sem nenhum bloqueio. Por isso, recomendamos sempre o mínimo possível de envios com o máximo intervalo possível, para reduzir o risco de o WhatsApp bloquear o seu número. Não nos responsabilizamos por eventuais bloqueios nem pela sua decisão.';
@@ -82,7 +25,7 @@ export default function Campanhas() {
   const [tela, setTela] = useState({ nome: 'lista' }); // lista | form (id?) | detalhe (id)
   const [erro, setErro] = useState('');
   const [lim, setLim] = useState(null);
-  useEffect(() => { api('/campaigns/limits').then(setLim).catch(() => setLim({ daily_max: 100, interval_min: 5, personalizado: false, pode_editar: false, padrao: { daily_max: 100, interval_min: 5 }, teto: { daily_max: 1000, interval_min: 120 } })); }, []);
+  useEffect(() => { api('/campaigns/limits').then(setLim).catch(() => setLim({ daily_max: 100, interval_min: 10 })); }, []);
 
   const carregar = () => api('/campaigns').then((l) => { setLista(l); setErro(''); }).catch((e) => { setLista([]); setErro(e.message); });
   useEffect(() => { carregar(); }, []);
@@ -105,7 +48,6 @@ export default function Campanhas() {
         </div>
       </div>
       {erro && <div className="error">{erro}</div>}
-      {lim && <LimitesEnvio lim={lim} salvou={setLim} />}
       <p className="muted">Suas campanhas ficam guardadas. Só uma pode estar ativa por vez; para reaproveitar uma, abra e clique em “Duplicar”.</p>
       <div className="card">
         <table>
@@ -132,7 +74,7 @@ const lerJson = (k) => { try { return JSON.parse(localStorage.getItem(k)); } cat
 
 function Form({ id, voltar, abrir, frases, lim }) {
   // ponto de partida respeitando os limites desta empresa
-  const iMin = Math.max(5, lim.interval_min);
+  const iMin = Math.max(10, lim.interval_min);
   const base = { ...PADRAO, interval_min: iMin, interval_max: Math.max(10, iMin + 5), daily_limit: Math.min(50, lim.daily_max) };
   const [f, setF] = useState(base);
   const [clientes, setClientes] = useState([]);

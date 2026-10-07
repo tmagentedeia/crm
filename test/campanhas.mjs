@@ -30,15 +30,15 @@ for (let i = 0; i < 6; i++) {
 const msgs = ['Olá {nome}, temos novidades! Se não quiser mais receber, é só avisar, tá?',
               'Oi {nome}, passando para avisar das novidades. Se preferir não receber, me avisa, ok?',
               '{nome}, novidades por aqui. Qualquer coisa é só pedir para sair, tudo bem?'];
-const ok_cfg = { name: 'Teste', messages: msgs, interval_min: 5, interval_max: 10,
+const ok_cfg = { name: 'Teste', messages: msgs, interval_min: 10, interval_max: 15,
                  batch_size: 30, batch_pause_min: 60, daily_limit: 100, recipients: { mode: 'selected', ids } };
 const post = (body) => call('POST', '/api/campaigns', { token: A.token, body });
 
 // regras no servidor
 check('sem pergunta no fim', (await post({ ...ok_cfg, messages: [msgs[0], msgs[1], 'Olá, novidades.'] })).status === 400);
 check('só 2 versões', (await post({ ...ok_cfg, messages: msgs.slice(0, 2) })).status === 400);
-check('intervalo 5-6 recusado', (await post({ ...ok_cfg, interval_max: 6 })).status === 400);
-check('mínimo abaixo de 5', (await post({ ...ok_cfg, interval_min: 3 })).status === 400);
+check('intervalo máximo abaixo de 10 recusado', (await post({ ...ok_cfg, interval_max: 6 })).status === 400);
+check('mínimo abaixo de 10', (await post({ ...ok_cfg, interval_min: 5 })).status === 400);
 check('lote acima de 30', (await post({ ...ok_cfg, batch_size: 31 })).status === 400);
 check('pausa abaixo de 60', (await post({ ...ok_cfg, batch_pause_min: 30 })).status === 400);
 check('limite diário acima de 100', (await post({ ...ok_cfg, daily_limit: 101 })).status === 400);
@@ -58,7 +58,7 @@ check('outra empresa tem os padrões', (await call('GET', '/api/campaigns/phrase
 
 // simulação
 const sim = await call('POST', '/api/campaigns/simulate', { token: A.token, body: { ...ok_cfg, total: 500 } });
-check('simulação', sim.status === 200 && sim.body.per_day > 80 && sim.body.per_day <= 100 && sim.body.days >= 5, JSON.stringify(sim.body));
+check('simulação', sim.status === 200 && sim.body.per_day > 55 && sim.body.per_day <= 70 && sim.body.days >= 7, JSON.stringify(sim.body));
 const simLink = await call('POST', '/api/campaigns/simulate', { token: A.token, body: { ...ok_cfg, messages: ['veja https://x.com tá?', msgs[1], msgs[2]] } });
 check('aviso de link', simLink.body.has_link === true);
 
@@ -80,7 +80,7 @@ check('claim devolve mensagem', c1 && c1.phone && /(tá|ok|tudo bem)\s*\?$/i.tes
 check('começa com saudação, nome e cumprimento', c1 && /^(Oi|Ei|Olá|Opa) Camp! /.test(c1.text) && meus.some((m) => c1.text.includes(' ' + m + ' ')), c1 && c1.text);
 check('claim seguido espera o intervalo', (await call('POST', '/n8n/campaigns/claim', { headers: N8N })).body === null);
 const gap = Number(psql(`select extract(epoch from next_send_at-now()) from company_1.campaigns where id=${cid}`));
-check('intervalo entre 5 e 10 min', gap > 4.5 * 60 && gap <= 10 * 60 + 5, String(gap));
+check('intervalo entre 10 e 15 min', gap > 9.5 * 60 && gap <= 15 * 60 + 5, String(gap));
 check('relatório de sucesso', (await call('POST', `/n8n/campaigns/recipients/${c1.recipient_id}/report`, { headers: N8N, body: { ok: true } })).status === 200);
 check('relatório repetido recusado', (await call('POST', `/n8n/campaigns/recipients/${c1.recipient_id}/report`, { headers: N8N, body: { ok: true } })).status === 404);
 
@@ -147,29 +147,31 @@ check('11ª recusada (nova)', (await post(ok_cfg)).status === 409);
 check('outra empresa não vê', (await call('GET', '/api/campaigns', { token: B.token })).body.length === 0);
 check('outra empresa não abre', (await call('GET', `/api/campaigns/${cid}`, { token: B.token })).status === 404);
 
-// limites por empresa: só o administrador altera; valem como teto (por dia) e piso (intervalo) ao criar campanhas
+// limites por empresa: o administrador define na Administração; valem como teto (por dia) e piso (intervalo) ao criar campanhas
 psql("delete from company_1.campaigns where status='draft'");   // abre espaço: cada empresa guarda no máximo 10
 const lim = async (tk) => (await call('GET', '/api/campaigns/limits', { token: tk })).body;
-const limPut = (tk, body) => call('PUT', '/api/campaigns/limits', { token: tk, body });
-let L0 = await lim(A.token);
-check('limites padrão: 100 por dia e 5 minutos', L0.daily_max === 100 && L0.interval_min === 5 && !L0.personalizado && L0.pode_editar === true, JSON.stringify(L0));
-check('o cliente vê os limites mas não edita', (await lim(B.token)).pode_editar === false && (await limPut(B.token, { daily_max: 10 })).status === 403);
+const adm = (tk, body) => call('PUT', '/api/admin/companies/1', { token: tk, body });
+const L0 = await lim(A.token);
+check('limites padrão: 100 por dia e 10 minutos', L0.daily_max === 100 && L0.interval_min === 10, JSON.stringify(L0));
 check('sem login não lê', (await call('GET', '/api/campaigns/limits')).status === 401);
-check('valores fora da faixa são recusados', (await limPut(A.token, { daily_max: 0 })).status === 400 && (await limPut(A.token, { daily_max: 1001 })).status === 400
-  && (await limPut(A.token, { interval_min: 0 })).status === 400 && (await limPut(A.token, { interval_min: 121 })).status === 400 && (await limPut(A.token, { daily_max: 'abc' })).status === 400);
-const salvoL = await limPut(A.token, { daily_max: 30, interval_min: 15 });
-check('administrador define os limites da empresa', salvoL.status === 200 && salvoL.body.daily_max === 30 && salvoL.body.interval_min === 15 && salvoL.body.personalizado);
-check('outra empresa continua no padrão', (await lim(B.token)).daily_max === 100);
+check('o cliente não altera pela administração', (await adm(B.token, { campaign_daily_max: 10 })).status === 403);
+check('valores fora da faixa são recusados', (await adm(A.token, { campaign_daily_max: 0 })).status === 400 && (await adm(A.token, { campaign_daily_max: 1001 })).status === 400
+  && (await adm(A.token, { campaign_interval_min: 0 })).status === 400 && (await adm(A.token, { campaign_interval_min: 121 })).status === 400 && (await adm(A.token, { campaign_daily_max: 'abc' })).status === 400);
+const salvoL = await adm(A.token, { campaign_daily_max: 30, campaign_interval_min: 15 });
+check('administrador define os limites da empresa', salvoL.status === 200 && salvoL.body.campaign_daily_max === 30 && salvoL.body.campaign_interval_min === 15, JSON.stringify(salvoL.body));
+const listaAdm = (await call('GET', '/api/admin/companies', { token: A.token })).body;
+check('a lista da administração traz os limites', listaAdm.find((c) => c.id === 1 || c.id === '1')?.campaign_daily_max === 30);
+check('o cliente vê os limites novos', (await lim(A.token)).daily_max === 30 && (await lim(A.token)).interval_min === 15);
+check('outra empresa continua no padrão', (await lim(B.token)).daily_max === 100 && (await lim(B.token)).interval_min === 10);
 check('campanha acima do limite diário da empresa é recusada', (await post({ ...ok_cfg, interval_min: 15, interval_max: 20, daily_limit: 31 })).status === 400);
 check('intervalo abaixo do mínimo da empresa é recusado', (await post({ ...ok_cfg, interval_min: 10, interval_max: 20, daily_limit: 30 })).status === 400);
 const dentro = await post({ ...ok_cfg, interval_min: 15, interval_max: 20, daily_limit: 30 });
 check('dentro dos limites da empresa é aceita', dentro.status === 201 || dentro.status === 200, JSON.stringify(dentro.body));
-const altos = await limPut(A.token, { daily_max: 300, interval_min: 2 });
-check('limite pode subir acima do padrão', altos.status === 200 && altos.body.daily_max === 300 && altos.body.interval_min === 2);
-const maior = await post({ ...ok_cfg, name: 'Maior', interval_min: 2, interval_max: 10, daily_limit: 250 });
+check('mexer só em um deles mantém o outro', (await adm(A.token, { campaign_daily_max: 200 })).body.campaign_interval_min === 15);
+const maior = await post({ ...ok_cfg, name: 'Maior', interval_min: 15, interval_max: 20, daily_limit: 150 });
 check('limite diário maior que 100 passa quando o administrador liberou', maior.status === 201 || maior.status === 200, JSON.stringify(maior.body));
-check('simulação usa os limites da empresa', (await call('POST', '/api/campaigns/simulate', { token: A.token, body: { ...ok_cfg, interval_min: 2, interval_max: 10, daily_limit: 250, total: 10 } })).body.limits?.DAILY_MAX === 300);
-check('vazio volta ao padrão', (await limPut(A.token, {})).body.daily_max === 100 && (await lim(A.token)).personalizado === false);
+check('simulação usa os limites da empresa', (await call('POST', '/api/campaigns/simulate', { token: A.token, body: { ...ok_cfg, interval_min: 15, interval_max: 20, daily_limit: 150, total: 10 } })).body.limits?.DAILY_MAX === 200);
+check('vazio volta ao padrão', (await adm(A.token, { campaign_daily_max: null, campaign_interval_min: '' })).body.campaign_daily_max === null && (await lim(A.token)).daily_max === 100 && (await lim(A.token)).interval_min === 10);
 check('de volta ao padrão, 101 é recusado de novo', (await post({ ...ok_cfg, daily_limit: 101 })).status === 400);
 
 psql(`update public.companies set timezone='America/Sao_Paulo' where id=1`);

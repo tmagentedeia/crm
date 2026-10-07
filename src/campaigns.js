@@ -6,10 +6,9 @@ import { decifrar } from './segredo.js';
 import { testarRedis } from './blocks.js';
 import { q, qg, tx, currentCompany } from './db.js';
 import { normPhone } from './phone.js';
-import { isAdmin } from './auth.js';
 
 export const LIMITS = {
-  INTERVAL_MIN: 5,        // menor intervalo permitido entre mensagens (minutos)
+  INTERVAL_MIN: 10,       // menor intervalo permitido entre mensagens (minutos)
   INTERVAL_MAX_MIN: 10,   // o máximo escolhido nunca pode ser menor que isto
   BATCH_MAX: 30,          // envios seguidos antes de parar
   BATCH_PAUSE_MIN: 60,    // pausa mínima depois de cada lote (minutos)
@@ -412,29 +411,10 @@ export function registerCampaignRoutes(r, wrap) {
     res.json({ ok: true });
   }));
 
-  // Limites de envio desta empresa. Todos veem; só o administrador da plataforma altera (vazio = volta ao padrão).
-  const lerLimites = async () => {
-    const L = await limitesDaEmpresa(currentCompany());
-    return { daily_max: L.DAILY_MAX, interval_min: L.INTERVAL_MIN, personalizado: L.personalizado,
-             padrao: { daily_max: LIMITS.DAILY_MAX, interval_min: LIMITS.INTERVAL_MIN },
-             teto: { daily_max: TETO_ADMIN.DAILY_MAX, interval_min: TETO_ADMIN.INTERVAL_MIN } };
-  };
+  // Limites de envio desta empresa (o administrador ajusta na Administração); a tela de nova campanha usa estes valores.
   r.get('/campaigns/limits', wrap(async (req, res) => {
-    const pode = req.user?.role !== 'n8n' && await isAdmin(req.user.imp || req.user.id);
-    res.json({ ...(await lerLimites()), pode_editar: !!pode });
-  }));
-  r.put('/campaigns/limits', wrap(async (req, res) => {
-    if (req.user?.role === 'n8n' || !(await isAdmin(req.user.imp || req.user.id))) return res.status(403).json({ error: 'Só o administrador altera estes limites' });
-    const lido = (v, min, max, nome) => {
-      if (v === undefined || v === null || v === '') return { v: null };
-      const n = Number(v);
-      return Number.isInteger(n) && n >= min && n <= max ? { v: n } : { erro: `${nome}: use um número inteiro de ${min} a ${max}` };
-    };
-    const d = lido(req.body?.daily_max, 1, TETO_ADMIN.DAILY_MAX, 'Limite por dia');
-    const i = lido(req.body?.interval_min, 1, TETO_ADMIN.INTERVAL_MIN, 'Intervalo mínimo');
-    if (d.erro || i.erro) return res.status(400).json({ error: d.erro || i.erro });
-    await qg('UPDATE companies SET campaign_daily_max=$2, campaign_interval_min=$3 WHERE id=$1', [currentCompany(), d.v, i.v]);
-    res.json({ ...(await lerLimites()), pode_editar: true });
+    const L = await limitesDaEmpresa(currentCompany());
+    res.json({ daily_max: L.DAILY_MAX, interval_min: L.INTERVAL_MIN });
   }));
 
   // Previsão sem salvar nada.
