@@ -6,6 +6,7 @@ import { baixarPlanilha, planilhaDaEmpresa } from './planilha_contatos.js';
 import { registerDiretrizesRoutes, textoDeDiretrizes } from './diretrizes.js';
 import { registerContatosRoutes, chavesDePerfil, definirAssunto, textoDeCadastroContato } from './contatos.js';
 import { registerCampaignRoutes } from './campaigns.js';
+import { registerLembretesRoutes } from './lembretes.js';
 import { registerGruposCampanha } from './grupos_campanha.js';
 import { registerBirthdayRoutes } from './aniversario.js';
 import { registerDocumentRoutes } from './documentos.js';
@@ -1354,6 +1355,7 @@ export function buildRouter() {
 
   registerBirthdayRoutes(r, wrap); // antes das campanhas: /campaigns/birthday não pode cair em /campaigns/:id
   registerCampaignRoutes(r, wrap);
+  registerLembretesRoutes(r, wrap);
   registerGruposCampanha(r, wrap);
   registerOrderRoutes(r, wrap);
   registerEventRoutes(r, wrap);

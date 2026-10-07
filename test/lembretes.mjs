@@ -28,12 +28,17 @@ const porta = fake.address().port;
 
 const A = (await call('POST', '/api/auth/login', { body: { email: 'demo@demo.com', password: 'demo1234' } })).body;
 const api = (m, p, body) => call(m, '/api' + p, { token: A.token, body });
-psql("delete from company_1.appointments"); psql("delete from company_1.customers where phone like '553298888000%'");
+psql("delete from company_1.appointment_reminders; delete from company_1.appointments"); psql("delete from company_1.customers where phone like '55329888800%'");
 const prof = psql('select id from company_1.professionals where active order by id limit 1');
 const serv = psql("select id from company_1.services where kind='service' order by id limit 1");
 const cli = (nome, tel) => psql(`insert into company_1.customers (name, phone) values ('${nome}', '${tel}') returning id`).split('\n')[0];
 const agenda = (cliente, minutos, status = 'scheduled') => psql(`insert into company_1.appointments (professional_id, customer_id, service_id, starts_at, ends_at, price, source, status, created_at) values (${prof}, ${cliente}, ${serv}, now() + interval '${minutos} minutes', now() + interval '${minutos + 3} minutes', 50, 'manual', '${status}', now() - interval '1 day') returning id`).split('\n')[0];
 const enviouPara = (tel) => recebidos.filter((x) => x.url === '/send/text' && x.corpo.number === tel);
+
+// histórico da conversa do atendente (tabela de teste no mesmo banco)
+psql("drop table if exists chat_lembrete_teste; create table chat_lembrete_teste (id serial primary key, session_id text not null, message jsonb not null)");
+const instOrig = psql("select coalesce(whatsapp_instance,'') from public.companies where id=1");
+psql("update public.companies set chat_table='chat_lembrete_teste', whatsapp_instance='demo-lembrete' where id=1");
 
 // desligado e sem conexão: nada sai
 const c1 = cli('Maria Souza', '5532988880001'); const a1 = agenda(c1, 120);
@@ -48,8 +53,41 @@ let m = enviouPara('5532988880001');
 check('lembrete enviado ao cliente', m.length === 1 && m[0].token === 'chave-lembrete', JSON.stringify(recebidos));
 check('mensagem padrão com nome, dia e hora', m[0] && /Maria/.test(m[0].corpo.text) && /hoje|amanhã|dia \d\d\/\d\d/.test(m[0].corpo.text) && /\d\dh\d\d/.test(m[0].corpo.text) && !/\{/.test(m[0].corpo.text), m[0]?.corpo.text);
 check('marca o agendamento como avisado', psql(`select reminder_sent_at is not null from company_1.appointments where id=${a1}`) === 't');
+check('lembrete registrado como enviado, com o texto', psql(`select status||'|'||left(coalesce(sent_text,''),4) from company_1.appointment_reminders where appointment_id=${a1}`) === 'sent|Olá,');
 await espera(1200);
+check('a mensagem entrou no histórico da conversa do atendente', Number(psql("select count(*) from chat_lembrete_teste where session_id='demo-lembrete 5532988880001 chats' and message->>'type'='ai' and message->>'content' like 'Olá, Maria%'")) === 1);
+check('lembrete registra que gravou na memória', psql(`select memory_saved from company_1.appointment_reminders where appointment_id=${a1}`) === 't');
 check('não repete o aviso', enviouPara('5532988880001').length === 1);
+
+// lista de agendados e enviados, edição individual
+const c9 = cli('Edita Prado', '5532988880009'); const a9 = agenda(c9, 410);
+const c10 = cli('Cancela Neves', '5532988880010'); agenda(c10, 420);
+const c11 = cli('Lote Rocha', '5532988880011'); agenda(c11, 430);
+const c12 = cli('Lote Duarte', '5532988880012'); agenda(c12, 440);
+let lst = (await api('GET', '/reminders')).body;
+check('lista traz o que está agendado', lst.enabled === true && lst.connected === true && lst.scheduled.length === 4 && lst.scheduled.every((x) => /^Olá, /.test(x.preview)), JSON.stringify(lst.scheduled.map((x) => x.customer_name)));
+check('lista traz o que já foi enviado, com o texto', lst.history.some((x) => x.status === 'sent' && x.customer_name === 'Maria Souza' && /Maria/.test(x.sent_text)));
+const idDe = (nome) => lst.scheduled.find((x) => x.customer_name === nome)?.id;
+check('edita o texto de um cliente só', (await api('PUT', `/reminders/${idDe('Edita Prado')}`, { text: 'Oi {nome}, nos vemos {dia} às {hora}!' })).status === 200);
+lst = (await api('GET', '/reminders')).body;
+check('prévia mostra o texto editado', /^Oi Edita, nos vemos/.test(lst.scheduled.find((x) => x.customer_name === 'Edita Prado').preview) && lst.scheduled.find((x) => x.customer_name === 'Edita Prado').custom === true);
+check('os outros continuam com o texto da empresa', /^Olá, Cancela/.test(lst.scheduled.find((x) => x.customer_name === 'Cancela Neves').preview));
+check('texto grande demais é recusado', (await api('PUT', `/reminders/${idDe('Edita Prado')}`, { text: 'x'.repeat(801) })).status === 400);
+check('cancela o aviso de um cliente', (await api('POST', `/reminders/${idDe('Cancela Neves')}/cancel`)).status === 200);
+check('cancelar de novo é recusado', (await api('POST', `/reminders/${idDe('Cancela Neves')}/cancel`)).status === 409);
+check('enviar agora', (await api('POST', `/reminders/${idDe('Edita Prado')}/send`)).status === 200);
+m = enviouPara('5532988880009');
+check('saiu com o texto editado, antes da hora', m.length === 1 && /^Oi Edita, nos vemos/.test(m[0].corpo.text), m[0]?.corpo.text);
+lst = (await api('GET', '/reminders')).body;
+check('cancelado e enviado vão para o histórico', lst.history.some((x) => x.customer_name === 'Cancela Neves' && x.status === 'cancelled') && lst.history.some((x) => x.customer_name === 'Edita Prado' && x.status === 'sent') && lst.scheduled.length === 2);
+check('cancela vários de uma vez', (await api('POST', '/reminders/bulk-cancel', { ids: lst.scheduled.map((x) => x.id) })).body.cancelled === 2);
+lst = (await api('GET', '/reminders')).body;
+check('nenhum agendado sobrou', lst.scheduled.length === 0);
+const antigos = lst.history.filter((x) => x.status === 'cancelled').map((x) => x.id);
+check('limpa o histórico (simulação)', (await api('POST', '/reminders/bulk-delete', { ids: antigos, dry_run: true })).body.found === antigos.length);
+check('limpa o histórico', (await api('POST', '/reminders/bulk-delete', { ids: antigos })).body.deleted === antigos.length);
+check('não apaga o que ainda vai ser enviado', (await api('POST', '/reminders/bulk-delete', { ids: [] })).status === 400);
+psql("delete from company_1.appointments where starts_at > now() + interval '300 minutes'");
 
 // mensagem personalizada
 await api('PUT', '/company', { reminder_text: '{nome}, te esperamos {dia} às {hora} na {empresa}!' });
@@ -84,11 +122,12 @@ falhar = true;
 const c8 = cli('Falha Alves', '5532988880008'); const a8 = agenda(c8, 115);
 await espera(3000);
 check('falha: tenta no máximo 3 vezes', enviouPara('5532988880008').length === 3, String(enviouPara('5532988880008').length));
-check('depois das tentativas não fica insistindo', psql(`select reminder_sent_at is not null from company_1.appointments where id=${a8}`) === 't');
+check('depois das tentativas fica como não enviado, com o motivo', psql(`select status||'|'||coalesce(note,'') from company_1.appointment_reminders where appointment_id=${a8}`).startsWith('failed|'));
 falhar = false;
 
-psql("update public.companies set wa_api_url=null, wa_api_token=null, reminder_minutes=null, reminder_text=null where id=1");
-psql("delete from company_1.appointments"); psql("delete from company_1.customers where phone like '553298888000%'");
+psql(`update public.companies set wa_api_url=null, wa_api_token=null, reminder_minutes=null, reminder_text=null, chat_table=null, whatsapp_instance='${instOrig}' where id=1`);
+psql("drop table if exists chat_lembrete_teste");
+psql("delete from company_1.appointment_reminders; delete from company_1.appointments"); psql("delete from company_1.customers where phone like '55329888800%'");
 fake.close();
 console.log(`lembretes: ${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);

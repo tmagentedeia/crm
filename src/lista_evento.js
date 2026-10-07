@@ -319,6 +319,9 @@ export function registerListaEventoRoutes(r, wrap) {
     return new Date(d).toLocaleString('pt-BR', { timeZone: tz, dateStyle: 'short', timeStyle: 'short' });
   };
 
+  // tudo que o painel envia entra no histórico da conversa do atendente
+  const guardarNaMemoria = async (job) => { const { gravarNaConversa } = await import('./campaigns.js'); await gravarNaConversa(currentCompany(), job, null); };
+
   async function enviarLista(ev) {
     const con = await conexaoWhats(currentCompany());
     if (!con) throw erro(409, 'O envio pelo WhatsApp ainda não foi liberado para esta empresa');
@@ -338,10 +341,13 @@ export function registerListaEventoRoutes(r, wrap) {
     for (const [i, n] of dest.entries()) {
       if (i) await pausa(5000);
       const numero = paraEnvio(n);
-      await postarWhats(con, '/send/text', { number: numero, text: resumo + (pdf ? '\n\nA lista vai logo abaixo.' : '\n\nA planilha vai logo abaixo.'), readchat: true });
+      const textoResumo = resumo + (pdf ? '\n\nA lista vai logo abaixo.' : '\n\nA planilha vai logo abaixo.');
+      await postarWhats(con, '/send/text', { number: numero, text: textoResumo, readchat: true });
+      await guardarNaMemoria({ phone: numero, text: textoResumo });
       await pausa(3000);
       try {
         await postarWhats(con, '/send/media', { number: numero, type: 'document', file: pdf || csv, docName: `${nomeBase}.${pdf ? 'pdf' : 'csv'}`, readchat: true });
+        await guardarNaMemoria({ phone: numero, text: `[Enviei a lista do evento "${ev.title}" em ${pdf ? 'PDF' : 'planilha'}]` });
       } catch (e) {
         // sem a planilha, manda os nomes em texto (em partes, devagar)
         comPlanilha = false;
@@ -349,7 +355,7 @@ export function registerListaEventoRoutes(r, wrap) {
         const partes = [];
         for (const l of linhasTxt) { if ((parte + l).length > 3200) { partes.push(parte); parte = ''; } parte += l + '\n'; }
         if (parte) partes.push(parte);
-        for (const t of partes.slice(0, 8)) { await pausa(3000); await postarWhats(con, '/send/text', { number: numero, text: t, readchat: true }); }
+        for (const t of partes.slice(0, 8)) { await pausa(3000); await postarWhats(con, '/send/text', { number: numero, text: t, readchat: true }); await guardarNaMemoria({ phone: numero, text: t }); }
       }
     }
     return { recipients: dest.length, spreadsheet: comPlanilha, people: rows.length };

@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { Nome } from '../menu.jsx';
 import { api, fmtTime, money, WEEKDAYS } from '../api.js';
 import GradeHorarios from '../GradeHorarios.jsx';
+import LembretesAgenda from '../LembretesAgenda.jsx';
 import { useSelecao, ApagarSelecionados, resumoApagado } from '../selecao.jsx';
 
 const STATUS = { pending: 'Aguardando confirmação', scheduled: 'Agendado', attended: 'Compareceu', no_show: 'Faltou', cancelled: 'Cancelado' };
@@ -92,6 +93,7 @@ export default function Agenda() {
           <button className="btn primary" onClick={() => setModal({ professional_id: professionals[0]?.id })}>+ Agendar</button>
         </div>}
       </div>
+      <LembretesAgenda />
       {cfg?.solo && <HorarioEmpresa key={String(cfg.scheduling_enabled) + JSON.stringify(cfg.schedules)} cfg={cfg} onChange={carregaCfg} />}
       {cfg?.solo && !cfg.scheduling_enabled ? null : <>
       {aviso && <p className="muted" style={{ marginBottom: 8 }}>{aviso}</p>}

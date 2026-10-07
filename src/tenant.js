@@ -34,6 +34,26 @@ DO $$ DECLARE k BIGINT; BEGIN
   END IF;
 END $$;
 CREATE UNIQUE INDEX IF NOT EXISTS professionals_uma_agenda_unica ON professionals (is_default) WHERE is_default;`;
+// Lembretes de agendamento: um registro por agendamento (agendado, enviado, não enviado), com o texto que vai/foi para o cliente.
+const LEMBRETES_SQL = `
+CREATE TABLE IF NOT EXISTS appointment_reminders (
+  id BIGSERIAL PRIMARY KEY,
+  appointment_id BIGINT UNIQUE REFERENCES appointments(id) ON DELETE SET NULL,
+  customer_id BIGINT REFERENCES customers(id) ON DELETE SET NULL,
+  customer_name TEXT, phone TEXT, chat_id TEXT, service_name TEXT, professional_name TEXT, professional_default BOOLEAN NOT NULL DEFAULT false,
+  starts_at TIMESTAMPTZ NOT NULL,
+  send_at TIMESTAMPTZ NOT NULL,
+  text TEXT,                       -- texto escrito para este cliente (vazio = mensagem da empresa)
+  status TEXT NOT NULL DEFAULT 'scheduled' CHECK (status IN ('scheduled','sending','sent','failed','cancelled','skipped')),
+  tries INT NOT NULL DEFAULT 0,
+  sent_text TEXT,                  -- o que realmente foi enviado
+  sent_at TIMESTAMPTZ,
+  claimed_at TIMESTAMPTZ,
+  note TEXT,                       -- motivo de não ter sido enviado
+  memory_saved BOOLEAN,            -- a mensagem entrou no histórico da conversa do atendente?
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS appointment_reminders_status ON appointment_reminders (status, send_at);`;
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const baseline = fs.readFileSync(path.join(dir, '..', 'db', 'tenant.sql'), 'utf8');
 
@@ -231,6 +251,8 @@ export const TENANT_STEPS = [
   { version: 54, sql: AGENDA_UNICA_SQL },
   // 55: só uma agenda da empresa (corrige duplicada)
   { version: 55, sql: AGENDA_UNICA_UMA_SQL },
+  // 56: lembretes de agendamento (lista de agendados e enviados)
+  { version: 56, sql: LEMBRETES_SQL },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 
@@ -285,6 +307,7 @@ export async function createCompanySchema(cx, companyId) {
   await cx.query(GRUPOS_CAMPANHA_SQL);
   await cx.query(AGENDA_UNICA_SQL);
   await cx.query(AGENDA_UNICA_UMA_SQL);
+  await cx.query(LEMBRETES_SQL);
   await cx.query('SET LOCAL search_path TO public');
   await cx.query('INSERT INTO tenant_versions (company_id, version) VALUES ($1, 1)', [companyId]);
 }
