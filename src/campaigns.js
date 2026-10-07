@@ -6,6 +6,7 @@ import { decifrar } from './segredo.js';
 import { testarRedis } from './blocks.js';
 import { q, qg, tx, currentCompany } from './db.js';
 import { normPhone } from './phone.js';
+import { isAdmin } from './auth.js';
 
 export const LIMITS = {
   INTERVAL_MIN: 5,        // menor intervalo permitido entre mensagens (minutos)
@@ -21,6 +22,15 @@ export const LIMITS = {
   COMPLIMENTS_MIN: 20,    // cumprimentos (Como vai?...) no mínimo
   SAVED_MAX: 10,          // campanhas guardadas por empresa
 };
+
+// O administrador da plataforma pode ajustar, por empresa, o limite diário e o intervalo mínimo (null = padrão acima).
+export const TETO_ADMIN = { DAILY_MAX: 1000, INTERVAL_MIN: 120 };
+export async function limitesDaEmpresa(companyId) {
+  const c = (await qg('SELECT campaign_daily_max, campaign_interval_min FROM companies WHERE id=$1', [companyId])).rows[0] || {};
+  const INTERVAL_MIN = c.campaign_interval_min ?? LIMITS.INTERVAL_MIN;
+  return { ...LIMITS, DAILY_MAX: c.campaign_daily_max ?? LIMITS.DAILY_MAX, INTERVAL_MIN, INTERVAL_MAX_MIN: Math.max(LIMITS.INTERVAL_MAX_MIN, INTERVAL_MIN),
+           personalizado: c.campaign_daily_max != null || c.campaign_interval_min != null };
+}
 
 // A frase de saída precisa existir e a mensagem termina com "tá?", "ok?" ou "tudo bem?"
 // (pergunta, para a atendente responder se o contato voltar a escrever).
@@ -67,7 +77,7 @@ export function takeFromBag(bag, list) {
 export const hasLink = (messages) => (messages || []).some((m) => LINK.test(String(m || '')));
 
 // Devolve texto de erro (em português simples) ou null se estiver tudo certo.
-export function validateConfig(c) {
+export function validateConfig(c, L = LIMITS) {
   const n = (v) => Number.isInteger(v);
   if (!c.name || !String(c.name).trim()) return 'Dê um nome para a campanha';
   if (!Array.isArray(c.messages) || c.messages.length !== LIMITS.VARIANTS
@@ -75,17 +85,17 @@ export function validateConfig(c) {
     return `Escreva a mensagem e mais ${LIMITS.VARIANTS - 1} variações`;
   if (c.messages.some((m) => !OPT_OUT_END.test(String(m).trim())))
     return 'Cada versão da mensagem deve terminar com a frase de saída em forma de pergunta (por exemplo: "Se não quiser mais receber, é só avisar, tá?")';
-  if (!n(c.interval_min) || c.interval_min < LIMITS.INTERVAL_MIN)
-    return `O intervalo mínimo entre mensagens é de ${LIMITS.INTERVAL_MIN} minutos`;
-  if (!n(c.interval_max) || c.interval_max < LIMITS.INTERVAL_MAX_MIN)
-    return `O intervalo máximo precisa ser de pelo menos ${LIMITS.INTERVAL_MAX_MIN} minutos`;
+  if (!n(c.interval_min) || c.interval_min < L.INTERVAL_MIN)
+    return `O intervalo mínimo entre mensagens é de ${L.INTERVAL_MIN} minutos`;
+  if (!n(c.interval_max) || c.interval_max < L.INTERVAL_MAX_MIN)
+    return `O intervalo máximo precisa ser de pelo menos ${L.INTERVAL_MAX_MIN} minutos`;
   if (c.interval_max < c.interval_min) return 'O intervalo máximo não pode ser menor que o mínimo';
   if (!n(c.batch_size) || c.batch_size < 1 || c.batch_size > LIMITS.BATCH_MAX)
     return `Cada lote pode ter de 1 a ${LIMITS.BATCH_MAX} envios seguidos`;
   if (!n(c.batch_pause_min) || c.batch_pause_min < LIMITS.BATCH_PAUSE_MIN)
     return `A pausa entre lotes é de pelo menos ${LIMITS.BATCH_PAUSE_MIN} minutos`;
-  if (!n(c.daily_limit) || c.daily_limit < 1 || c.daily_limit > LIMITS.DAILY_MAX)
-    return `O limite por dia vai de 1 a ${LIMITS.DAILY_MAX} envios`;
+  if (!n(c.daily_limit) || c.daily_limit < 1 || c.daily_limit > L.DAILY_MAX)
+    return `O limite por dia vai de 1 a ${L.DAILY_MAX} envios`;
   return null;
 }
 
@@ -146,13 +156,14 @@ export function proximoEnvio({ nextSendAt, sentToday, dailyLimit, tz, now = new 
   return { at: motivo ? t.toISOString() : (sorteado ? t.toISOString() : null), motivo };
 }
 
-const companyCfg = async (id) => (await qg('SELECT timezone, whatsapp_instance FROM companies WHERE id=$1', [id])).rows[0] || {};
+const companyCfg = async (id) => (await qg('SELECT timezone, whatsapp_instance, campaign_daily_max, campaign_interval_min FROM companies WHERE id=$1', [id])).rows[0] || {};
 
 // Reserva o próximo envio permitido da empresa (ou devolve null). Quem decide o quê e quando é o painel.
 export async function claimNext(companyId) {
   const cfg = await companyCfg(companyId);
   const tz = cfg.timezone || 'America/Sao_Paulo';
   const foraDaJanela = !inWindow(tz); // a campanha de teste é a única que envia fora do horário
+  const teto = Math.max(LIMITS.DAILY_MAX, cfg.campaign_daily_max ?? 0);   // campanha criada com um limite maior não é cortada
   const out = await tx(companyId, async (t) => {
     // quem ficou "enviando" sem resposta por mais de 30 min é dado como falho (nunca reenvia)
     await t(`UPDATE campaign_recipients SET status='failed', error='Sem retorno do envio'
@@ -166,11 +177,11 @@ export async function claimNext(companyId) {
         `SELECT COUNT(*)::int AS n FROM campaign_recipients WHERE sent_at IS NOT NULL
            AND (sent_at AT TIME ZONE $1)::date = (now() AT TIME ZONE $1)::date`, [tz])).rows[0].n;
       // o limite diário vale para todas as campanhas da empresa juntas
-      if (sentToday >= Math.min(c.daily_limit, LIMITS.DAILY_MAX)) continue;
+      if (sentToday >= Math.min(c.daily_limit, teto)) continue;
       // duas campanhas ativas ao mesmo tempo (a de aniversariantes roda junto com as outras) nunca enviam coladas
       const colada = (await t(`SELECT 1 FROM campaign_recipients r JOIN campaigns o ON o.id=r.campaign_id
          WHERE r.campaign_id<>$1 AND o.status='running' AND r.claimed_at > now() - make_interval(mins => $2) LIMIT 1`,
-        [c.id, LIMITS.INTERVAL_MIN])).rowCount;
+        [c.id, Math.max(LIMITS.INTERVAL_MIN, cfg.campaign_interval_min ?? 0)])).rowCount;
       if (colada) continue;
       // quem entrou na lista de exceções depois de a campanha ser montada não recebe
       if (!c.allow_excluded) await t(`UPDATE campaign_recipients SET status='cancelled', error='Na lista de exceções'
@@ -401,12 +412,37 @@ export function registerCampaignRoutes(r, wrap) {
     res.json({ ok: true });
   }));
 
+  // Limites de envio desta empresa. Todos veem; só o administrador da plataforma altera (vazio = volta ao padrão).
+  const lerLimites = async () => {
+    const L = await limitesDaEmpresa(currentCompany());
+    return { daily_max: L.DAILY_MAX, interval_min: L.INTERVAL_MIN, personalizado: L.personalizado,
+             padrao: { daily_max: LIMITS.DAILY_MAX, interval_min: LIMITS.INTERVAL_MIN },
+             teto: { daily_max: TETO_ADMIN.DAILY_MAX, interval_min: TETO_ADMIN.INTERVAL_MIN } };
+  };
+  r.get('/campaigns/limits', wrap(async (req, res) => {
+    const pode = req.user?.role !== 'n8n' && await isAdmin(req.user.imp || req.user.id);
+    res.json({ ...(await lerLimites()), pode_editar: !!pode });
+  }));
+  r.put('/campaigns/limits', wrap(async (req, res) => {
+    if (req.user?.role === 'n8n' || !(await isAdmin(req.user.imp || req.user.id))) return res.status(403).json({ error: 'Só o administrador altera estes limites' });
+    const lido = (v, min, max, nome) => {
+      if (v === undefined || v === null || v === '') return { v: null };
+      const n = Number(v);
+      return Number.isInteger(n) && n >= min && n <= max ? { v: n } : { erro: `${nome}: use um número inteiro de ${min} a ${max}` };
+    };
+    const d = lido(req.body?.daily_max, 1, TETO_ADMIN.DAILY_MAX, 'Limite por dia');
+    const i = lido(req.body?.interval_min, 1, TETO_ADMIN.INTERVAL_MIN, 'Intervalo mínimo');
+    if (d.erro || i.erro) return res.status(400).json({ error: d.erro || i.erro });
+    await qg('UPDATE companies SET campaign_daily_max=$2, campaign_interval_min=$3 WHERE id=$1', [currentCompany(), d.v, i.v]);
+    res.json({ ...(await lerLimites()), pode_editar: true });
+  }));
+
   // Previsão sem salvar nada.
   r.post('/campaigns/simulate', wrap(async (req, res) => {
     const c = cleanBody(req.body);
     const rc = req.body.total === undefined ? await pickRecipients(req.body.recipients) : null;
     const total = req.body.total ?? rc.length;
-    res.json({ total, ignorados: rc?.ignorados ?? 0, ...simulate(c, total), has_link: hasLink(c.messages), limits: LIMITS });
+    res.json({ total, ignorados: rc?.ignorados ?? 0, ...simulate(c, total), has_link: hasLink(c.messages), limits: await limitesDaEmpresa(currentCompany()) });
   }));
 
   r.get('/campaigns', wrap(async (req, res) => {
@@ -433,14 +469,14 @@ export function registerCampaignRoutes(r, wrap) {
       const sentToday = (await q(
         `SELECT COUNT(*)::int AS n FROM campaign_recipients WHERE sent_at IS NOT NULL
            AND (sent_at AT TIME ZONE $1)::date = (now() AT TIME ZONE $1)::date`, [tz])).rows[0].n;
-      proximo = proximoEnvio({ nextSendAt: c.next_send_at, sentToday, dailyLimit: Math.min(c.daily_limit, LIMITS.DAILY_MAX), tz, semJanela: !!c.allow_excluded });
+      proximo = proximoEnvio({ nextSendAt: c.next_send_at, sentToday, dailyLimit: Math.min(c.daily_limit, Math.max(LIMITS.DAILY_MAX, cfg.campaign_daily_max ?? 0)), tz, semJanela: !!c.allow_excluded });
     }
     res.json({ ...toCampaign(c), recipients: rec, proximo_envio: proximo, ...simulate(c, rec.filter((x) => ['pending', 'sending'].includes(x.status)).length) });
   }));
 
   async function saveDraft(req, res, id) {
     const c = cleanBody(req.body);
-    const err = validateConfig(c);
+    const err = validateConfig(c, await limitesDaEmpresa(currentCompany()));
     if (err) return res.status(400).json({ error: err });
     const recips = await pickRecipients(req.body.recipients);
     if (!recips.length) return res.status(400).json({ error: 'Escolha pelo menos um contato' });
@@ -517,7 +553,7 @@ export function registerCampaignRoutes(r, wrap) {
     // só uma campanha ativa por vez (em andamento ou pausada)
     const outra = (await q("SELECT name FROM campaigns WHERE status IN ('running','paused') AND kind='manual' AND id<>$1 LIMIT 1", [c.id])).rows[0];
     if (outra) return res.status(409).json({ error: `Já existe uma campanha ativa (“${outra.name}”). Pare ou conclua essa antes de iniciar outra.` });
-    const err = validateConfig(toCampaign(c));
+    const err = validateConfig(toCampaign(c), await limitesDaEmpresa(currentCompany()));
     if (err) return res.status(400).json({ error: err });
     await q(`UPDATE campaigns SET status='running', started_at=now(), last_play_at=now(), accepted_at=now(), accepted_by=$2, next_send_at=now()
              WHERE id=$1`, [c.id, String(req.user?.email || req.user?.id || '')]);

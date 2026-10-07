@@ -3,7 +3,7 @@
 // uma vez por ano por pessoa. O envio usa o mesmo motor das campanhas (janela de horário, intervalos, limite diário,
 // lista "Não enviar para"), então as regras de segurança são as mesmas.
 import { q, qg, tx, currentCompany } from './db.js';
-import { LIMITS, validateConfig, hasLink } from './campaigns.js';
+import { LIMITS, validateConfig, hasLink, limitesDaEmpresa } from './campaigns.js';
 
 export const ANIVERSARIO_SQL = `
   ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'manual';
@@ -56,14 +56,15 @@ const lerConfig = async (t) => (await t("SELECT *, to_char(last_run,'YYYY-MM-DD'
 async function garantirCampanha(t, st) {
   let cid = st.campaign_id;
   const msgs = JSON.stringify(st.messages);
-  const lim = Math.min(st.daily_limit, LIMITS.DAILY_MAX);
+  const L = await limitesDaEmpresa(currentCompany());
+  const lim = Math.min(st.daily_limit, L.DAILY_MAX);
   if (cid && (await t('SELECT 1 FROM campaigns WHERE id=$1', [cid])).rowCount) {
     await t('UPDATE campaigns SET messages=$2, daily_limit=$3 WHERE id=$1', [cid, msgs, lim]);
     return cid;
   }
   cid = (await t(`INSERT INTO campaigns (name,kind,status,messages,interval_min,interval_max,batch_size,batch_pause_min,daily_limit,accepted_at,started_at,last_play_at,next_send_at)
                   VALUES ('Aniversariantes','birthday','paused',$1,$2,$3,10,$4,$5,now(),now(),now(),now()) RETURNING id`,
-    [msgs, LIMITS.INTERVAL_MIN, LIMITS.INTERVAL_MAX_MIN, LIMITS.BATCH_PAUSE_MIN, lim])).rows[0].id;
+    [msgs, L.INTERVAL_MIN, L.INTERVAL_MAX_MIN, LIMITS.BATCH_PAUSE_MIN, lim])).rows[0].id;
   await t('UPDATE birthday_settings SET campaign_id=$1 WHERE id=1', [cid]);
   return cid;
 }
@@ -121,7 +122,7 @@ export function registerBirthdayRoutes(r, wrap) {
     }
     return { enabled: st.enabled, days_ahead: st.days_ahead, audience: st.audience, daily_limit: st.daily_limit,
              messages: custom ? st.messages : MENSAGENS_PADRAO, padrao: MENSAGENS_PADRAO, personalizada: custom,
-             campanha: andamento, limites: { daily_max: LIMITS.DAILY_MAX } };
+             campanha: andamento, limites: { daily_max: (await limitesDaEmpresa(currentCompany())).DAILY_MAX } };
   };
   r.get('/campaigns/birthday', wrap(async (req, res) => res.json(await ler())));
 
@@ -130,10 +131,11 @@ export function registerBirthdayRoutes(r, wrap) {
     const days = Number(b.days_ahead), lim = Number(b.daily_limit);
     const messages = Array.isArray(b.messages) ? b.messages.map((m) => String(m || '').trim()) : [];
     if (!Number.isInteger(days) || days < 3 || days > 60) return res.status(400).json({ error: 'Escolha de 3 a 60 dias de antecedência' });
-    if (!Number.isInteger(lim) || lim < 1 || lim > LIMITS.DAILY_MAX) return res.status(400).json({ error: `O limite por dia vai de 1 a ${LIMITS.DAILY_MAX} envios` });
+    const L = await limitesDaEmpresa(currentCompany());
+    if (!Number.isInteger(lim) || lim < 1 || lim > L.DAILY_MAX) return res.status(400).json({ error: `O limite por dia vai de 1 a ${L.DAILY_MAX} envios` });
     if (!['clients', 'all'].includes(b.audience)) return res.status(400).json({ error: 'Escolha para quem enviar' });
-    const falha = validateConfig({ name: 'Aniversariantes', messages, interval_min: LIMITS.INTERVAL_MIN, interval_max: LIMITS.INTERVAL_MAX_MIN,
-      batch_size: 10, batch_pause_min: LIMITS.BATCH_PAUSE_MIN, daily_limit: lim });
+    const falha = validateConfig({ name: 'Aniversariantes', messages, interval_min: L.INTERVAL_MIN, interval_max: L.INTERVAL_MAX_MIN,
+      batch_size: 10, batch_pause_min: LIMITS.BATCH_PAUSE_MIN, daily_limit: lim }, L);
     if (falha) return res.status(400).json({ error: falha });
     if (hasLink(messages)) return res.status(400).json({ error: 'A mensagem não pode ter link' });
     const ligar = b.enabled === true;

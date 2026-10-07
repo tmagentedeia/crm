@@ -43,6 +43,8 @@ try {
     await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS doc_extras INT NOT NULL DEFAULT 0 CHECK (doc_extras >= 0)');
     await pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS doc_nivel TEXT CHECK (doc_nivel IN ('simples','completo'))");
     await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS wa_api_token TEXT');
+    await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS campaign_daily_max INT CHECK (campaign_daily_max BETWEEN 1 AND 1000)');
+    await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS campaign_interval_min INT CHECK (campaign_interval_min BETWEEN 1 AND 120)');
     for (const c of ['admin_name', 'admin_phone', 'admin_email']) await pool.query(`ALTER TABLE companies ADD COLUMN IF NOT EXISTS ${c} TEXT`);
     await pool.query("ALTER TABLE companies ADD COLUMN IF NOT EXISTS booking_mode TEXT NOT NULL DEFAULT 'auto'");
     await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS api_key_hash TEXT');
