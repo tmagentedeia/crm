@@ -8,6 +8,7 @@ import { registerFerramentasRoutes, textoDeFerramentas } from './ferramentas.js'
 import { registerContatosRoutes, chavesDePerfil, definirAssunto, textoDeCadastroContato } from './contatos.js';
 import { registerCampaignRoutes } from './campaigns.js';
 import { registerLembretesRoutes, avisarMudanca } from './lembretes.js';
+import { registerAgendamentosRoutes } from './agendamentos.js';
 import { registerGruposCampanha } from './grupos_campanha.js';
 import { registerBirthdayRoutes } from './aniversario.js';
 import { registerDocumentRoutes } from './documentos.js';
@@ -1398,6 +1399,7 @@ export function buildRouter() {
   registerBirthdayRoutes(r, wrap); // antes das campanhas: /campaigns/birthday não pode cair em /campaigns/:id
   registerCampaignRoutes(r, wrap);
   registerLembretesRoutes(r, wrap);
+  registerAgendamentosRoutes(r, wrap);
   registerGruposCampanha(r, wrap);
   registerOrderRoutes(r, wrap);
   registerEventRoutes(r, wrap);

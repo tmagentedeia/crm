@@ -39,7 +39,7 @@ export const ROTAS_DA_TELA = {
   inativos: ['customers-inactive'],
   profissionais: ['professionals', 'import'],
   servicos: ['services', 'categories', 'import'],
-  atendente: ['agent-manual', 'agent-updates', 'agent-config', 'agent-attendants', 'assistant-manual', 'assistant-updates', 'assistant'],
+  atendente: ['agent-manual', 'agent-updates', 'agent-config', 'agent-attendants', 'assistant-manual', 'assistant-updates', 'assistant', 'scheduled-messages'],
   comandos: ['agent-commands'],
   bloqueios: ['blocks'],
   campanhas: ['campaigns'],

@@ -11,6 +11,7 @@
 #  - conexoes.mjs: Redis e banco de conversas próprios de uma empresa (cifrados; vazio = padrão do servidor)
 #  - agenda_unica.mjs: empresa sem profissional atende por uma agenda com o nome da empresa
 #  - lembretes.mjs: lembrete de agendamento enviado pelo painel (WhatsApp falso)
+#  - agendamentos.mjs: aba Agendamentos do Atendente (lista, edita e cancela mensagens agendadas)
 #  - chave_global.mjs: chave global desligada com ALLOW_GLOBAL_KEY=false (segundo servidor, porta 3998)
 # Precisa de um Postgres de teste (PGBASE = conexão sem banco, ex.: postgres://postgres@/postgres?host=/var/tmp/pgtest&port=55432)
 set -e
@@ -106,6 +107,7 @@ BASE=http://localhost:3999 node test/produtos.mjs || R=1
 BASE=http://localhost:3999 node test/vendas_produtos.mjs || R=1
 BASE=http://localhost:3999 node test/comissoes.mjs || R=1
 BASE=http://localhost:3999 node test/lembrete_cliente.mjs || R=1
+BASE=http://localhost:3999 node test/agendamentos.mjs || R=1
 BASE=http://localhost:3999 node test/planos.mjs || R=1
 BASE=http://localhost:3999 node test/casa_de_shows.mjs || R=1
 BASE=http://localhost:3999 node test/casa_de_shows_midia.mjs || R=1

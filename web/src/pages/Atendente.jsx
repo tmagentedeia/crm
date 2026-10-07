@@ -3,6 +3,7 @@ import UpgradeModal from '../UpgradeModal.jsx';
 import { IconeCadeado } from '../icones.jsx';
 import { Nome } from '../menu.jsx';
 import { api } from '../api.js';
+import MensagensAgendadas from './MensagensAgendadas.jsx';
 import { lerSecoes, juntarSecoes, sugerirSecoes, temSecoes, rotulo } from '../manualSecoes.js';
 
 const fmtMomento = (s) => (s ? `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)} ${s.slice(11, 16)}` : '');
@@ -782,10 +783,11 @@ export default function Atendente({ company }) {
       <div style={{ display: 'flex', gap: 8, margin: '12px 0 16px' }}>
         <button className={'btn' + (aba === 'manual' ? ' primary' : '')} onClick={() => setAba('manual')}>Manual</button>
         <button className={'btn' + (aba === 'atualizacoes' ? ' primary' : '')} onClick={() => setAba('atualizacoes')}>Atualizações provisórias</button>
+        <button className={'btn' + (aba === 'agendamentos' ? ' primary' : '')} onClick={() => setAba('agendamentos')}>Agendamentos</button>
         {ehAdmin && P === 'agent' && <button className={'btn' + (aba === 'diretrizes' ? ' primary' : '')} onClick={() => setAba('diretrizes')}>Diretrizes</button>}
         {ehAdmin && P === 'agent' && <button className={'btn' + (aba === 'ferramentas' ? ' primary' : '')} onClick={() => setAba('ferramentas')}>Ferramentas</button>}
       </div>
-      {aba === 'ferramentas' && ehAdmin && P === 'agent' ? <Ferramentas /> : aba === 'diretrizes' && ehAdmin && P === 'agent' ? <Diretrizes /> : aba === 'atualizacoes' ? <Atualizacoes key={P} P={P} papel={papel} /> : <Manual key={P} P={P} papel={papel} />}
+      {aba === 'ferramentas' && ehAdmin && P === 'agent' ? <Ferramentas /> : aba === 'diretrizes' && ehAdmin && P === 'agent' ? <Diretrizes /> : aba === 'agendamentos' ? <MensagensAgendadas /> : aba === 'atualizacoes' ? <Atualizacoes key={P} P={P} papel={papel} /> : <Manual key={P} P={P} papel={papel} />}
     </>
   );
 }
