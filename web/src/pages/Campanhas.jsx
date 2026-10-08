@@ -328,6 +328,7 @@ function Detalhe({ id, voltar, editar, irPara }) {
   const [c, setC] = useState(null);
   const [erro, setErro] = useState('');
   const [aviso, setAviso] = useState(false);
+  const [avisoEditar, setAvisoEditar] = useState(false); // tentou editar com a campanha em andamento
   const [ciente, setCiente] = useState(false);
   const [faltouAceite, setFaltouAceite] = useState(false); // tentou iniciar sem marcar o aviso
 
@@ -383,6 +384,7 @@ function Detalhe({ id, voltar, editar, irPara }) {
           {c.status === 'running' && <button className="btn" onClick={() => acao('pause')}>⏸ Pausar</button>}
           {c.status === 'paused' && <button className="btn primary" onClick={() => acao('resume')}>▶ Retomar</button>}
           {c.status === 'paused' && <button className="btn" onClick={editar}>Editar</button>}
+          {c.status === 'running' && <button className="btn" onClick={() => setAvisoEditar(true)}>Editar</button>}
           {['running', 'paused'].includes(c.status) && <button className="btn bad" onClick={() => acao('stop', {}, 'Parar de vez? Os contatos que ainda estão na fila não vão receber a mensagem.')}>⏹ Parar</button>}
           {['stopped', 'done'].includes(c.status) && (c.recipients || []).some((x) => x.status === 'cancelled') && (
             <button className="btn primary" onClick={continuar} title="Cria uma campanha nova só com quem ainda não recebeu">Continuar de onde parou</button>
@@ -390,6 +392,7 @@ function Detalhe({ id, voltar, editar, irPara }) {
           <button className="btn" onClick={duplicar}>Duplicar</button>
           {['draft', 'stopped', 'done'].includes(c.status) && <button className="btn bad" onClick={apagar}>Apagar</button>}
         </div>
+        {avisoEditar && c.status === 'running' && <p className="error" style={{ marginTop: 8 }}>Para editar uma campanha, ela precisa estar pausada. Clique em Pausar e depois em Editar.</p>}
       </div>
 
       {aviso && (
