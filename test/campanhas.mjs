@@ -96,6 +96,18 @@ check('falha não é reenviada', psql(`select count(*) from company_1.campaign_r
 psql(`update company_1.campaigns set next_send_at=now() where id=${cid}`);
 check('pausada não envia', (await call('POST', '/n8n/campaigns/claim', { headers: N8N })).body === null);
 
+// editar com a campanha pausada: quem já foi tratado fica, a fila muda
+const putC = (body) => call('PUT', `/api/campaigns/${cid}`, { token: A.token, body });
+const e1 = await putC({ ...ok_cfg, name: 'Editada pausada', interval_min: 11, interval_max: 14, recipients: { mode: 'selected', ids: ids.slice(0, 1) } });
+const de = (await call('GET', `/api/campaigns/${cid}`, { token: A.token })).body;
+check('editar pausada aceito e continua pausada', e1.status === 200 && de.status === 'paused' && de.name === 'Editada pausada' && de.interval_min === 11, JSON.stringify(e1.body));
+check('quem já falhou continua no histórico', de.recipients.filter((x) => x.status === 'failed').length === 3);
+check('fila só tem quem continua marcado', de.recipients.filter((x) => x.status === 'pending').every((x) => x.customer_id === ids[0]));
+const e2 = await putC({ ...ok_cfg, recipients: { mode: 'selected', ids } });
+const de2 = (await call('GET', `/api/campaigns/${cid}`, { token: A.token })).body;
+check('marcar de novo recoloca na fila, sem repetir quem já falhou', e2.status === 200 && de2.recipients.length === 6 && de2.recipients.filter((x) => x.status === 'failed').length === 3 && de2.recipients.filter((x) => x.status === 'sent').length === 1 && de2.recipients.filter((x) => x.status === 'pending').length === 2, JSON.stringify(de2.recipients.map((x) => x.status)));
+check('editar pausada respeita as regras (sem pausa de lote < 60)', (await putC({ ...ok_cfg, batch_pause_min: 30 })).status === 400);
+
 // fora do horário (22h às 7h): o próximo envio é às 7h
 const noite = (off + 11) % 24; // fuso onde agora é ~23h
 psql(`update public.companies set timezone='${noite <= 12 ? `Etc/GMT-${noite}` : `Etc/GMT+${24 - noite}`}' where id=1`);
@@ -116,6 +128,7 @@ check('segunda ativa recusada', (await call('POST', `/api/campaigns/${dup.body.i
 
 // limite do dia e janela
 await call('POST', `/api/campaigns/${cid}/resume`, { token: A.token });
+check('editar em andamento é recusado', (await putC({ ...ok_cfg })).status === 409);
 psql(`update company_1.campaigns set next_send_at=now(), daily_limit=1 where id=${cid}`);
 check('limite diário respeitado', (await call('POST', '/n8n/campaigns/claim', { headers: N8N })).body === null);
 psql(`update company_1.campaigns set daily_limit=100 where id=${cid}`);

@@ -684,12 +684,13 @@ export function buildRouter() {
   }));
 
   r.get('/customers', wrap(async (req, res) => {
-    // ordem escolhida na tela: nome ou cidade (A-Z / Z-A); sem escolha, os mais recentes primeiro.
+    // ordem escolhida na tela: nome, cidade ou assunto (A-Z / Z-A); sem escolha, os mais recentes primeiro.
     // Quem não tem o campo preenchido vai sempre para o fim da lista.
     const dir = req.query.dir === 'desc' ? 'DESC' : 'ASC';
     const ORDEM = {
       name: `lower(NULLIF(btrim(c.name),'')) ${dir} NULLS LAST, lower(c.last_name) ${dir} NULLS LAST, c.created_at DESC`,
       city: `lower(NULLIF(btrim(c.city),'')) ${dir} NULLS LAST, lower(c.name) ASC NULLS LAST, c.created_at DESC`,
+      subject: `lower(NULLIF(btrim(c.subject),'')) ${dir} NULLS LAST, lower(c.name) ASC NULLS LAST, c.created_at DESC`,
     };
     const ordem = ORDEM[req.query.sort] || 'c.created_at DESC';
     const { rows } = await q(`${CUST} WHERE ${FILTRO} ORDER BY ${ordem}`, filtroArgs(req.query));
@@ -784,7 +785,7 @@ export function buildRouter() {
     if (perfis) await q(`UPDATE customers SET client_kinds=$2::text[], status = CASE WHEN $2::text[] && ARRAY['buyer','hirer'] THEN 'client' ELSE status END WHERE id=$1`, [rows[0].id, perfis]);
     if (req.body.subject !== undefined) await definirAssunto(rows[0].id, req.body.subject, 'Equipe');
     if (req.body.extra && typeof req.body.extra === 'object' && !Array.isArray(req.body.extra)) {
-      const ex = Object.fromEntries(Object.entries(req.body.extra).slice(0, 60).map(([k, v]) => [String(k).slice(0, 80), String(v ?? '').slice(0, 500)]));
+      const ex = Object.fromEntries(Object.entries(req.body.extra).filter(([k]) => String(k).trim().toLowerCase() !== 'assunto').slice(0, 60).map(([k, v]) => [String(k).slice(0, 80), String(v ?? '').slice(0, 500)]));
       await q('UPDATE customers SET extra = extra || $2::jsonb WHERE id=$1', [rows[0].id, JSON.stringify(ex)]);
     }
     res.json((await q(`${CUST} WHERE c.id=$1`, [rows[0].id])).rows[0]);
@@ -820,6 +821,42 @@ export function buildRouter() {
     });
     res.json({ deleted, appointments_deleted: snaps.length });
     snaps.forEach((sn) => notifyN8n('deleted', sn));
+  }));
+
+  // Edição em massa de contatos: só muda os campos enviados (tipo lead/cliente, assunto, cidade, estado, observações).
+  // Texto vazio limpa o campo. Nome, telefone e e-mail não entram.
+  r.post('/customers/bulk-update', wrap(async (req, res) => {
+    const ids = idsDe(req.body);
+    if (!ids.length) return res.status(400).json({ error: 'Nenhum item selecionado' });
+    const b = req.body || {};
+    const livre = (v, max, rotulo) => { const t = String(v ?? '').trim().replace(/\s+/g, ' '); return t.length > max || /[\u0000-\u001f<>]/.test(t) ? { erro: `${rotulo} inválido (até ${max} letras)` } : { v: t || null }; };
+    const set = [], args = [ids];
+    const campo = (col, val) => { args.push(val); set.push(`${col}=$${args.length}`); };
+    if (b.status !== undefined) {
+      if (!['lead', 'client'].includes(b.status)) return res.status(400).json({ error: 'Tipo inválido' });
+      campo('status', b.status);
+    }
+    if (b.city !== undefined) { const x = livre(b.city, 100, 'Cidade'); if (x.erro) return res.status(400).json({ error: x.erro }); campo('city', x.v); }
+    if (b.state !== undefined) {
+      const uf = String(b.state ?? '').trim().toUpperCase();
+      if (uf && !/^[A-Z]{2}$/.test(uf)) return res.status(400).json({ error: 'Estado inválido (use a sigla, como MG)' });
+      campo('state', uf || null);
+    }
+    if (b.notes !== undefined) { const x = livre(b.notes, 2000, 'Observações'); if (x.erro) return res.status(400).json({ error: x.erro }); campo('notes', x.v); }
+    let assunto;
+    if (b.subject !== undefined) {
+      const x = livre(b.subject, 300, 'Assunto'); if (x.erro) return res.status(400).json({ error: x.erro });
+      assunto = x.v;
+    }
+    if (!set.length && assunto === undefined) return res.status(400).json({ error: 'Escolha pelo menos um campo para alterar' });
+    let alterados = 0;
+    if (set.length) alterados = (await q(`UPDATE customers SET ${set.join(', ')}, updated_at=now() WHERE id = ANY($1::bigint[])`, args)).rowCount;
+    if (assunto !== undefined) {
+      const achados = (await q('SELECT id FROM customers WHERE id = ANY($1::bigint[])', [ids])).rows;
+      alterados = achados.length;
+      for (const c of achados) await definirAssunto(c.id, assunto, 'Equipe');
+    }
+    res.json({ updated: alterados });
   }));
 
   // ---------- CLUBE (programa de benefícios com níveis) ----------

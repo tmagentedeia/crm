@@ -4,6 +4,7 @@ import { tx, qg } from './db.js';
 const norm = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 import { normPhone } from './phone.js';
 import { parseBirthday, parseCityState, parseDateTimeBr } from './ficha.js';
+import { capitalizar } from './contatos.js';
 const digits = (s) => String(s ?? '').replace(/\D/g, '');
 const txt = (v) => String(v ?? '').trim();
 
@@ -272,7 +273,7 @@ export async function runImport(companyId, data, dryRun) {
              updated_at=now()
            RETURNING (xmax = 0) AS inserted`,
           [name || null, txt(rowGet(row, 'sobrenome')) || null, phone, status, cs.city, cs.state || uf || null,
-           b.birth_day, b.birth_month, b.birth_year ?? null, gender, club, levelId, txt(rowGet(row, 'observacoes', 'obs', 'recados')) || null, created, perfil ? [perfil] : [], JSON.stringify(valoresExtras(row, extras)), txt(rowGet(row, 'assunto')).slice(0, 300) || null]);
+           b.birth_day, b.birth_month, b.birth_year ?? null, gender, club, levelId, txt(rowGet(row, 'observacoes', 'obs', 'recados')) || null, created, perfil ? [perfil] : [], JSON.stringify(valoresExtras(row, extras)), capitalizar(txt(rowGet(row, 'assunto')).slice(0, 300)) || null]);
         r.rows[0].inserted ? rep.customers.created++ : rep.customers.updated++;
       }
     }

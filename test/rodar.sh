@@ -159,6 +159,7 @@ node test/passos.mjs || R=1
 BASE=http://localhost:3999 node test/campanhas.mjs || R=1
 BASE=http://localhost:3999 node test/aniversario.mjs || R=1
 BASE=http://localhost:3999 node test/campanhas_progressivo.mjs || R=1
+BASE=http://localhost:3999 node test/contatos_lote.mjs || R=1
 BASE=http://localhost:3999 node test/excecoes.mjs || R=1
 BASE=http://localhost:3999 node test/exclusao.mjs || R=1
 BASE=http://localhost:3999 node test/apagar_massa.mjs || R=1

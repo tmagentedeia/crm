@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
 
 // Seleção de itens numa lista + exclusão em massa com confirmação forte (é preciso digitar X).
@@ -10,7 +10,16 @@ export function useSelecao(rows) {
     const ids = new Set(rows.map((r) => r.id));
     setSel((prev) => { const n = new Set([...prev].filter((i) => ids.has(i))); return n.size === prev.size ? prev : n; });
   }, [rows]);
+  // arrastar com o botão do mouse apertado marca (ou desmarca) as linhas por onde passa, até soltar
+  const arrasto = useRef(null);
+  useEffect(() => {
+    const fim = () => { arrasto.current = null; };
+    window.addEventListener('mouseup', fim);
+    return () => window.removeEventListener('mouseup', fim);
+  }, []);
   return {
+    iniciar: (id) => { const novo = !sel.has(id); arrasto.current = novo; setSel((p) => { const n = new Set(p); novo ? n.add(id) : n.delete(id); return n; }); },
+    passar: (id) => { const novo = arrasto.current; if (novo === null) return; setSel((p) => { if (p.has(id) === novo) return p; const n = new Set(p); novo ? n.add(id) : n.delete(id); return n; }); },
     count: sel.size,
     ids: [...sel],
     has: (id) => sel.has(id),
@@ -27,8 +36,9 @@ export const CelulaTodos = ({ s }) => (
   <th style={{ width: 34 }}><input type="checkbox" style={caixa} checked={s.todos} onChange={s.alternarTodos} title="Selecionar todos" aria-label="Selecionar todos" /></th>
 );
 export const CelulaLinha = ({ s, id }) => (
-  <td style={{ width: 34 }} onClick={(e) => e.stopPropagation()}>
-    <input type="checkbox" style={caixa} checked={s.has(id)} onChange={() => s.toggle(id)} aria-label="Selecionar" />
+  <td style={{ width: 34, userSelect: 'none', cursor: 'pointer' }} onClick={(e) => e.stopPropagation()}
+    onMouseDown={(e) => { if (e.button !== 0) return; e.preventDefault(); s.iniciar(id); }} onMouseEnter={() => s.passar(id)}>
+    <input type="checkbox" style={{ ...caixa, pointerEvents: 'none' }} checked={s.has(id)} onChange={() => {}} onKeyDown={(e) => { if (e.key === ' ') { e.preventDefault(); s.toggle(id); } }} aria-label="Selecionar" />
   </td>
 );
 
@@ -37,7 +47,7 @@ export const CelulaLinha = ({ s, id }) => (
 //  descreve(info): texto sobre o que vai ser apagado junto
 //  opcao: { chave, texto, mostrarSe(info) } caixinha extra (ex.: apagar também o histórico)
 //  onDone(resultado): chamado depois de apagar
-export function ApagarSelecionados({ s, total, rotulo, rota, descreve, opcao, onDone }) {
+export function ApagarSelecionados({ s, total, rotulo, rota, descreve, opcao, onDone, acoes }) {
   const [info, setInfo] = useState(null);
   const [txt, setTxt] = useState('');
   const [extra, setExtra] = useState(false);
@@ -62,6 +72,7 @@ export function ApagarSelecionados({ s, total, rotulo, rota, descreve, opcao, on
     <>
       <div className="card row" style={{ marginBottom: 8, gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
         <strong>{s.count} de {total} {rotulo} selecionado(s)</strong>
+        {acoes}
         <button className="btn bad" onClick={abrir}>Apagar selecionados</button>
         <button className="btn" onClick={s.limpar}>Limpar seleção</button>
         {err && !info && <span className="error" style={{ margin: 0 }}>{err}</span>}

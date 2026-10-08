@@ -46,7 +46,7 @@ export default function Clientes({ company }) {
   // a tabela mostra só as colunas que têm informação; os campos personalizados (colunas extras da planilha) viram colunas
   const algum = (f) => !list.length || list.some(f);
   const col = { assunto: algum((c) => c.subject), clube: algum((c) => c.club_status), cidade: algum((c) => c.city || c.state), visita: algum((c) => c.last_visit_at) };
-  const extrasCols = (() => { const n = {}; list.forEach((c) => Object.entries(c.extra || {}).forEach(([k, v]) => { if (v) n[k] = (n[k] || 0) + 1; })); return Object.keys(n).sort((a, b) => n[b] - n[a]).slice(0, 5); })();
+  const extrasCols = (() => { const n = {}; list.forEach((c) => Object.entries(c.extra || {}).forEach(([k, v]) => { if (v && k.trim().toLowerCase() !== 'assunto') n[k] = (n[k] || 0) + 1; })); return Object.keys(n).sort((a, b) => n[b] - n[a]).slice(0, 5); })();
   const [detail, setDetail] = useState(null);
   const [adding, setAdding] = useState(false);
   const sel = useSelecao(list);
@@ -119,13 +119,15 @@ export default function Clientes({ company }) {
           <option value="name-desc">Nome (Z a A)</option>
           <option value="city-asc">Cidade (A a Z)</option>
           <option value="city-desc">Cidade (Z a A)</option>
+          <option value="subject-asc">{rotuloAssunto} (A a Z)</option>
+          <option value="subject-desc">{rotuloAssunto} (Z a A)</option>
         </select>
         <input placeholder="Buscar por nome ou telefone…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ maxWidth: 300 }} />
         <button className="btn" onClick={copiar} title="Copia a lista para colar numa planilha">Copiar para planilha</button>
         <button className="btn" onClick={baixar} title="Baixa um arquivo que abre no Excel e no Google Planilhas">Baixar planilha</button>
       </div>
       {aviso && <p className="muted" style={{ marginBottom: 8 }}>{aviso}</p>}
-      <ApagarSelecionados s={sel} total={list.length} rotulo="cliente(s)/lead(s)" rota="/customers/bulk-delete" onDone={(r) => { setAviso(resumoApagado(r, 'contato(s)')); load(); }}
+      <ApagarSelecionados s={sel} total={list.length} rotulo="cliente(s)/lead(s)" rota="/customers/bulk-delete" acoes={<EditarSelecionados s={sel} rotuloAssunto={rotuloAssunto} onDone={(n) => { setAviso(`${n} contato(s) atualizado(s).`); load(); }} />} onDone={(r) => { setAviso(resumoApagado(r, 'contato(s)')); load(); }}
         descreve={(i) => <p>Também serão apagados {i.appointments} agendamento(s) e {i.orders} pedido(s) de música desses contatos, além do lugar deles na fila de espera.</p>} />
       <div className="card table-wrap">
         <table>
@@ -194,6 +196,62 @@ const fichaCorpo = (f, clube) => ({
   city: f.city, state: f.state, gender: f.gender || null, birthday: f.birthday,
   ...(clube ? { club_status: f.club_status || null, club_level_id: f.club_status === 'member' && f.club_level_id ? Number(f.club_level_id) : null } : {}),
 });
+
+// Edição em lote: marca quais campos mudar e o valor novo vale para todos os selecionados (nome, telefone e e-mail ficam de fora).
+function EditarSelecionados({ s, rotuloAssunto, onDone }) {
+  const [aberto, setAberto] = useState(false);
+  const vazio = { status: '', subject: '', city: '', state: '', notes: '' };
+  const [usar, setUsar] = useState({});
+  const [v, setV] = useState(vazio);
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const abrir = () => { setUsar({}); setV(vazio); setErr(''); setAberto(true); };
+  const campo = (k, rotulo, input) => (
+    <div className="field">
+      <label className="row" style={{ gap: 8, alignItems: 'center' }}>
+        <input type="checkbox" style={{ width: 'auto', margin: 0 }} checked={!!usar[k]} onChange={(e) => setUsar({ ...usar, [k]: e.target.checked })} />
+        <span>Alterar {rotulo}</span>
+      </label>
+      {usar[k] && input}
+    </div>
+  );
+  const salvar = async () => {
+    const body = { ids: s.ids };
+    if (usar.status) body.status = v.status || 'client';
+    if (usar.subject) body.subject = v.subject;
+    if (usar.city) body.city = v.city;
+    if (usar.state) body.state = v.state;
+    if (usar.notes) body.notes = v.notes;
+    if (Object.keys(body).length === 1) { setErr('Marque pelo menos um campo para alterar.'); return; }
+    setBusy(true); setErr('');
+    try { const r = await api('/customers/bulk-update', { method: 'POST', body }); setAberto(false); s.limpar(); onDone?.(r.updated); }
+    catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+  return (
+    <>
+      <button className="btn" onClick={abrir}>Editar selecionados</button>
+      {aberto && (
+        <div className="modal-bg" onClick={() => !busy && setAberto(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>Editar {s.count} contato(s)</h2>
+            <p className="muted">Marque o que quer mudar. O valor vale para todos os selecionados; o que não for marcado fica como está. Deixar um campo marcado e vazio apaga o conteúdo dele.</p>
+            {campo('status', 'o tipo', <select value={v.status || 'client'} onChange={(e) => setV({ ...v, status: e.target.value })}><option value="client">Cliente</option><option value="lead">Lead</option></select>)}
+            {campo('subject', rotuloAssunto.toLowerCase(), <input value={v.subject} maxLength={300} onChange={(e) => setV({ ...v, subject: e.target.value })} placeholder="Ex.: Baile do Miranda" />)}
+            {campo('city', 'a cidade', <input value={v.city} maxLength={100} onChange={(e) => setV({ ...v, city: e.target.value })} />)}
+            {campo('state', 'o estado', <input value={v.state} maxLength={2} onChange={(e) => setV({ ...v, state: e.target.value.toUpperCase() })} placeholder="MG" style={{ maxWidth: 90 }} />)}
+            {campo('notes', 'as observações', <textarea rows={3} value={v.notes} maxLength={2000} onChange={(e) => setV({ ...v, notes: e.target.value })} />)}
+            {err && <div className="error">{err}</div>}
+            <div className="row">
+              <button className="btn primary" disabled={busy} onClick={salvar}>{busy ? 'Salvando…' : `Salvar em ${s.count} contato(s)`}</button>
+              <button className="btn" disabled={busy} onClick={() => setAberto(false)}>Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
 
 function Detail({ c, PERFIL, rotuloAssunto, perfis, nomePedidos, clube, club, onClose, onSaved, onDeleted }) {
   const [f, setF] = useState({ name: c.name || '', last_name: c.last_name || '', phone: c.phone || '', status: c.status, notes: c.notes || '', subject: c.subject || '', ...fichaInicial(c) });

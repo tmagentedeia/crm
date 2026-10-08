@@ -55,6 +55,14 @@ CREATE TABLE IF NOT EXISTS appointment_reminders (
 );
 CREATE INDEX IF NOT EXISTS appointment_reminders_status ON appointment_reminders (status, send_at);`;
 // Correções de data/hora de um agendamento: fica registrado quem mudou, quando e de/para
+// Assunto duplicado: o texto que ficou guardado como campo personalizado "Assunto" passa para o campo próprio do contato
+const ASSUNTO_UNICO_SQL = `
+UPDATE customers c SET
+  subject = COALESCE(NULLIF(btrim(c.subject), ''), (SELECT NULLIF(btrim(e.v), '') FROM jsonb_each_text(c.extra) e(k, v) WHERE lower(btrim(e.k)) = 'assunto' AND NULLIF(btrim(e.v), '') IS NOT NULL LIMIT 1)),
+  subject_at = COALESCE(c.subject_at, now()),
+  extra = (SELECT COALESCE(jsonb_object_agg(e.k, e.v), '{}'::jsonb) FROM jsonb_each(c.extra) e(k, v) WHERE lower(btrim(e.k)) <> 'assunto')
+WHERE EXISTS (SELECT 1 FROM jsonb_object_keys(c.extra) k WHERE lower(btrim(k)) = 'assunto');
+`;
 const EDICOES_AGENDAMENTO_SQL = `
 CREATE TABLE IF NOT EXISTS appointment_edits (
   id BIGSERIAL PRIMARY KEY,
@@ -267,6 +275,8 @@ export const TENANT_STEPS = [
   { version: 56, sql: LEMBRETES_SQL },
   // 57: histórico de correções de data/hora do agendamento
   { version: 57, sql: EDICOES_AGENDAMENTO_SQL },
+  // 58: assunto do contato em um só campo (o "Assunto" que veio como campo personalizado passa para o campo próprio)
+  { version: 58, sql: ASSUNTO_UNICO_SQL },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 

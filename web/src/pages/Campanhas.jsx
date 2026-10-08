@@ -103,6 +103,8 @@ function Form({ id, voltar, abrir, frases, lim }) {
   const [salvando, setSalvando] = useState(false);
   const [recuperado, setRecuperado] = useState(false); // voltou com o que estava sendo preenchido
   const [pronto, setPronto] = useState(false);
+  const [pausada, setPausada] = useState(false); // campanha pausada em edição: quem já foi tratado não muda
+  useEffect(() => { if (id) api('/campaigns/' + id).then((c) => setPausada(c.status === 'paused')).catch(() => {}); }, [id]);
   const mexeu = useRef(false); // só guarda o rascunho depois que a pessoa mexe em alguma coisa
   // O que ainda não foi salvo fica guardado neste navegador, por empresa e por campanha
   const chave = 'crm_campanha_rascunho:' + (lerEmpresa()?.id ?? '') + ':' + (id || 'novo');
@@ -209,6 +211,7 @@ function Form({ id, voltar, abrir, frases, lim }) {
         </div>
       )}
       {erro && <div className="error">{erro}</div>}
+      {pausada && <div className="card muted" style={{ marginBottom: 12 }}>Esta campanha está pausada. Quem já recebeu a mensagem não recebe de novo, mesmo que continue marcado. As mudanças valem para quem ainda está na fila e para os próximos envios; depois de salvar, é só retomar.</div>}
 
       <div className="card" style={{ marginBottom: 14 }}>
         <label className="field">Nome da campanha
@@ -379,6 +382,7 @@ function Detalhe({ id, voltar, editar, irPara }) {
           {c.status === 'draft' && <button className="btn" onClick={editar}>Editar</button>}
           {c.status === 'running' && <button className="btn" onClick={() => acao('pause')}>⏸ Pausar</button>}
           {c.status === 'paused' && <button className="btn primary" onClick={() => acao('resume')}>▶ Retomar</button>}
+          {c.status === 'paused' && <button className="btn" onClick={editar}>Editar</button>}
           {['running', 'paused'].includes(c.status) && <button className="btn bad" onClick={() => acao('stop', {}, 'Parar de vez? Os contatos que ainda estão na fila não vão receber a mensagem.')}>⏹ Parar</button>}
           {['stopped', 'done'].includes(c.status) && (c.recipients || []).some((x) => x.status === 'cancelled') && (
             <button className="btn primary" onClick={continuar} title="Cria uma campanha nova só com quem ainda não recebeu">Continuar de onde parou</button>

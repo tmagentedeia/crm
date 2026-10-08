@@ -32,13 +32,13 @@ check('nome grande demais é recusado', r.status === 400);
 
 const fone = '5532944' + String(Date.now() % 1000000).padStart(6, '0');
 r = await ia('/customers/update-contact', { phone: fone, name: 'Lia Costa', subject: 'interesse no show de 10/10' });
-check('atendente cria o contato com assunto', r.status === 201 && r.body.ok && /Interesse: interesse no show/.test(r.body.message) && /Não avise/.test(r.body.message), JSON.stringify(r.body));
+check('atendente cria o contato com assunto', r.status === 201 && r.body.ok && /Interesse: Interesse no show/.test(r.body.message) && /Não avise/.test(r.body.message), JSON.stringify(r.body));
 const id = r.body.id;
-check('assunto gravado', psql(`select subject from ${T}.customers where id=${id}`) === 'interesse no show de 10/10');
+check('assunto gravado', psql(`select subject from ${T}.customers where id=${id}`) === 'Interesse no show de 10/10');
 r = await ia('/customers/update-contact', { phone: fone, subject: 'quer contratar um show de casamento' });
-check('assunto novo substitui o atual', r.status === 200 && psql(`select subject from ${T}.customers where id=${id}`) === 'quer contratar um show de casamento');
+check('assunto novo substitui o atual', r.status === 200 && psql(`select subject from ${T}.customers where id=${id}`) === 'Quer contratar um show de casamento');
 const hist = (await api('GET', `/customers/${id}/subjects`)).body;
-check('o anterior fica no histórico', hist.length === 2 && hist[1].subject === 'interesse no show de 10/10', JSON.stringify(hist));
+check('o anterior fica no histórico', hist.length === 2 && hist[1].subject === 'Interesse no show de 10/10', JSON.stringify(hist));
 r = await ia('/customers/update-contact', { phone: fone, subject: 'quer contratar um show de casamento' });
 check('mesmo assunto não repete no histórico', (await api('GET', `/customers/${id}/subjects`)).body.length === 2);
 r = await ia('/customers/update-contact', { phone: fone, kind: 'Comprador' });
@@ -57,7 +57,7 @@ check('filtro por tipo da empresa', r.body.some((c) => String(c.id) === String(i
 r = await api('POST', `/customers/${id}/kinds`, { kind: 'inventado', on: true });
 check('tipo que não existe é recusado', r.status === 400);
 r = await api('PUT', `/customers/${id}`, { subject: 'mudou pelo painel' });
-check('equipe edita o assunto', r.status === 200 && r.body.subject === 'mudou pelo painel');
+check('equipe edita o assunto', r.status === 200 && r.body.subject === 'Mudou pelo painel');
 r = await api('GET', '/customers?search=mudou%20pelo');
 check('busca acha pelo assunto', r.body.some((c) => String(c.id) === String(id)), JSON.stringify(r.body).slice(0, 120));
 

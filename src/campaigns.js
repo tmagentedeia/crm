@@ -485,11 +485,13 @@ export function registerCampaignRoutes(r, wrap) {
       if (cid) {
         const cur = (await t('SELECT status FROM campaigns WHERE id=$1 FOR UPDATE', [cid])).rows[0];
         if (!cur) return { code: 404, error: 'Não encontrada' };
-        if (cur.status !== 'draft') return { code: 409, error: 'Só dá para editar uma campanha que ainda não começou' };
+        if (!['draft', 'paused'].includes(cur.status)) return { code: 409, error: 'Só dá para editar uma campanha que ainda não começou ou que está pausada' };
         await t(`UPDATE campaigns SET name=$2,messages=$3,greeting_random=$4,interval_min=$5,interval_max=$6,
                  batch_size=$7,batch_pause_min=$8,daily_limit=$9,allow_excluded=$10 WHERE id=$1`,
           [cid, c.name, JSON.stringify(c.messages), c.greeting_random, c.interval_min, c.interval_max, c.batch_size, c.batch_pause_min, c.daily_limit, req.body?.recipients?.mode === 'exceptions']);
-        await t('DELETE FROM campaign_recipients WHERE campaign_id=$1', [cid]);
+        if (cur.status === 'draft') await t('DELETE FROM campaign_recipients WHERE campaign_id=$1', [cid]);
+        // pausada: quem já foi tratado (enviado, falha, enviando) fica como está; só a fila de quem ainda não recebeu muda
+        else await t(`DELETE FROM campaign_recipients WHERE campaign_id=$1 AND status IN ('pending','cancelled') AND NOT (phone = ANY($2))`, [cid, recips.map((p) => p.phone)]);
       } else {
         const lotado = await cheio(t);
         if (lotado) return { code: 409, error: lotado };
@@ -499,7 +501,8 @@ export function registerCampaignRoutes(r, wrap) {
       }
       for (const p of recips) {
         await t(`INSERT INTO campaign_recipients (campaign_id,customer_id,name,phone,chat_id) VALUES ($1,$2,$3,$4,$5)
-                 ON CONFLICT (campaign_id,phone) DO NOTHING`, [cid, p.id, p.name, p.phone, p.chat_id]);
+                 ON CONFLICT (campaign_id,phone) DO UPDATE SET status='pending', error=NULL
+                 WHERE campaign_recipients.status='cancelled'`, [cid, p.id, p.name, p.phone, p.chat_id]);
       }
       return { id: cid };
     });

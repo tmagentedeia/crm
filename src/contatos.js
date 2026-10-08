@@ -43,9 +43,12 @@ export async function configContatos() {
 }
 export async function chavesDePerfil() { return (await configContatos()).kinds.map((k) => k.key); }
 
+// Primeira letra da frase em maiúscula (o resto fica como foi escrito)
+export const capitalizar = (t) => { const x = String(t ?? '').trim(); return x ? x.charAt(0).toLocaleUpperCase('pt-BR') + x.slice(1) : x; };
+
 // Grava o assunto (e guarda o anterior no histórico). Texto vazio apaga o assunto atual.
 export async function definirAssunto(id, texto, ator) {
-  const novo = String(texto ?? '').trim() || null;
+  const novo = capitalizar(texto) || null;
   const atual = (await q('SELECT subject FROM customers WHERE id=$1', [id])).rows[0];
   if (!atual || (atual.subject || null) === novo) return false;
   await q('UPDATE customers SET subject=$2, subject_at=CASE WHEN $2::text IS NULL THEN NULL ELSE now() END, updated_at=now() WHERE id=$1', [id, novo]);
@@ -59,7 +62,7 @@ export async function textoDeCadastroContato() {
   if (!c.agent_registers) return '';
   const manuais = c.kinds.filter((k) => !k.auto);
   return [
-    `CADASTRO DO CONTATO. Sempre que o cliente disser o que procura ou o que quer, ou o assunto da conversa mudar, use a tool Atualizar Contato informando o campo "${c.subject_label}" em poucas palavras (exemplo: "interesse no show de 10/10"). Faça isso em silêncio: não pergunte nada ao cliente só para preencher e nunca diga que está cadastrando.`,
+    `CADASTRO DO CONTATO. Sempre que o cliente disser o que procura ou o que quer, ou o assunto da conversa mudar, use a tool Atualizar Contato informando o campo "${c.subject_label}" com o assunto GERAL de interesse, em poucas palavras: o nome do show, evento, atração, produto ou serviço procurado (exemplo: "Baile do Miranda"). Não coloque detalhes como quantidade de lugares, tipo de mesa, horário ou valor; só o assunto principal. Faça isso em silêncio: não pergunte nada ao cliente só para preencher e nunca diga que está cadastrando.`,
     manuais.length ? `Se a conversa deixar claro que o contato se encaixa em um destes tipos, informe também o tipo: ${manuais.map((k) => k.label).join(', ')}.` : '',
   ].filter(Boolean).join(' ');
 }
@@ -119,7 +122,7 @@ export function registerContatosRoutes(r, wrap, { custPhone, digits }) {
     const nao = (message) => res.json({ ok: false, message });
     const phone = custPhone(b.phone);
     if (digits(phone).length < 10) return nao('Não consegui identificar o telefone do cliente.');
-    const assunto = String(b.subject ?? '').trim().replace(/\s+/g, ' ');
+    const assunto = capitalizar(String(b.subject ?? '').replace(/\s+/g, ' '));
     if (assunto.length > 300 || /[\u0000-\u001f<>]/.test(assunto)) return nao('O assunto está inválido ou grande demais. Resuma em poucas palavras.');
     const cfg = await configContatos();
     let tipo = null;
