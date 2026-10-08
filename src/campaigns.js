@@ -268,11 +268,14 @@ async function enviarDireto(companyId, con, job) {
     return;
   }
   await reportResult(companyId, job.recipient_id, true);
-  await gravarNaConversa(companyId, job, resp);
+  // Campanha é mensagem do responsável (só sai pelo painel para facilitar): entra na memória com a mesma marca da mensagem que ele digita.
+  await gravarNaConversa(companyId, job, resp, { comoResponsavel: true });
 }
+// Mesma frase que o fluxo do atendimento põe nas mensagens digitadas pelo responsável e que as Diretrizes do atendente citam.
+export const MARCA_RESPONSAVEL = '[MENSAGEM PRIORITÁRIA digitada pelo ADM]';
 // A mensagem enviada entra no histórico da conversa do agente (mesma tabela e formato que o agente usa), para ele saber o que foi dito.
 // Entra como mensagem DO AGENTE (ele é quem escreveu); o motivo de qualquer falha fica no registro do servidor.
-export async function gravarNaConversa(companyId, job, resp) {
+export async function gravarNaConversa(companyId, job, resp, { comoResponsavel = false } = {}) {
   try {
     const c = (await qg('SELECT chat_table, whatsapp_instance, conv_db_url FROM companies WHERE id=$1', [companyId])).rows[0];
     const pool = poolDaEmpresa(c);
@@ -291,7 +294,7 @@ export async function gravarNaConversa(companyId, job, resp) {
     const achada = (await pool.query(`SELECT session_id FROM "${c.chat_table}" WHERE session_id = ANY($1::text[]) LIMIT 1`, [sessoes])).rows[0]?.session_id;
     const sessao = achada || sessoes[0];
     await pool.query(`INSERT INTO "${c.chat_table}" (session_id, message) VALUES ($1, $2::jsonb)`,
-      [sessao, JSON.stringify({ type: 'ai', content: job.text, tool_calls: [], additional_kwargs: {}, response_metadata: {}, invalid_tool_calls: [] })]);
+      [sessao, JSON.stringify({ type: 'ai', content: comoResponsavel ? `${MARCA_RESPONSAVEL} ${job.text}` : job.text, tool_calls: [], additional_kwargs: {}, response_metadata: {}, invalid_tool_calls: [] })]);
     console.log(`campanhas: histórico gravado (empresa ${companyId}, sessão "${sessao}", ${achada ? 'conversa já existente' : 'conversa nova'}; WhatsApp respondeu chatid=${resp?.chatid ?? 'nada'})`);
     return true;
   } catch (e) { console.error('campanhas: histórico da conversa:', e.message); return false; }
