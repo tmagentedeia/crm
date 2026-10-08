@@ -345,8 +345,8 @@ export function registerFinanceRoutes(r, wrap) {
   const brl = (n) => 'R$ ' + Number(n).toFixed(2).replace('.', ',');
   async function avisarResponsavel(p, phone, payer) {
     const cid = currentCompany();
-    const c = (await qg('SELECT phone FROM companies WHERE id=$1', [cid])).rows[0];
-    const dest = normPhone(c?.phone);
+    const c = (await qg('SELECT admin_phone FROM companies WHERE id=$1', [cid])).rows[0];
+    const dest = normPhone(c?.admin_phone);   // celular do administrador (nunca o número da empresa, que é o da própria atendente)
     const con = await conexaoWhats(cid);
     if (!dest || !con) return;
     const quem = [payer, phone].filter(Boolean).join(' · ') || 'cliente sem identificação';
@@ -367,9 +367,11 @@ export function registerFinanceRoutes(r, wrap) {
   // O N8N manda aqui toda mensagem que o responsável digitou para a agente. Se for a resposta a um aviso, o painel decide; senão, devolve handled=false.
   r.post('/payments/adm-reply', wrap(async (req, res) => {
     const t0 = String(req.body?.text ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9# ]/g, ' ').replace(/\s+/g, ' ').trim();
-    const m = t0.match(/^(sim|s|aprovo|aprovar|ok|nao|n|recuso|recusar)(?: #?(\d{1,12}))?$/);
+    const SIM = ['sim', 's', 'aprovo', 'aprovar', 'aprovado', 'confirmado', 'confirmada', 'confirmo', 'liberado', 'liberar', 'pode liberar', 'libera'];
+    const NAO = ['nao', 'n', 'recuso', 'recusar', 'recusado', 'negado', 'nao libera', 'nao liberar'];
+    const m = t0.match(new RegExp('^(' + [...SIM, ...NAO].join('|') + ')(?: #?(\\d{1,12}))?$'));
     if (!m) return res.json({ handled: false });
-    const aprova = ['sim', 's', 'aprovo', 'aprovar', 'ok'].includes(m[1]);
+    const aprova = SIM.includes(m[1]);
     const pend = (await q(`SELECT p.id, p.amount::float AS amount, p.payer_name, c.phone AS customer_phone, COALESCE(NULLIF(btrim(concat_ws(' ', c.name, c.last_name)),''), p.payer_name) AS nome
       FROM payments p LEFT JOIN customers c ON c.id=p.customer_id
       WHERE p.status IN ('review','wrong_key','low_amount') AND p.alerted_at > now() - interval '24 hours' ORDER BY p.alerted_at DESC LIMIT 10`)).rows;

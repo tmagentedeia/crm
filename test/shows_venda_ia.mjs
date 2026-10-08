@@ -173,7 +173,7 @@ check('sem telefone nada é acrescentado', !/SITUAÇÃO REAL/.test((await ia('GE
 // ---- aviso e resposta do responsável ----
 psql("update company_1.payments set status='rejected' where status in ('review','wrong_key','low_amount')");
 falhar = false;
-psql(`update public.companies set phone='5532911112222', wa_api_url='http://127.0.0.1:${porta}', wa_api_token='tok-teste' where id=1`);
+psql(`update public.companies set admin_phone='5532911112222', wa_api_url='http://127.0.0.1:${porta}', wa_api_token='tok-teste' where id=1`);
 recebidos.length = 0;
 const foneR = '5532933' + String(marca).padStart(6, '0').slice(-6);
 const rev = await pagar(foneR, 80, 'ninguem@outro.com');
