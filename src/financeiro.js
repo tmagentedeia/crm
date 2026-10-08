@@ -104,6 +104,17 @@ export const FINANCEIRO_DEDUP_SQL = `
   SELECT sync_pagamento_pedido(order_id) FROM payments WHERE source = 'pedido';
   UPDATE payments SET category = 'pedido' WHERE source = 'pedido' OR order_id IS NOT NULL;`;
 
+// Chaves Pix que a atendente já enviou a cada cliente: com o rodízio a chave pode mudar no meio da conversa,
+// e o cliente que pagou na chave que recebeu antes continua sendo aceito.
+export const PIX_ENVIADAS_SQL = `
+  CREATE TABLE IF NOT EXISTS pix_keys_sent (
+    id      BIGSERIAL PRIMARY KEY,
+    phone   TEXT NOT NULL,
+    key_id  BIGINT NOT NULL REFERENCES pix_keys(id) ON DELETE CASCADE,
+    sent_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+  CREATE INDEX IF NOT EXISTS idx_pix_keys_sent_phone ON pix_keys_sent (phone, sent_at DESC);`;
+
 export const CATEGORIAS = ['pedido', 'contribuicao', 'outro'];   // para que a entrada serviu
 const TIPOS = ['email', 'phone', 'cpf', 'cnpj', 'random'];
 const txt = (v, max) => { const s = String(v ?? '').trim(); return s.length <= max && !/[\u0000-\u0008\u000b-\u001f<>]/.test(s) ? s : null; };
@@ -198,6 +209,30 @@ export function registerFinanceRoutes(r, wrap) {
     return alvo.id;
   }
 
+  // ---------- chaves enviadas ao cliente ----------
+  // A atendente consulta antes de enviar a mensagem: devolve todas as chaves cadastradas e quais já foram enviadas a este cliente.
+  r.get('/finance/pix-guard', wrap(async (req, res) => {
+    const phone = normPhone(req.query.phone) || null;
+    const keys = (await q(
+      `SELECT k.id AS key_id, k.key, k.key_type, k.active,
+              (SELECT max(s.sent_at) FROM pix_keys_sent s WHERE s.key_id = k.id AND s.phone = $1) AS last_sent_at
+       FROM pix_keys k ORDER BY k.id`, [phone || ''])).rows;
+    const ultima = keys.filter((k) => k.last_sent_at).sort((a, b) => new Date(b.last_sent_at) - new Date(a.last_sent_at))[0] || null;
+    res.json({ keys, last_sent_key_id: ultima ? ultima.key_id : null });
+  }));
+  // Registra as chaves que aparecem no texto realmente enviado ao cliente. Corpo: { phone, text }
+  r.post('/finance/pix-sent', wrap(async (req, res) => {
+    const phone = normPhone(req.body?.phone) || null;
+    const texto = String(req.body?.text ?? '');
+    if (!phone || !texto) return res.status(400).json({ error: 'Informe o telefone e o texto enviado' });
+    const baixo = texto.toLowerCase().replace(/\s+/g, '');
+    const digitos = texto.replace(/\D/g, '');
+    const chaves = (await q('SELECT id, key_type, key_norm FROM pix_keys')).rows;
+    const achadas = chaves.filter((k) => (k.key_type === 'email' || k.key_type === 'random') ? baixo.includes(k.key_norm) : (k.key_norm.length >= 10 && digitos.includes(k.key_norm)));
+    for (const k of achadas) await q('INSERT INTO pix_keys_sent (phone, key_id) VALUES ($1,$2)', [phone, k.id]);
+    res.json({ recorded: achadas.map((k) => k.id) });
+  }));
+
   // ---------- conferir e registrar um comprovante ----------
   r.post('/payments/check', wrap(async (req, res) => {
     const b = req.body || {};
@@ -232,6 +267,9 @@ export function registerFinanceRoutes(r, wrap) {
       const chaves = (await t('SELECT * FROM pix_keys')).rows;
       const ativas = chaves.filter((k) => k.active);
       const achada = keyText ? chaves.find((k) => normKey(k.key_type, keyText) === k.key_norm) : null;
+      // chave desativada pelo rodízio, mas que já tinha sido enviada a este cliente: o pagamento nela continua valendo
+      const enviada = achada && !achada.active && phone
+        ? (await t('SELECT 1 FROM pix_keys_sent WHERE phone=$1 AND key_id=$2 LIMIT 1', [phone, achada.id])).rowCount > 0 : false;
 
       let status = 'accepted', reason = null;
       const dup = txid ? (await t("SELECT 1 FROM payments WHERE txid=$1 AND status IN ('accepted','review')", [txid])).rowCount
@@ -243,7 +281,7 @@ export function registerFinanceRoutes(r, wrap) {
       else if (ativas.length || chaves.length) {
         if (!keyText) { status = 'review'; reason = 'o comprovante não mostra a chave Pix que recebeu'; }
         else if (!achada) { status = 'wrong_key'; reason = 'pagamento para uma chave que não é nossa'; }
-        else if (!achada.active) { status = 'wrong_key'; reason = 'pagamento para uma chave que não está em uso agora'; }
+        else if (!achada.active && !enviada) { status = 'wrong_key'; reason = 'pagamento para uma chave que não está em uso agora'; }
       }
       if (status === 'accepted' && st.min_amount != null && amount < st.min_amount) { status = 'low_amount'; reason = 'valor menor que o mínimo'; }
       if (status === 'accepted' && !txid) { status = 'review'; reason = 'o comprovante não mostra o ID da transação'; }
