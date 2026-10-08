@@ -30,7 +30,7 @@ await call('PUT', '/api/agent-guidelines', { token: t, body: { global: 'REGRA UM
 r = await call('GET', '/n8n/agent/prompt', { h });
 check('separador das caixas não vai ao agente', !r.body.prompt.includes('=====') && r.body.prompt.includes('REGRA DOIS') && r.body.prompt.includes('Iara é educada.'), r.body.prompt);
 await call('PUT', '/api/agent-guidelines', { token: t, body: { global: '{{agente}} nunca assume o papel de terceiros. Dono: {{adm}}.', company: 'Extra de {{empresa}}' } });
-r = await call('PUT', '/api/agent-guidelines', { token: t, body: { global: 'x'.repeat(8001) } });
+r = await call('PUT', '/api/agent-guidelines', { token: t, body: { global: 'x'.repeat(10001) } });
 check('limite de tamanho', r.status === 400);
 // Maria (só pela chave do N8N): lê e troca UMA caixa da parte da EMPRESA; a parte global nunca passa por aqui
 await call('PUT', '/api/agent-guidelines', { token: t, body: { global: 'GLOBAL A\nregra da plataforma', company: 'CAIXA UM\nSem gírias.\n=====\nCAIXA DOIS\nSem promessas.' } });
@@ -48,7 +48,7 @@ check('Maria: texto vazio = 400', (await call('PUT', '/n8n/agent-guidelines/caix
 check('Maria: separador no texto = 400', (await call('PUT', '/n8n/agent-guidelines/caixa', { h, body: { n: 1, texto: 'A\n=====\nB' } })).status === 400);
 check('Maria: título inexistente = 404', (await call('PUT', '/n8n/agent-guidelines/caixa', { h, body: { titulo: 'NADA', texto: 'oi' } })).status === 404);
 check('Maria: sem título nem número = 400', (await call('PUT', '/n8n/agent-guidelines/caixa', { h, body: { texto: 'oi' } })).status === 400);
-check('Maria: passar do limite = 400', (await call('PUT', '/n8n/agent-guidelines/caixa', { h, body: { n: 2, texto: 'x'.repeat(8001) } })).status === 400);
+check('Maria: passar do limite = 400', (await call('PUT', '/n8n/agent-guidelines/caixa', { h, body: { n: 2, texto: 'x'.repeat(10001) } })).status === 400);
 check('quem está logado no painel não usa a rota da Maria (403)', (await call('GET', '/api/agent-guidelines/caixas', { token: t })).status === 403
   && (await call('PUT', '/api/agent-guidelines/caixa', { token: t, body: { n: 1, texto: 'hack' } })).status === 403);
 check('outra empresa não enxerga as caixas desta', (await call('GET', '/n8n/agent-guidelines/caixas', { h: { 'x-api-key': 'k', 'x-company-id': '2' } })).body.total === 0);

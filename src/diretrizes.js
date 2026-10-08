@@ -6,7 +6,7 @@ import { qg } from './db.js';
 import { isAdmin } from './auth.js';
 import { lerCaixas, juntarCaixas, tituloDe, acharCaixa, temSeparador } from './manualCaixas.js';
 
-export const DIRETRIZES_MAX = 8000;
+export const DIRETRIZES_MAX = 10000;
 const CHAVE = 'agent_guidelines';
 
 export const DIRETRIZES_SQL = 'ALTER TABLE companies ADD COLUMN IF NOT EXISTS agent_guidelines TEXT';
