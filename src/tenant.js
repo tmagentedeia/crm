@@ -9,7 +9,7 @@ import { PRODUTOS_SQL } from './produtos.js';
 import { VENDAS_SQL } from './vendas.js';
 import { COMISSOES_SQL } from './comissoes.js';
 import { SHOWS_LISTA_SQL, SHOWS_LISTA_ENVIO_SQL, SHOWS_LISTA_QR_SQL } from './lista_evento.js';
-import { CASA_DE_SHOWS_SQL, SHOWS_MEDIA_SQL, SHOWS_PAGAMENTOS_SQL, SHOWS_RENOMEAR_SQL, SHOWS_LOCAIS_SQL, SHOWS_LOCAL_PADRAO_SQL, SHOWS_PIX_EVENTO_SQL, SHOWS_LOTES_SQL, SHOWS_VENDAS_SQL, SHOWS_MESA_RESERVADA_SQL, SHOWS_CLUBE_SQL, SHOWS_FICHA_SETOR_SQL } from './casa_de_shows.js';
+import { CASA_DE_SHOWS_SQL, SHOWS_MEDIA_SQL, SHOWS_PAGAMENTOS_SQL, SHOWS_RENOMEAR_SQL, SHOWS_LOCAIS_SQL, SHOWS_LOCAL_PADRAO_SQL, SHOWS_PIX_EVENTO_SQL, SHOWS_LOTES_SQL, SHOWS_VENDAS_SQL, SHOWS_MESA_RESERVADA_SQL, SHOWS_CLUBE_SQL, SHOWS_FICHA_SETOR_SQL, SHOWS_CANCELAMENTOS_SQL } from './casa_de_shows.js';
 import { ANIVERSARIO_SQL } from './aniversario.js';
 import { CONTATOS_SQL } from './contatos.js';
 import { ESPELHO_SQL } from './espelho_contatos.js';
@@ -280,6 +280,7 @@ export const TENANT_STEPS = [
   // 59: chaves Pix enviadas a cada cliente (a conferência aceita qualquer uma que ele recebeu, mesmo depois do rodízio)
   { version: 59, sql: PIX_ENVIADAS_SQL },
   { version: 60, sql: ALERTA_PAGAMENTO_SQL },
+  { version: 61, sql: SHOWS_CANCELAMENTOS_SQL },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 
@@ -338,6 +339,7 @@ export async function createCompanySchema(cx, companyId) {
   await cx.query(EDICOES_AGENDAMENTO_SQL);
   await cx.query(PIX_ENVIADAS_SQL);
   await cx.query(ALERTA_PAGAMENTO_SQL);
+  await cx.query(SHOWS_CANCELAMENTOS_SQL);
   await cx.query('SET LOCAL search_path TO public');
   await cx.query('INSERT INTO tenant_versions (company_id, version) VALUES ($1, 1)', [companyId]);
 }

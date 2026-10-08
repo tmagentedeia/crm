@@ -11,6 +11,7 @@ import { normPhone } from './phone.js';
 import { parseBirthday } from './ficha.js';
 import { beneficiosDeParceiros } from './parcerias.js';
 import { conexaoWhats, postarWhats, pausa } from './lista_evento.js';
+import { provedores, avisarAdm } from './decisoes_adm.js';
 import { gerarRef } from './documentos.js';
 
 export const CASA_DE_SHOWS_SQL = `
@@ -485,7 +486,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
           url = o.body.url;
         }
         if (enviados) await pausa(2000);
-        await postarWhats(con, '/send/media', { number: numero, type: 'document', file: url, docName: `Ingresso - ${nome}.pdf`, readchat: true });
+        await postarWhats(con, '/send/media', { number: numero, type: 'document', file: url, docName: `Ingresso - ${[venda.event_title, nome].filter(Boolean).join(' - ').replace(/[\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim()}.pdf`, readchat: true });
         enviados++;
       } catch (e) { console.error('ingresso:', e.message); falharam.push(nome); }
     }
@@ -493,6 +494,60 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     res.json({ ok: true, sent: enviados, of: venda.people, failed: falharam,
       message: `Enviei ${enviados} ingresso(s) em PDF ao cliente, um para cada pessoa, com o nome no arquivo.` + (falharam.length ? ` Não consegui emitir o de ${falharam.join(', ')}: o nome está na lista e isso basta; ele pode pedir de novo outro dia.` : '') + ' O ingresso é só uma comodidade, a entrada é confirmada pelo nome.' });
   }));
+
+
+  // ---------- pedido de cancelamento (a atendente pede, o responsável decide pelo WhatsApp) ----------
+  // Corpo: { phone: telefone do cliente, sale_id (opcional), event (opcional), reason (opcional) }
+  const brl = (n) => 'R$ ' + Number(n).toFixed(2).replace('.', ',');
+  const resumoVenda = (v) => `venda ${v.id}, ${v.event_title || 'evento'}, ${v.sector_name}, ${v.people} pessoa(s), ${v.paid > 0 ? 'JÁ PAGA ' + brl(v.paid) : 'sem pagamento'}`;
+  r.post('/casa-de-shows/sales/cancel-request', comTratamento(async (req, res) => {
+    const b = req.body || {};
+    const nao = (message) => res.json({ ok: false, message });
+    const phone = b.phone ? normPhone(b.phone) : null;
+    if (!phone || !/^\d{8,15}$/.test(phone)) return nao('Informe o telefone do cliente.');
+    let vendas = (await q(`${VENDA} WHERE v.phone=$1 AND v.status = ANY($2) ORDER BY v.id DESC`, [phone, OCUPAM])).rows;
+    if (b.sale_id && idOk(b.sale_id)) vendas = vendas.filter((v) => String(v.id) === String(idOk(b.sale_id)));
+    else if (semAcento(b.event)) { const e = await eventoPorTexto(b.event); if (e.erro) return nao(e.erro); vendas = vendas.filter((v) => v.event_id === e.id); }
+    if (!vendas.length) return nao('Não achei compra ativa deste cliente para cancelar. Se ele disse que comprou, confira o telefone e o evento.');
+    if (vendas.length > 1) return nao(`Este cliente tem ${vendas.length} compras ativas: ${vendas.map(resumoVenda).join('; ')}. Pergunte qual delas ele quer cancelar e refaça o pedido informando o evento.`);
+    const v = vendas[0];
+    const ja = (await q("SELECT id FROM shows_cancel_requests WHERE sale_id=$1 AND status='pending'", [v.id])).rows[0];
+    if (ja) return res.json({ ok: true, duplicate: true, message: 'Esse pedido de cancelamento já foi enviado ao financeiro e aguarda a decisão. Diga ao cliente que você está confirmando com o financeiro e que retorna em seguida. NÃO diga que foi cancelado.' });
+    const motivo = b.reason ? String(b.reason).slice(0, 300) : null;
+    const id = (await q('INSERT INTO shows_cancel_requests (sale_id, reason) VALUES ($1,$2) RETURNING id', [v.id, motivo])).rows[0].id;
+    let avisou = false;
+    try {
+      avisou = await avisarAdm(`Pedido de cancelamento (#C${id})\nCliente: ${v.name || ''} · ${phone}\nCompra: ${resumoVenda(v)}${motivo ? `\nMotivo: ${motivo}` : ''}\n\nResponda *sim* para cancelar ou *não* para manter.`);
+      if (avisou) await q('UPDATE shows_cancel_requests SET alerted_at = now() WHERE id=$1', [id]);
+    } catch (e) { console.error('aviso de cancelamento:', e.message); }
+    res.json({ ok: true, request_id: id, message: avisou
+      ? 'Pedido de cancelamento enviado ao financeiro. Diga ao cliente que vai confirmar com o financeiro e retorna em seguida. NÃO diga que foi cancelado: só está cancelado depois da confirmação do financeiro.'
+      : 'Pedido registrado, mas não consegui avisar o financeiro agora. Diga ao cliente que vai confirmar com o financeiro e retorna em seguida. NÃO diga que foi cancelado.' });
+  }));
+  provedores.set('cancel', {
+    pendentes: async () => (await q(`SELECT c.id, c.alerted_at, v.id AS sale_id, v.phone, v.name, v.people FROM shows_cancel_requests c JOIN shows_sales v ON v.id=c.sale_id
+        WHERE c.status='pending' AND c.alerted_at > now() - interval '72 hours' ORDER BY c.alerted_at DESC LIMIT 10`)).rows
+      .map((x) => ({ ref: 'C' + x.id, quando: x.alerted_at, resumo: `cancelamento da venda ${x.sale_id} (${x.name || x.phone})`, client_phone: x.phone, client_name: x.name })),
+    decidir: async (ref, aprova) => {
+      const id = String(ref).replace(/\D/g, '');
+      const c = (await q("SELECT c.id, c.sale_id FROM shows_cancel_requests c WHERE c.id=$1 AND c.status='pending'", [id])).rows[0];
+      if (!c) return { ok: false, message: 'Esse pedido de cancelamento já foi decidido.' };
+      if (!aprova) {
+        await q("UPDATE shows_cancel_requests SET status='rejected', decided_at=now() WHERE id=$1", [c.id]);
+        return { ok: true, decision: 'rejected', message: `Pedido #C${c.id} recusado: a venda ${c.sale_id} foi mantida.` };
+      }
+      const venda = (await q('SELECT id, held, status FROM shows_sales WHERE id=$1', [c.sale_id])).rows[0];
+      if (!venda || !OCUPAM.includes(venda.status)) {
+        await q("UPDATE shows_cancel_requests SET status='approved', decided_at=now() WHERE id=$1", [c.id]);
+        return { ok: true, decision: 'approved', message: `A venda ${c.sale_id} já não estava ativa.` };
+      }
+      if (venda.held && Number((await q('SELECT COALESCE(SUM(people),0) AS n FROM shows_sales WHERE host_sale_id=$1 AND status = ANY($2)', [venda.id, OCUPAM])).rows[0].n))
+        return { ok: false, message: `A venda ${c.sale_id} é uma mesa com convidados; cancele os convidados no painel antes.` };
+      await q("UPDATE shows_sales SET status='cancelled' WHERE id=$1", [venda.id]);
+      await q("UPDATE shows_cancel_requests SET status='approved', decided_at=now() WHERE id=$1", [c.id]);
+      return { ok: true, decision: 'approved', message: `Venda ${c.sale_id} cancelada e as vagas liberadas. Os pagamentos dela continuam registrados para você decidir o estorno.` };
+    },
+  });
 
   // Nomes que valem hoje na lista de uma venda (o que foi editado pela equipe ou pela troca vale mais que o cadastro original)
   const nomesAtuais = async (v) => {
@@ -2302,3 +2357,16 @@ export const SHOWS_FICHA_SETOR_SQL = `
   ALTER TABLE shows_sectors ADD COLUMN IF NOT EXISTS ideal_max INT;       -- (até quantas)
   ALTER TABLE shows_sectors ADD COLUMN IF NOT EXISTS last_resort BOOLEAN NOT NULL DEFAULT false;   -- só oferecer se não houver outro
 `;
+
+// Pedido de cancelamento feito pela atendente: só vale depois que o responsável confirma pelo WhatsApp
+export const SHOWS_CANCELAMENTOS_SQL = `
+  CREATE TABLE IF NOT EXISTS shows_cancel_requests (
+    id         BIGSERIAL PRIMARY KEY,
+    sale_id    BIGINT NOT NULL REFERENCES shows_sales(id) ON DELETE CASCADE,
+    reason     TEXT,
+    status     TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+    alerted_at TIMESTAMPTZ,
+    decided_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+  CREATE INDEX IF NOT EXISTS idx_shows_cancel_sale ON shows_cancel_requests (sale_id)`;

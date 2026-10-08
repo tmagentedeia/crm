@@ -83,7 +83,7 @@ check('consulta pelo telefone', r.body.ok === true && r.body.sales.length === 1 
 r = await ia('POST', '/casa-de-shows/sales/send-tickets', { number: fone + '@s.whatsapp.net', phone: fone, event: ev.title });
 check('envia um ingresso por pessoa', r.body.ok === true && r.body.sent === 3, JSON.stringify(r.body));
 const docs = recebidos.filter((x) => x.url === '/send/media');
-check('o nome do dono está no nome do arquivo', docs.length === 3 && docs[0].body.docName === 'Ingresso - Ana Souza.pdf' && docs[1].body.docName === 'Ingresso - Bia Souza.pdf' && docs[2].body.docName === 'Ingresso - Caio Souza.pdf', JSON.stringify(docs.map((d) => d.body.docName)));
+check('o nome do dono está no nome do arquivo', docs.length === 3 && docs[0].body.docName === `Ingresso - ${ev.title} - Ana Souza.pdf` && docs[1].body.docName === `Ingresso - ${ev.title} - Bia Souza.pdf` && docs[2].body.docName === `Ingresso - ${ev.title} - Caio Souza.pdf`, JSON.stringify(docs.map((d) => d.body.docName)));
 check('enviados como documento', docs.every((d) => d.body.type === 'document' && /\/d\/.+\.pdf$/.test(d.body.file)));
 check('um arquivo guardado por pessoa', psql(`select count(*) from company_1.doc_files where sale_id=${sid} and event_id=${ev.id}`) === '3');
 recebidos.length = 0;
@@ -94,7 +94,7 @@ check('reenvio reaproveita os arquivos', r.body.sent === 3 && psql(`select count
 await api('PUT', `/event-list/${sid}/2`, { name: 'Beatriz Souza' });
 recebidos.length = 0;
 r = await ia('POST', '/casa-de-shows/sales/send-tickets', { number: fone + '@s.whatsapp.net', phone: fone, event: ev.title });
-check('nome trocado gera ingresso novo com o nome novo', recebidos.some((x) => x.body.docName === 'Ingresso - Beatriz Souza.pdf'), JSON.stringify(recebidos.map((d) => d.body.docName)));
+check('nome trocado gera ingresso novo com o nome novo', recebidos.some((x) => x.body.docName === `Ingresso - ${ev.title} - Beatriz Souza.pdf`), JSON.stringify(recebidos.map((d) => d.body.docName)));
 
 // ---- troca de nome: só o comprador, só nas compras dele ----
 const fone2 = '5532966' + String(marca).padStart(6, '0').slice(-6);
@@ -183,7 +183,7 @@ check('comprovante não aceito avisa o responsável', rev.accepted === false && 
 r = await ia('POST', '/payments/adm-reply', { text: 'Bom dia, tudo bem?' });
 check('conversa comum não é resposta', r.body.handled === false, JSON.stringify(r.body));
 r = await ia('POST', '/payments/adm-reply', { text: 'Sim' });
-check('"sim" aprova o comprovante avisado', r.body.handled === true && r.body.ok === true && r.body.decision === 'approved' && r.body.client_phone === foneR.replace(/^(55\d{2})9/, '$1'), JSON.stringify(r.body));
+check('"sim" aprova o comprovante avisado', r.body.handled === true && r.body.ok === true && r.body.decision === 'approved' && r.body.kind === 'payment' && r.body.client_phone === foneR.replace(/^(55\d{2})9/, '$1'), JSON.stringify(r.body));
 check('depois de aprovado o pagamento conta para o cliente', /AINDA NÃO USADO em venda: R\$ 80,00/.test(await sit(foneR)));
 r = await ia('POST', '/payments/adm-reply', { text: 'sim' });
 check('"sim" sem aviso pendente não faz nada', r.body.handled === false, JSON.stringify(r.body));
@@ -196,6 +196,35 @@ r = await ia('POST', '/payments/adm-reply', { text: `não #${p2.payment_id}` });
 check('"não #id" recusa o comprovante certo', r.body.ok === true && r.body.decision === 'rejected', JSON.stringify(r.body));
 check('o recusado ficou recusado e o outro segue pendente', psql(`select status from company_1.payments where id=${p2.payment_id}`) === 'rejected' && psql(`select status from company_1.payments where id=${p3.payment_id}`) === 'wrong_key');
 
+
+// ---- cancelamento: a atendente pede, o responsável decide ----
+falhar = false; recebidos.length = 0;
+psql("update company_1.payments set status='rejected' where status in ('review','wrong_key','low_amount')");
+const foneC = '5532911' + String(marca).padStart(6, '0').slice(-6);
+const ev2 = (await api('POST', '/events', { title: 'Show IA2 ' + marca, starts_at: new Date(Date.now() + 12 * 864e5).toISOString() })).body;
+const setor2 = (await api('POST', '/casa-de-shows/sectors', { name: 'Setor C ' + marca, space: 8 })).body;
+await api('PUT', `/casa-de-shows/events/${ev2.id}/conditions`, { price: 100 });
+await pagar(foneC, 100);
+const vc = await ia('POST', '/casa-de-shows/sales/register', { event: ev2.title, sector: setor2.name, names: ['Cida Lima'], phone: foneC, amount: 100, method: 'Pix' });
+check('venda para cancelar', vc.body.ok === true, JSON.stringify(vc.body));
+r = await ia('POST', '/casa-de-shows/sales/cancel-request', { phone: '5532900099999' });
+check('quem não comprou não tem o que cancelar', r.body.ok === false && /Não achei compra ativa/.test(r.body.message), JSON.stringify(r.body));
+r = await ia('POST', '/casa-de-shows/sales/cancel-request', { phone: foneC, reason: 'desistiu' });
+await new Promise((x) => setTimeout(x, 600));
+const avc = recebidos.find((x) => x.url === '/send/text' && /cancelamento/.test(x.body.text));
+check('o pedido avisa o responsável (paga ou não)', r.body.ok === true && avc && /JÁ PAGA/.test(avc.body.text) && /#C\d+/.test(avc.body.text), JSON.stringify(r.body) + JSON.stringify(recebidos.map((x) => x.body.text)));
+check('a atendente é orientada a NÃO dizer que cancelou', /NÃO diga que foi cancelado/.test(r.body.message));
+check('a venda continua ativa até o responsável decidir', psql(`select status from company_1.shows_sales where id=${vc.body.sale_id}`) === 'confirmed');
+check('pedido repetido não duplica', (await ia('POST', '/casa-de-shows/sales/cancel-request', { phone: foneC })).body.duplicate === true);
+check('situação do cliente mostra o pedido pendente', /aguardando o financeiro/.test(await sit(foneC)));
+r = await ia('POST', '/payments/adm-reply', { text: 'não' });
+check('"não" mantém a venda', r.body.handled === true && r.body.kind === 'cancel' && r.body.decision === 'rejected' && psql(`select status from company_1.shows_sales where id=${vc.body.sale_id}`) === 'confirmed', JSON.stringify(r.body));
+await ia('POST', '/casa-de-shows/sales/cancel-request', { phone: foneC });
+await new Promise((x) => setTimeout(x, 600));
+r = await ia('POST', '/payments/adm-reply', { text: 'Sim' });
+check('"sim" cancela e libera as vagas', r.body.handled === true && r.body.kind === 'cancel' && r.body.decision === 'approved' && psql(`select status from company_1.shows_sales where id=${vc.body.sale_id}`) === 'cancelled', JSON.stringify(r.body));
+check('o pagamento da venda cancelada continua registrado', psql(`select count(*) from company_1.shows_sale_payments where sale_id=${vc.body.sale_id}`) === '1');
+check('pagamento aprovado devolve o tipo payment', true);
 fake.close();
 await api('DELETE', `/finance/keys/${chave.id}`);
 console.log(`shows_venda_ia: ${ok} ok, ${fail} falhas`);
