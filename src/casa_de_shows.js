@@ -407,6 +407,19 @@ export function registerCasaDeShowsRoutes(r, wrap) {
         [ev.id, phone, setor.id, people, OCUPAM, nomes.join('\n')])).rows[0];
       if (igual) return res.json({ ok: true, duplicate: true, sale_id: igual.id, message: `Essa venda já estava registrada (${igual.sector_name}, ${igual.people} pessoa(s)). Não cadastre de novo; siga com a confirmação ao cliente.` });
     }
+    // trava: a venda só nasce com pagamento ACEITO (comprovante validado ou aprovado pela equipe) ainda não usado em outra venda
+    const valor = b.amount === undefined || b.amount === null || b.amount === '' ? null : dinheiro(b.amount);
+    if (!phone) return nao('Sem o telefone do cliente não consigo conferir o pagamento. Não cadastre a venda.');
+    if (!valor || valor <= 0) return nao('Informe o valor pago. A venda só é cadastrada com pagamento confirmado.');
+    const livres = (await q(`SELECT p.id, p.amount::float AS amount FROM payments p JOIN customers c ON c.id = p.customer_id
+      WHERE c.phone = $1 AND p.status = 'accepted' AND p.source <> 'pedido' AND NOT EXISTS (SELECT 1 FROM shows_sale_payments sp WHERE sp.payment_id = p.id)
+      ORDER BY p.id`, [phone])).rows;
+    let usar = [];
+    if (b.payment_id && idOk(b.payment_id)) usar = livres.filter((x) => String(x.id) === String(idOk(b.payment_id)));
+    else { let soma = 0; for (const x of livres) { if (soma >= valor - 0.005) break; usar.push(x); soma += x.amount; } }
+    const coberto = usar.reduce((a, x) => a + x.amount, 0);
+    if (!usar.length) return nao('NÃO há pagamento confirmado para este cliente. Não cadastre a venda, não envie ingressos e não diga que o pagamento foi recebido. Se o cliente mandou comprovante, o resultado dele não foi "aceito": avise que a equipe vai conferir e aguarde.');
+    if (coberto < valor - 0.005) return nao(`O pagamento confirmado deste cliente é de ${dinheiroBr(coberto)}, menor que os ${dinheiroBr(valor)} da compra. Não cadastre a venda: avise o cliente que falta completar o pagamento.`);
     const corpo = { event_id: ev.id, sector_id: setor.id, name: nomes[0], people, guests: nomes.join('\n'), note: b.note ? String(b.note).slice(0, 300) : undefined };
     if (phone) corpo.phone = phone;
     if (b.code) corpo.code = String(b.code);
@@ -415,21 +428,17 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     let id;
     try { id = await gravar({ ...p.v }); }
     catch (e) { if (e.status) return nao(`${e.message} Avise o cliente e ofereça outro setor (consulte a Disponibilidade).`); throw e; }
-    // pagamento: o valor total que o cliente pagou
-    let pagto = '';
-    const valor = b.amount === undefined || b.amount === null || b.amount === '' ? null : dinheiro(b.amount);
-    if (valor && valor > 0) {
-      const texto = semAcento(b.method || 'pix');
-      const forma = (FORMA_ALIAS.find(([re]) => re.test(texto)) || [null, 'pix'])[1];
-      const nota = /mercado\s*pago|link/.test(texto) ? 'Mercado Pago' : null;
-      let payId = b.payment_id && idOk(b.payment_id) ? idOk(b.payment_id) : null;
-      if (payId && forma === 'pix') {
-        const c = (await q('SELECT status FROM payments WHERE id=$1', [payId])).rows[0];
-        if (!c || c.status !== 'accepted' || (await q('SELECT 1 FROM shows_sale_payments WHERE payment_id=$1', [payId])).rowCount) payId = null;
-      } else payId = null;
-      await q('INSERT INTO shows_sale_payments (sale_id, method, amount, payment_id, note) VALUES ($1,$2,$3,$4,$5)', [id, forma, valor, payId, nota]);
-      pagto = ` Pagamento de ${dinheiroBr(valor)} registrado.`;
+    // pagamento: cada comprovante aceito usado vira uma linha, ligada ao Recebimento
+    const texto = semAcento(b.method || 'pix');
+    const forma = (FORMA_ALIAS.find(([re]) => re.test(texto)) || [null, 'pix'])[1];
+    const nota = /mercado\s*pago|link/.test(texto) ? 'Mercado Pago' : null;
+    let falta = valor;
+    for (const x of usar) {
+      const parte = Math.min(x.amount, Math.max(falta, 0.01));
+      await q('INSERT INTO shows_sale_payments (sale_id, method, amount, payment_id, note) VALUES ($1,$2,$3,$4,$5)', [id, forma, parte, x.id, nota]);
+      falta -= parte;
     }
+    const pagto = ` Pagamento de ${dinheiroBr(valor)} registrado.`;
     const v = (await q(`${VENDA} WHERE v.id=$1`, [id])).rows[0];
     res.status(201).json({
       ok: true, sale_id: v.id, event: ev.title, sector: v.sector_name, people: v.people, tables: v.tables, table: v.table_name, seats_each: v.seats_each, unit_price: v.unit_price, paid: v.paid,
@@ -455,6 +464,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
       if (eventoId) { a.push(eventoId); w += ` AND v.event_id = $${a.length}`; }
       venda = (await q(`${VENDA} WHERE ${w} ORDER BY v.id DESC LIMIT 1`, a)).rows[0];
     }
+    if (venda && !(venda.paid > 0)) return nao('Esta venda não tem pagamento confirmado. Não envie ingressos: avise o cliente que o ingresso sai depois da confirmação do pagamento pela equipe.');
     if (!venda) return nao('Não achei venda confirmada para este cliente. Confira o evento e o telefone; o ingresso só sai depois de a venda ser cadastrada.');
     const con = await conexaoWhats(currentCompany());
     if (!con || !gerarRef.fn) return nao(SEM_PDF);

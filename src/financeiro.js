@@ -2,6 +2,7 @@
 // O atendente só manda o que leu do comprovante; as regras ficam aqui (não no prompt).
 import { q, qg, tx, currentCompany } from './db.js';
 import { normPhone } from './phone.js';
+import { conexaoWhats, postarWhats } from './lista_evento.js';
 
 export const FINANCEIRO_SQL = `
   CREATE TABLE IF NOT EXISTS pix_keys (
@@ -114,6 +115,44 @@ export const PIX_ENVIADAS_SQL = `
     sent_at TIMESTAMPTZ NOT NULL DEFAULT now()
   );
   CREATE INDEX IF NOT EXISTS idx_pix_keys_sent_phone ON pix_keys_sent (phone, sent_at DESC);`;
+
+// Aviso ao responsável quando um comprovante não pôde ser aceito sozinho: ele responde "sim" ou "não" pelo WhatsApp
+export const ALERTA_PAGAMENTO_SQL = `ALTER TABLE payments ADD COLUMN IF NOT EXISTS alerted_at TIMESTAMPTZ`;
+
+// Situação do cliente entregue ao atendente a cada mensagem: o que o painel REALMENTE tem registrado (pagamentos, vendas, chaves enviadas).
+// Vale acima do que o atendente "lembra" da conversa.
+export async function textoSituacaoCliente(q, telefone) {
+  const phone = normPhone(telefone);
+  if (!phone) return '';
+  const brl = (n) => 'R$ ' + Number(n).toFixed(2).replace('.', ',');
+  const dh = (d) => (d ? new Date(d).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
+  const L = [];
+  try {
+    const pg = (await q(`SELECT p.id, p.amount::float AS amount, p.status, p.reason, p.created_at,
+        EXISTS (SELECT 1 FROM shows_sale_payments sp WHERE sp.payment_id = p.id) AS usado
+      FROM payments p JOIN customers c ON c.id = p.customer_id WHERE c.phone = $1 AND p.source <> 'pedido' ORDER BY p.id DESC LIMIT 8`, [phone])).rows;
+    const livres = pg.filter((x) => x.status === 'accepted' && !x.usado);
+    const usados = pg.filter((x) => x.status === 'accepted' && x.usado);
+    const analise = pg.filter((x) => ['review', 'wrong_key', 'low_amount'].includes(x.status));
+    L.push(livres.length ? `Pagamento confirmado AINDA NÃO USADO em venda: ${livres.map((x) => `${brl(x.amount)} (${dh(x.created_at)})`).join('; ')}.` : 'Pagamento confirmado ainda não usado em venda: NENHUM. Sem pagamento confirmado, não cadastre venda nem envie ingressos.');
+    if (usados.length) L.push(`Pagamentos confirmados que já viraram venda: ${usados.map((x) => brl(x.amount)).join('; ')}. Não os conte de novo.`);
+    if (analise.length) L.push(`Comprovantes aguardando conferência da equipe (NÃO são pagamento confirmado): ${analise.map((x) => `${brl(x.amount)} (${dh(x.created_at)})`).join('; ')}.`);
+  } catch { /* empresa sem recebimentos */ }
+  try {
+    const vd = (await q(`SELECT v.id, e.title, s.name AS setor, v.people,
+        COALESCE((SELECT SUM(p.amount) FROM shows_sale_payments p WHERE p.sale_id=v.id AND p.method <> 'cortesia'),0)::float AS paid
+      FROM shows_sales v JOIN shows_sectors s ON s.id=v.sector_id LEFT JOIN events e ON e.id=v.event_id
+      WHERE v.phone=$1 AND v.status IN ('confirmed','attended') ORDER BY v.id DESC LIMIT 5`, [phone])).rows;
+    if (vd.length) L.push(`Vendas já registradas para este cliente: ${vd.map((x) => `venda ${x.id}, ${x.title || 'evento'}, ${x.setor}, ${x.people} pessoa(s), pago ${brl(x.paid)}`).join('; ')}.`);
+    else L.push('Vendas já registradas para este cliente: nenhuma.');
+  } catch { /* empresa sem casa de shows */ }
+  try {
+    const ch = (await q(`SELECT k.key_type, k.key, MAX(s.sent_at) AS quando FROM pix_keys_sent s JOIN pix_keys k ON k.id=s.key_id WHERE s.phone=$1 GROUP BY k.id, k.key_type, k.key ORDER BY quando DESC`, [phone])).rows;
+    if (ch.length) L.push(`Chaves Pix já enviadas a este cliente (a mais recente primeiro): ${ch.map((x) => `${x.key} (${dh(x.quando)})`).join('; ')}.`);
+  } catch { /* sem chaves */ }
+  if (!L.length) return '';
+  return 'SITUAÇÃO REAL DESTE CLIENTE NO SISTEMA (dado do sistema, vale mais que sua memória da conversa; se algo que você disse antes contraria isto, o sistema está certo):\n' + L.map((x) => `- ${x}`).join('\n');
+}
 
 export const CATEGORIAS = ['pedido', 'contribuicao', 'outro'];   // para que a entrada serviu
 const TIPOS = ['email', 'phone', 'cpf', 'cnpj', 'random'];
@@ -294,10 +333,59 @@ export function registerFinanceRoutes(r, wrap) {
       if (status === 'accepted') ordem = await darBaixa(t, p, b.order_id ? Number(b.order_id) : null);
       return { p, ordem, key: achada };
     });
+    if (['review', 'wrong_key', 'low_amount'].includes(out.p.status)) avisarResponsavel(out.p, phone, payer).catch((e) => console.error('aviso de pagamento:', e.message));
     res.status(out.p.status === 'accepted' ? 201 : 200).json({
       accepted: out.p.status === 'accepted', status: out.p.status, motivo: out.p.reason, payment_id: out.p.id,
       order_id: out.ordem, beneficiary: out.key?.beneficiary || null,
     });
+  }));
+
+  // ---------- aviso ao responsável e resposta "sim"/"não" pelo WhatsApp ----------
+  const MOTIVO = { review: 'precisa de conferência', wrong_key: 'foi pago em uma chave que não é a combinada', low_amount: 'o valor é menor que o mínimo' };
+  const brl = (n) => 'R$ ' + Number(n).toFixed(2).replace('.', ',');
+  async function avisarResponsavel(p, phone, payer) {
+    const cid = currentCompany();
+    const c = (await qg('SELECT phone FROM companies WHERE id=$1', [cid])).rows[0];
+    const dest = normPhone(c?.phone);
+    const con = await conexaoWhats(cid);
+    if (!dest || !con) return;
+    const quem = [payer, phone].filter(Boolean).join(' · ') || 'cliente sem identificação';
+    const texto = `Comprovante aguardando sua decisão (#${p.id})\nCliente: ${quem}\nValor: ${brl(p.amount)}\nMotivo: ${MOTIVO[p.status] || p.reason || 'precisa de conferência'}${p.reason && p.status === 'review' ? ` (${p.reason})` : ''}\n\nResponda *sim* para aprovar ou *não* para recusar.`;
+    await postarWhats(con, '/send/text', { number: dest, text: texto });
+    await q('UPDATE payments SET alerted_at = now() WHERE id=$1', [p.id]);
+  }
+  const aprovarPagamento = (id, orderId) => tx(currentCompany(), async (t) => {
+    const p = (await t('SELECT * FROM payments WHERE id=$1 FOR UPDATE', [id])).rows[0];
+    if (!p) return { code: 404, error: 'Não encontrado' };
+    if (p.status === 'accepted') return { code: 409, error: 'Este recebimento já foi aceito' };
+    if (p.txid && (await t("SELECT 1 FROM payments WHERE txid=$1 AND status='accepted' AND id<>$2", [p.txid, p.id])).rowCount)
+      return { code: 409, error: 'Já existe um recebimento aceito com este ID de transação' };
+    const u = (await t("UPDATE payments SET status='accepted', reason=NULL WHERE id=$1 RETURNING *", [p.id])).rows[0];
+    const ordem = await darBaixa(t, u, orderId ? Number(orderId) : null);
+    return { id: u.id, order_id: ordem };
+  });
+  // O N8N manda aqui toda mensagem que o responsável digitou para a agente. Se for a resposta a um aviso, o painel decide; senão, devolve handled=false.
+  r.post('/payments/adm-reply', wrap(async (req, res) => {
+    const t0 = String(req.body?.text ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9# ]/g, ' ').replace(/\s+/g, ' ').trim();
+    const m = t0.match(/^(sim|s|aprovo|aprovar|ok|nao|n|recuso|recusar)(?: #?(\d{1,12}))?$/);
+    if (!m) return res.json({ handled: false });
+    const aprova = ['sim', 's', 'aprovo', 'aprovar', 'ok'].includes(m[1]);
+    const pend = (await q(`SELECT p.id, p.amount::float AS amount, p.payer_name, c.phone AS customer_phone, COALESCE(NULLIF(btrim(concat_ws(' ', c.name, c.last_name)),''), p.payer_name) AS nome
+      FROM payments p LEFT JOIN customers c ON c.id=p.customer_id
+      WHERE p.status IN ('review','wrong_key','low_amount') AND p.alerted_at > now() - interval '24 hours' ORDER BY p.alerted_at DESC LIMIT 10`)).rows;
+    if (!pend.length) return res.json({ handled: false });
+    let alvo;
+    if (m[2]) { alvo = pend.find((x) => String(x.id) === m[2]); if (!alvo) return res.json({ handled: true, ok: false, message: `Não achei o comprovante #${m[2]} aguardando decisão.` }); }
+    else if (pend.length === 1) alvo = pend[0];
+    else return res.json({ handled: true, ok: false, message: `Há ${pend.length} comprovantes aguardando. Responda com o número, por exemplo "${aprova ? 'sim' : 'não'} #${pend[0].id}". Pendentes: ${pend.map((x) => `#${x.id} ${brl(x.amount)} ${x.nome || ''}`.trim()).join('; ')}.` });
+    const cli = { client_phone: alvo.customer_phone || null, client_name: alvo.nome || null };
+    if (aprova) {
+      const o = await aprovarPagamento(alvo.id, null);
+      if (o.error) return res.json({ handled: true, ok: false, message: o.error });
+      return res.json({ handled: true, ok: true, decision: 'approved', payment_id: alvo.id, ...cli, message: `Comprovante #${alvo.id} (${brl(alvo.amount)}) aprovado. O pagamento já conta para o cliente.` });
+    }
+    await q("UPDATE payments SET status='rejected', reason='recusado pelo responsável' WHERE id=$1 AND status<>'accepted'", [alvo.id]);
+    res.json({ handled: true, ok: true, decision: 'rejected', payment_id: alvo.id, ...cli, message: `Comprovante #${alvo.id} (${brl(alvo.amount)}) recusado.` });
   }));
 
   // ---------- recebimentos ----------
@@ -380,16 +468,7 @@ export function registerFinanceRoutes(r, wrap) {
     out.error ? res.status(out.code).json({ error: out.error }) : res.json(out);
   }));
   r.post('/payments/:id/approve', wrap(async (req, res) => {
-    const out = await tx(currentCompany(), async (t) => {
-      const p = (await t('SELECT * FROM payments WHERE id=$1 FOR UPDATE', [req.params.id])).rows[0];
-      if (!p) return { code: 404, error: 'Não encontrado' };
-      if (p.status === 'accepted') return { code: 409, error: 'Este recebimento já foi aceito' };
-      if (p.txid && (await t("SELECT 1 FROM payments WHERE txid=$1 AND status='accepted' AND id<>$2", [p.txid, p.id])).rowCount)
-        return { code: 409, error: 'Já existe um recebimento aceito com este ID de transação' };
-      const u = (await t("UPDATE payments SET status='accepted', reason=NULL WHERE id=$1 RETURNING *", [p.id])).rows[0];
-      const ordem = await darBaixa(t, u, req.body?.order_id ? Number(req.body.order_id) : null);
-      return { id: u.id, order_id: ordem };
-    });
+    const out = await aprovarPagamento(req.params.id, req.body?.order_id);
     out.error ? res.status(out.code).json({ error: out.error }) : res.json(out);
   }));
   r.post('/payments/:id/reject', wrap(async (req, res) => {

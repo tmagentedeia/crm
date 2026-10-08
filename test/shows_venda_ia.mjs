@@ -34,6 +34,9 @@ const setor = (await api('POST', '/casa-de-shows/sectors', { name: 'Setor IA ' +
 const mesa = (await api('POST', '/casa-de-shows/table-types', { name: 'Mesa IA ' + marca, seats: 4, space: 4 })).body;
 await api('PUT', `/casa-de-shows/events/${ev.id}/conditions`, { price: 100 });
 const fone = '5532988' + String(marca).padStart(6, '0').slice(-6);
+const chave = (await api('POST', '/finance/keys', { key_type: 'email', key: `ia${marca}@gmail.com`, beneficiary: 'Casa' })).body;
+const spm = (min) => new Date(Date.now() - min * 60000 - 3 * 3600000).toISOString().slice(0, 16).replace('T', ' ');
+const pagar = async (phone, amount, key = chave.key) => (await api('POST', '/payments/check', { phone, payer_name: 'Fulano Pagador', amount, key, txid: 'E' + Math.random().toString(36).slice(2).padEnd(30, 'x'), paid_at: spm(5), purpose: 'Ingresso' })).body;
 
 let r = await ia('POST', '/casa-de-shows/sales/register', { event: ev.title, sector: setor.name, phone: fone, amount: 200 });
 check('sem nomes pede os nomes', r.status === 200 && r.body.ok === false && /nomes/.test(r.body.message), JSON.stringify(r.body));
@@ -42,6 +45,18 @@ check('evento que não existe lista os eventos', r.body.ok === false && /Não ac
 r = await ia('POST', '/casa-de-shows/sales/register', { event: ev.title, sector: 'setor que nao existe zzz', names: ['Ana Souza'], phone: fone });
 check('setor que não existe lista os setores', r.body.ok === false && /Setores:/.test(r.body.message), JSON.stringify(r.body));
 
+r = await ia('POST', '/casa-de-shows/sales/register', { event: ev.title, sector: setor.name, names: ['Ana Souza', 'Bia Souza', 'Caio Souza'], phone: fone, amount: 200, method: 'Pix' });
+check('sem pagamento confirmado a venda NÃO nasce', r.body.ok === false && /NÃO há pagamento confirmado/.test(r.body.message) && psql(`select count(*) from company_1.shows_sales where phone='${fone}'`) === '0', JSON.stringify(r.body));
+const emAnalise = await pagar(fone, 200, 'ninguem@outro.com');
+check('comprovante em chave errada não é aceito', emAnalise.accepted === false, JSON.stringify(emAnalise));
+r = await ia('POST', '/casa-de-shows/sales/register', { event: ev.title, sector: setor.name, names: ['Ana Souza', 'Bia Souza', 'Caio Souza'], phone: fone, amount: 200, method: 'Pix' });
+check('comprovante não aceito também não libera a venda', r.body.ok === false && /NÃO há pagamento confirmado/.test(r.body.message), JSON.stringify(r.body));
+r = await ia('POST', '/casa-de-shows/sales/register', { event: ev.title, sector: setor.name, names: ['Ana Souza', 'Bia Souza', 'Caio Souza'], amount: 200 });
+check('sem telefone não cadastra', r.body.ok === false && /telefone/.test(r.body.message), JSON.stringify(r.body));
+check('pagamento de R$ 100 confirmado', (await pagar(fone, 100)).accepted === true);
+r = await ia('POST', '/casa-de-shows/sales/register', { event: ev.title, sector: setor.name, names: ['Ana Souza', 'Bia Souza', 'Caio Souza'], phone: fone, amount: 200, method: 'Pix' });
+check('pagamento menor que a compra não libera', r.body.ok === false && /menor que/.test(r.body.message), JSON.stringify(r.body));
+check('pagamento de mais R$ 100 confirmado', (await pagar(fone, 100)).accepted === true);
 r = await ia('POST', '/casa-de-shows/sales/register', { event: ev.title, sector: setor.name, names: ['Ana Souza', 'Bia Souza', 'Caio Souza'], phone: fone, amount: 200, method: 'Pix' });
 check('registra a venda', r.status === 201 && r.body.ok === true && r.body.people === 3, JSON.stringify(r.body));
 check('a mensagem diz que o nome basta', /portaria dá presença pelo nome/.test(r.body.message || ''), r.body.message);
@@ -52,11 +67,13 @@ const lista = (await api('GET', `/event-list?event_id=${ev.id}`)).body;
 check('os três nomes estão na lista', lista.rows.length === 3 && lista.rows[0].name === 'Ana Souza' && lista.rows[2].name === 'Caio Souza', JSON.stringify(lista.rows?.map((x) => x.name)));
 const pags = (await api('GET', `/casa-de-shows/sales/${sid}/payments`)).body;
 const pl = pags.payments || [];
-check('pagamento registrado em Pix', pl.length === 1 && pl[0].method === 'pix' && Number(pl[0].amount) === 200, JSON.stringify(pags));
+check('pagamento registrado em Pix, ligado aos dois comprovantes', pl.length === 2 && pl.every((x) => x.method === 'pix' && x.payment_id) && pl.reduce((a, x) => a + Number(x.amount), 0) === 200, JSON.stringify(pags));
 
 r = await ia('POST', '/casa-de-shows/sales/register', { event: ev.title, sector: setor.name, names: ['Ana Souza', 'Bia Souza', 'Caio Souza'], phone: fone, amount: 200, method: 'Pix' });
 check('pedido repetido não duplica', r.body.ok === true && r.body.duplicate === true && String(r.body.sale_id) === String(sid), JSON.stringify(r.body));
-r = await ia('POST', '/casa-de-shows/sales/register', { event: ev.title, sector: setor.name, names: ['Dani X', 'Edu X', 'Fabi X', 'Gil X', 'Hugo X', 'Iva X'], phone: '5532977' + String(marca).padStart(6, '0').slice(-6) });
+const foneX = '5532977' + String(marca).padStart(6, '0').slice(-6);
+await pagar(foneX, 600);
+r = await ia('POST', '/casa-de-shows/sales/register', { event: ev.title, sector: setor.name, names: ['Dani X', 'Edu X', 'Fabi X', 'Gil X', 'Hugo X', 'Iva X'], phone: foneX, amount: 600 });
 check('sem espaço explica e manda ofertar outro setor', r.body.ok === false && /Sem espaço|não comportam|Disponibilidade/.test(r.body.message), JSON.stringify(r.body));
 
 r = await ia('GET', `/casa-de-shows/sales/by-phone?phone=${fone}`);
@@ -81,7 +98,8 @@ check('nome trocado gera ingresso novo com o nome novo', recebidos.some((x) => x
 
 // ---- troca de nome: só o comprador, só nas compras dele ----
 const fone2 = '5532966' + String(marca).padStart(6, '0').slice(-6);
-const outra = await ia('POST', '/casa-de-shows/sales/register', { event: ev.title, sector: setor.name, names: ['Ana Souza', 'Duda Lima'], phone: fone2 });
+await pagar(fone2, 200);
+const outra = await ia('POST', '/casa-de-shows/sales/register', { event: ev.title, sector: setor.name, names: ['Ana Souza', 'Duda Lima'], phone: fone2, amount: 200 });
 check('outro comprador com o mesmo nome na mesa dele', outra.status === 201, JSON.stringify(outra.body));
 r = await ia('POST', '/casa-de-shows/sales/rename', { phone: '5532900011122', old_name: 'Ana Souza', new_name: 'Ana Maria Souza' });
 check('quem não comprou não troca nada', r.body.ok === false && /não tem compra/.test(r.body.message), JSON.stringify(r.body));
@@ -135,6 +153,50 @@ check('contratos não são apagados', psql(`select count(*) from company_1.doc_f
 psql(`delete from company_1.doc_files where token='tok-contrato-${marca}'`);
 
 psql("update public.companies set wa_api_url=null, wa_api_token=null where id=1");
+
+// ---- ingresso só para venda paga ----
+const foneS = '5532955' + String(marca).padStart(6, '0').slice(-6);
+const setorB = (await api('POST', '/casa-de-shows/sectors', { name: 'Setor B ' + marca, space: 8 })).body;
+const semPag = (await api('POST', '/casa-de-shows/sales', { event_id: ev.id, sector_id: setorB.id, name: 'Sem Pagamento', phone: foneS, people: 1 })).body;
+r = await ia('POST', '/casa-de-shows/sales/send-tickets', { number: foneS + '@s.whatsapp.net', phone: foneS, sale_id: semPag.id });
+check('venda sem pagamento não recebe ingresso', r.body.ok === false && /não tem pagamento confirmado/.test(r.body.message) && r.body.sent === 0, JSON.stringify(r.body) + JSON.stringify(semPag).slice(0, 200));
+
+// ---- situação real do cliente entregue ao atendente ----
+const foneT = '5532944' + String(marca).padStart(6, '0').slice(-6);
+const sit = async (ph) => (await ia('GET', '/agent/prompt?phone=' + ph)).body.prompt || '';
+check('cliente sem pagamento: situação diz NENHUM', /NENHUM/.test(await sit(foneT)));
+await pagar(foneT, 150);
+check('situação mostra o pagamento confirmado', /AINDA NÃO USADO em venda: R\$ 150,00/.test(await sit(foneT)));
+check('situação de quem já comprou mostra a venda', /venda \d+, .*pago R\$ 200,00/.test(await sit(fone)));
+check('sem telefone nada é acrescentado', !/SITUAÇÃO REAL/.test((await ia('GET', '/agent/prompt')).body.prompt || ''));
+
+// ---- aviso e resposta do responsável ----
+psql("update company_1.payments set status='rejected' where status in ('review','wrong_key','low_amount')");
+falhar = false;
+psql(`update public.companies set phone='5532911112222', wa_api_url='http://127.0.0.1:${porta}', wa_api_token='tok-teste' where id=1`);
+recebidos.length = 0;
+const foneR = '5532933' + String(marca).padStart(6, '0').slice(-6);
+const rev = await pagar(foneR, 80, 'ninguem@outro.com');
+await new Promise((x) => setTimeout(x, 600));
+const aviso = recebidos.find((x) => x.url === '/send/text');
+check('comprovante não aceito avisa o responsável', rev.accepted === false && aviso && aviso.body.number === '553211112222' && /aguardando sua decisão/.test(aviso.body.text) && /R\$ 80,00/.test(aviso.body.text), JSON.stringify(recebidos));
+r = await ia('POST', '/payments/adm-reply', { text: 'Bom dia, tudo bem?' });
+check('conversa comum não é resposta', r.body.handled === false, JSON.stringify(r.body));
+r = await ia('POST', '/payments/adm-reply', { text: 'Sim' });
+check('"sim" aprova o comprovante avisado', r.body.handled === true && r.body.ok === true && r.body.decision === 'approved' && r.body.client_phone === foneR.replace(/^(55\d{2})9/, '$1'), JSON.stringify(r.body));
+check('depois de aprovado o pagamento conta para o cliente', /AINDA NÃO USADO em venda: R\$ 80,00/.test(await sit(foneR)));
+r = await ia('POST', '/payments/adm-reply', { text: 'sim' });
+check('"sim" sem aviso pendente não faz nada', r.body.handled === false, JSON.stringify(r.body));
+const foneR2 = '5532922' + String(marca).padStart(6, '0').slice(-6), foneR3 = '5532921' + String(marca).padStart(6, '0').slice(-6);
+const p2 = await pagar(foneR2, 40, 'ninguem@outro.com'), p3 = await pagar(foneR3, 50, 'ninguem@outro.com');
+await new Promise((x) => setTimeout(x, 600));
+r = await ia('POST', '/payments/adm-reply', { text: 'não' });
+check('com dois pendentes pede o número', r.body.handled === true && r.body.ok === false && /#/.test(r.body.message), JSON.stringify(r.body));
+r = await ia('POST', '/payments/adm-reply', { text: `não #${p2.payment_id}` });
+check('"não #id" recusa o comprovante certo', r.body.ok === true && r.body.decision === 'rejected', JSON.stringify(r.body));
+check('o recusado ficou recusado e o outro segue pendente', psql(`select status from company_1.payments where id=${p2.payment_id}`) === 'rejected' && psql(`select status from company_1.payments where id=${p3.payment_id}`) === 'wrong_key');
+
 fake.close();
+await api('DELETE', `/finance/keys/${chave.id}`);
 console.log(`shows_venda_ia: ${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);

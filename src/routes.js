@@ -20,7 +20,7 @@ import { normPhone } from './phone.js';
 import { parseBirthday } from './ficha.js';
 import { registerOrderRoutes, historicoDoCliente } from './pedidos.js';
 import { registerEventRoutes } from './eventos.js';
-import { registerFinanceRoutes } from './financeiro.js';
+import { registerFinanceRoutes, textoSituacaoCliente } from './financeiro.js';
 import { TIPOS_ITEM } from './produtos.js';
 import { registerSalesRoutes } from './vendas.js';
 import { registerCommissionRoutes } from './comissoes.js';
@@ -364,7 +364,8 @@ export function buildRouter() {
       const cadastroContato = ehAssistente ? '' : await textoDeCadastroContato();
       const diretrizes = ehAssistente ? '' : await textoDeDiretrizes(req.user.companyId, { agente: agentName, adm: admName });
       const ferramentas = ehAssistente ? '' : await textoDeFerramentas(req.user.companyId, { agente: agentName, adm: admName });
-      const corpo = [diretrizes, semLembrete, avisos, parcerias, cadastroContato, prompt, ferramentas].filter(Boolean);
+      const situacao = ehAssistente || !req.query.phone ? '' : await textoSituacaoCliente(q, req.query.phone);
+      const corpo = [diretrizes, semLembrete, avisos, parcerias, cadastroContato, prompt, ferramentas, situacao].filter(Boolean);
       prompt = (corpo.length ? [abertura, ...corpo] : []).filter(Boolean).join('\n\n');
       res.json({ enabled: true, prompt, client_reminders: lembreteCliente, agent_name: agentName || null, adm_name: admName || null, manual: man ? semSeparadores(man.content) : '', updates, published_at: man ? man.published_at : null });
     }));
