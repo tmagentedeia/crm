@@ -18,7 +18,7 @@ import { registerHiringRoutes, historicoContratacoes } from './contratacoes.js';
 import { registerBeneficiosCliente } from './indicacoes.js';
 import { normPhone } from './phone.js';
 import { parseBirthday } from './ficha.js';
-import { registerOrderRoutes, historicoDoCliente } from './pedidos.js';
+import { registerOrderRoutes, historicoDoCliente, saldoCortesias } from './pedidos.js';
 import { registerEventRoutes } from './eventos.js';
 import { registerFinanceRoutes, textoSituacaoCliente } from './financeiro.js';
 import { TIPOS_ITEM } from './produtos.js';
@@ -764,7 +764,8 @@ export function buildRouter() {
   }));
   r.get('/customers/by-phone/:phone', wrap(async (req, res) => {
     const { rows } = await q(`${CUST} WHERE c.phone=$1`, [custPhone(req.params.phone)]);
-    rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Não encontrado' });
+    if (!rows[0]) return res.status(404).json({ error: 'Não encontrado' });
+    res.json({ ...rows[0], courtesy_remaining: (await saldoCortesias(q, rows[0].id)).remaining });   // cortesias que o cliente ainda pode usar
   }));
   r.get('/customers/:id', wrap(async (req, res) => {
     const c = await q(`${CUST} WHERE c.id=$1`, [req.params.id]);

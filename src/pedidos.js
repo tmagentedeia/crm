@@ -104,23 +104,69 @@ export function startCortesias() {
   }, 60000).unref();
 }
 
-// Crédito extra: pedidos grátis dados à mão a um cliente (cada concessão é uma linha); o gasto é contado nos próprios pedidos (from_extra).
+// Cortesias: saldo grátis dado à mão a um cliente (cada concessão é uma linha). Nos pedidos de música vale 1 pedido; nos ingressos, 1 lugar.
+// O gasto é contado nas próprias vendas (song_orders.from_courtesy e shows_sales.courtesy_used).
 // Trava de música repetida: quando ligada, a música pedida na última live com pedidos não pode ser pedida de novo na seguinte.
-export const CREDITO_EXTRA_SQL = `
-    ALTER TABLE song_orders ADD COLUMN IF NOT EXISTS from_extra BOOLEAN NOT NULL DEFAULT false;
-    CREATE TABLE IF NOT EXISTS order_credits (
+export const CORTESIAS_SQL = `
+    ALTER TABLE song_orders ADD COLUMN IF NOT EXISTS from_courtesy BOOLEAN NOT NULL DEFAULT false;
+    CREATE TABLE IF NOT EXISTS courtesy_credits (
       id          BIGSERIAL PRIMARY KEY,
       customer_id BIGINT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
       qty         INT NOT NULL CHECK (qty <> 0),
       note        TEXT,
       created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
     );
-    CREATE INDEX IF NOT EXISTS idx_order_credits_customer ON order_credits (customer_id);
+    CREATE INDEX IF NOT EXISTS idx_courtesy_credits_customer ON courtesy_credits (customer_id);
     CREATE TABLE IF NOT EXISTS order_settings (
       id           SMALLINT PRIMARY KEY CHECK (id = 1),
       block_repeat BOOLEAN NOT NULL DEFAULT false
     );
     INSERT INTO order_settings (id) VALUES (1) ON CONFLICT DO NOTHING;`;
+
+// Padrão do nome da música: cada palavra com inicial maiúscula; artigos, preposições e "e/ou" ficam minúsculos no meio do nome.
+// A 1ª palavra sempre começa maiúscula. Vale para todo pedido e sugestão (cadastro novo e já existente).
+export const PADRONIZA_TITULOS_SQL = `ALTER TABLE order_settings ADD COLUMN IF NOT EXISTS titulos_padronizados BOOLEAN NOT NULL DEFAULT false;`;
+const MINUSCULAS = new Set(['a', 'as', 'o', 'os', 'um', 'uma', 'e', 'ou', 'de', 'da', 'do', 'das', 'dos', 'em', 'no', 'na', 'nos', 'nas', 'por', 'pra', 'pro', 'para', 'com', 'ao', 'aos', 'à', 'às']);
+export function tituloMusica(texto) {
+  let primeira = true;
+  return String(texto ?? '').trim().replace(/\s+/g, ' ').split(' ').map((w) => {
+    const baixo = w.toLowerCase();
+    const letras = baixo.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
+    const ficaMinuscula = !primeira && MINUSCULAS.has(letras);
+    primeira = false;
+    return ficaMinuscula ? baixo : baixo.replace(/\p{L}/u, (c) => c.toUpperCase());
+  }).join(' ');
+}
+// Uma vez por empresa: padroniza os pedidos e as sugestões que já existiam
+export async function padronizarTitulosExistentes() {
+  const { rows } = await qg('SELECT id FROM companies ORDER BY id');
+  for (const { id } of rows) {
+    try {
+      await tx(id, async (t) => {
+        if (!(await t('SELECT 1 FROM order_settings WHERE id=1 AND NOT titulos_padronizados')).rowCount) return;
+        for (const tab of ['song_orders', 'song_suggestions']) {
+          for (const x of (await t(`SELECT id, song FROM ${tab}`)).rows) {
+            const novo = tituloMusica(x.song);
+            if (novo && novo !== x.song) await t(`UPDATE ${tab} SET song=$2 WHERE id=$1`, [x.id, novo]);
+          }
+        }
+        await t('UPDATE order_settings SET titulos_padronizados=true WHERE id=1');
+      });
+    } catch (e) { console.error('padronizar títulos:', id, e.message); }
+  }
+}
+
+// A tabela e a coluna do saldo nasceram como "crédito extra"; passam a se chamar cortesias (quem já tinha o nome antigo é renomeado)
+export const CORTESIAS_RENOMEIA_SQL = `
+    DO $$ BEGIN
+      IF to_regclass('order_credits') IS NOT NULL THEN
+        ALTER TABLE order_credits RENAME TO courtesy_credits;
+        ALTER INDEX IF EXISTS idx_order_credits_customer RENAME TO idx_courtesy_credits_customer;
+      END IF;
+      IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'song_orders' AND column_name = 'from_extra') THEN
+        ALTER TABLE song_orders RENAME COLUMN from_extra TO from_courtesy;
+      END IF;
+    END $$;`;
 
 const ABERTA = (p) => `(l.closed_at IS NULL AND COALESCE(l.ends_at, ((date_trunc('day', l.starts_at AT TIME ZONE ${p}) + interval '1 day') AT TIME ZONE ${p})) > now())`;
 const MES = (col, p) => `to_char(${col} AT TIME ZONE ${p}, 'YYYY-MM')`;
@@ -131,6 +177,15 @@ async function fuso() {
 const proximaLive = async (t, tz) =>
   (await t(`SELECT l.* FROM lives l WHERE ${ABERTA('$1')} ORDER BY l.starts_at, l.id LIMIT 1`, [tz])).rows[0] || null;
 
+// Cortesias gastas por um cliente: pedidos de música pagos com o saldo + lugares de ingresso vendidos como cortesia (vendas não canceladas)
+export const CORTESIAS_USADAS = (c) => `(SELECT count(*) FROM song_orders o WHERE o.customer_id=${c}.id AND o.from_courtesy)::int
+  + COALESCE((SELECT sum(sv.courtesy_used) FROM shows_sales sv WHERE sv.phone=${c}.phone AND sv.status IN ('confirmed','attended')),0)::int`;
+export async function saldoCortesias(t, customerId) {
+  const r = (await t(`SELECT COALESCE((SELECT sum(qty) FROM courtesy_credits WHERE customer_id=c.id),0)::int AS granted, ${CORTESIAS_USADAS('c')} AS used
+                      FROM customers c WHERE c.id=$1`, [customerId])).rows[0] || { granted: 0, used: 0 };
+  return { granted: r.granted, used: r.used, remaining: Math.max(0, r.granted - r.used) };
+}
+
 // franquia do cliente no mês de refTs: { club_status, level_name, franchise, used, remaining, month }
 async function saldo(t, tz, customerId, refTs = null) {
   const c = (await t(`SELECT c.club_status, lv.name AS level_name, COALESCE(lv.benefit_qty,0) AS franchise
@@ -138,13 +193,12 @@ async function saldo(t, tz, customerId, refTs = null) {
   const ref = refTs || new Date();
   const mes = (await t(`SELECT ${MES('$1::timestamptz', '$2')} AS m`, [ref, tz])).rows[0].m;
   const used = (await t(`SELECT count(*)::int AS n FROM song_orders o JOIN lives l ON l.id=o.live_id
-                         WHERE o.customer_id=$1 AND o.kind='franchise' AND NOT o.from_extra AND ${MES('l.starts_at', '$2')}=$3`, [customerId, tz, mes])).rows[0].n;
-  const ex = (await t(`SELECT COALESCE((SELECT sum(qty) FROM order_credits WHERE customer_id=$1),0)::int AS granted,
-                              (SELECT count(*) FROM song_orders WHERE customer_id=$1 AND from_extra)::int AS used`, [customerId])).rows[0];
+                         WHERE o.customer_id=$1 AND o.kind='franchise' AND NOT o.from_courtesy AND ${MES('l.starts_at', '$2')}=$3`, [customerId, tz, mes])).rows[0].n;
+  const ex = await saldoCortesias(t, customerId);
   const member = c?.club_status === 'member';
   const franchise = member ? c.franchise : 0;
   return { club_status: c?.club_status || null, level_name: member ? c.level_name : null, franchise, used, remaining: Math.max(0, franchise - used), month: mes,
-    extra_remaining: Math.max(0, ex.granted - ex.used) };
+    courtesy_remaining: ex.remaining };
 }
 
 // { kind, extra }: franquia do mês primeiro; acabando (ou sem franquia), usa o crédito extra; senão é pago
@@ -152,7 +206,7 @@ async function decidirTipo(t, tz, customerId, live) {
   const s = await saldo(t, tz, customerId, live.starts_at);
   const ja = (await t('SELECT 1 FROM song_orders WHERE customer_id=$1 AND live_id=$2 LIMIT 1', [customerId, live.id])).rowCount;
   if (s.franchise > 0 && !ja && s.used < s.franchise) return { kind: 'franchise', extra: false };
-  if (s.extra_remaining > 0) return { kind: 'franchise', extra: true };
+  if (s.courtesy_remaining > 0) return { kind: 'franchise', extra: true };
   return { kind: 'paid', extra: false };
 }
 
@@ -182,7 +236,7 @@ async function entrarNaLive(t, tz) {
     let kind = o.kind, extra = false;
     if (!kind) ({ kind, extra } = await decidirTipo(t, tz, o.customer_id, live));   // modo escolhido na mão vale; senão, automático
     const lv = (await t(`SELECT lv.name FROM customers c LEFT JOIN loyalty_levels lv ON lv.id=c.club_level_id WHERE c.id=$1`, [o.customer_id])).rows[0]?.name || null;
-    await t('UPDATE song_orders SET live_id=$2, kind=$3, amount_paid=CASE WHEN $3 IN (\'franchise\',\'courtesy\') THEN 0 ELSE amount_paid END, level_name=$4, from_extra=$5 WHERE id=$1', [o.id, live.id, kind, lv, extra]);
+    await t('UPDATE song_orders SET live_id=$2, kind=$3, amount_paid=CASE WHEN $3 IN (\'franchise\',\'courtesy\') THEN 0 ELSE amount_paid END, level_name=$4, from_courtesy=$5 WHERE id=$1', [o.id, live.id, kind, lv, extra]);
     out.push({ id: o.id, kind });
   }
   return out;
@@ -284,7 +338,7 @@ export function registerOrderRoutes(r, wrap) {
   r.post('/orders', wrap(async (req, res) => {
     const phoneInformado = String(req.body.phone ?? '').trim() !== '';
     const phone = phoneInformado ? normPhone(req.body.phone) : null;
-    const song = txt(req.body.song, 200);
+    const song = tituloMusica(txt(req.body.song, 200));
     const dedication = txt(req.body.dedication ?? '', 500);
     const valor = dinheiro(req.body.amount_paid);
     const nome = txt(req.body.name ?? '', 120);
@@ -343,7 +397,7 @@ export function registerOrderRoutes(r, wrap) {
         level = (await t(`SELECT lv.name FROM customers c LEFT JOIN loyalty_levels lv ON lv.id=c.club_level_id WHERE c.id=$1`, [cli.id])).rows[0]?.name || null;
       }
       const o = (await t(
-        `INSERT INTO song_orders (customer_id, live_id, song, dedication, amount_paid, kind, level_name, from_extra)
+        `INSERT INTO song_orders (customer_id, live_id, song, dedication, amount_paid, kind, level_name, from_courtesy)
          VALUES ($1,$2,$3,NULLIF($4,''),$5,$6,$7,$8) RETURNING *`,
         [cli.id, live?.id || null, song, dedication, kind === 'franchise' || escolha === 'franchise' || escolha === 'courtesy' ? 0 : valor, kind || escolha || null, level, extra])).rows[0];
       // pedido criado já com valor pago: liga ao último recebimento aceito desse cliente com o mesmo valor (se ainda sem pedido)
@@ -368,7 +422,7 @@ export function registerOrderRoutes(r, wrap) {
     if (out.repetida) return res.status(409).json({ error: MSG_REPETIDA(song), code: 'song_repeated', last_live: { id: out.repetida.id, title: out.repetida.title, starts_at: out.repetida.starts_at } });
     res.status(201).json({
       id: out.order.id,
-      extra: out.order.from_extra,                 // true = saiu pelo crédito extra
+      from_courtesy: out.order.from_courtesy,      // true = saiu pelo saldo de cortesias do cliente
       status: out.live ? 'confirmed' : 'queued',   // queued = anotado para a próxima live, data a confirmar
       kind: out.order.kind,                        // franchise (sem cobrança) | paid (cobrar) | null (na fila)
       live: out.live ? { id: out.live.id, title: out.live.title, starts_at: out.live.starts_at } : null,
@@ -403,8 +457,8 @@ export function registerOrderRoutes(r, wrap) {
     const { rows } = await q(
       `SELECT c.id AS customer_id, c.name, c.last_name, c.phone, c.club_status, lv.name AS level_name,
               CASE WHEN c.club_status='member' THEN COALESCE(lv.benefit_qty,0) ELSE 0 END AS franchise,
-              count(*) FILTER (WHERE o.kind='franchise' AND NOT o.from_extra)::int AS used,
-              count(*) FILTER (WHERE o.from_extra)::int AS extra_used,
+              count(*) FILTER (WHERE o.kind='franchise' AND NOT o.from_courtesy)::int AS used,
+              count(*) FILTER (WHERE o.from_courtesy)::int AS courtesy_used,
               count(*) FILTER (WHERE o.kind='paid')::int AS paid_count,
               count(*) FILTER (WHERE o.kind='courtesy')::int AS courtesy_count,
               COALESCE(sum(o.amount_paid) FILTER (WHERE o.kind='paid'),0)::float AS paid_total,
@@ -414,7 +468,7 @@ export function registerOrderRoutes(r, wrap) {
        WHERE ${MES('l.starts_at', '$1')}=$2
        GROUP BY c.id, lv.name, lv.benefit_qty ORDER BY lower(COALESCE(c.name,'')), c.id`, [tz, mes]);
     res.json({ month: mes, rows: rows.map((x) => ({ ...x, remaining: Math.max(0, x.franchise - x.used) })),
-      totals: { orders: rows.reduce((s, x) => s + x.total, 0), franchise: rows.reduce((s, x) => s + x.used, 0), extra: rows.reduce((s, x) => s + x.extra_used, 0), paid: rows.reduce((s, x) => s + x.paid_count, 0), paid_total: Math.round(rows.reduce((s, x) => s + x.paid_total, 0) * 100) / 100 } });
+      totals: { orders: rows.reduce((s, x) => s + x.total, 0), franchise: rows.reduce((s, x) => s + x.used, 0), courtesy: rows.reduce((s, x) => s + x.courtesy_used, 0), paid: rows.reduce((s, x) => s + x.paid_count, 0), paid_total: Math.round(rows.reduce((s, x) => s + x.paid_total, 0) * 100) / 100 } });
   }));
   r.get('/orders', wrap(async (req, res) => {
     await tx(currentCompany(), converterCortesias);
@@ -452,12 +506,12 @@ export function registerOrderRoutes(r, wrap) {
   // Pedidos grátis dados à mão (além da franquia). Usados depois da franquia do mês; cada pedido gasto é contado nos próprios pedidos.
   const listaCreditos = () => q(
     `SELECT c.id AS customer_id, c.name, c.last_name, c.phone, g.granted,
-            (SELECT count(*)::int FROM song_orders o WHERE o.customer_id=c.id AND o.from_extra) AS used
-       FROM (SELECT customer_id, sum(qty)::int AS granted FROM order_credits GROUP BY customer_id) g
+            ${CORTESIAS_USADAS('c')} AS used
+       FROM (SELECT customer_id, sum(qty)::int AS granted FROM courtesy_credits GROUP BY customer_id) g
        JOIN customers c ON c.id=g.customer_id ORDER BY lower(COALESCE(c.name,'')), c.id`).then((x) => x.rows.map((y) => ({ ...y, remaining: Math.max(0, y.granted - y.used) })));
-  r.get('/credits', wrap(async (req, res) => { res.json(await listaCreditos()); }));
+  r.get('/courtesies', wrap(async (req, res) => { res.json(await listaCreditos()); }));
   // soma (ou, com número negativo, tira) crédito de um cliente, achado pelo telefone ou pelo nome
-  r.post('/credits', wrap(async (req, res) => {
+  r.post('/courtesies', wrap(async (req, res) => {
     const qty = Number(req.body?.qty);
     const note = txt(req.body?.note ?? '', 200);
     if (!Number.isInteger(qty) || qty === 0 || Math.abs(qty) > 100) return res.status(400).json({ error: 'Informe a quantidade (de 1 a 100)' });
@@ -480,22 +534,22 @@ export function registerOrderRoutes(r, wrap) {
     const out = await run(async (t, tz) => {
       await t('SELECT id FROM customers WHERE id=$1 FOR UPDATE', [cli.id]);
       const atual = await saldo(t, tz, cli.id);
-      const granted = (await t('SELECT COALESCE(sum(qty),0)::int AS n FROM order_credits WHERE customer_id=$1', [cli.id])).rows[0].n;
+      const granted = (await t('SELECT COALESCE(sum(qty),0)::int AS n FROM courtesy_credits WHERE customer_id=$1', [cli.id])).rows[0].n;
       if (granted + qty < 0) return { baixo: true };
-      await t('INSERT INTO order_credits (customer_id, qty, note) VALUES ($1,$2,NULLIF($3,\'\'))', [cli.id, qty, note]);
-      return { extra_remaining: (await saldo(t, tz, cli.id)).extra_remaining };
+      await t('INSERT INTO courtesy_credits (customer_id, qty, note) VALUES ($1,$2,NULLIF($3,\'\'))', [cli.id, qty, note]);
+      return { courtesy_remaining: (await saldo(t, tz, cli.id)).courtesy_remaining };
     });
     if (out.baixo) return res.status(409).json({ error: 'O cliente não tem tanto crédito para tirar' });
     res.status(201).json({ ok: true, customer_id: cli.id, ...out });
   }));
-  r.delete('/credits/:customerId', wrap(async (req, res) => {
-    await q('DELETE FROM order_credits WHERE customer_id=$1', [req.params.customerId]);
+  r.delete('/courtesies/:customerId', wrap(async (req, res) => {
+    await q('DELETE FROM courtesy_credits WHERE customer_id=$1', [req.params.customerId]);
     res.json({ ok: true });
   }));
 
   r.put('/orders/:id', wrap(async (req, res) => {
     const b = req.body;
-    const song = b.song === undefined ? null : txt(b.song, 200);
+    const song = b.song === undefined ? null : tituloMusica(txt(b.song, 200));
     const ded = b.dedication === undefined ? null : txt(b.dedication, 500);
     const valor = dinheiro(b.amount_paid);
     if (b.song !== undefined && !song) return res.status(400).json({ error: 'Informe o nome da música' });
@@ -514,10 +568,10 @@ export function registerOrderRoutes(r, wrap) {
         await t('SELECT id FROM customers WHERE id=$1 FOR UPDATE', [cur.customer_id]);
         const rep = await musicaRepetida(t, song || cur.song, lv, cur.id);
         if (rep) return { repetida: rep };
-        let kind = b.kind || cur.kind, extra = !b.kind && !!cur.from_extra;
+        let kind = b.kind || cur.kind, extra = !b.kind && !!cur.from_courtesy;
         if (!kind) ({ kind, extra } = await decidirTipo(t, tz, cur.customer_id, lv));
         const level = (await t(`SELECT lv.name FROM customers c LEFT JOIN loyalty_levels lv ON lv.id=c.club_level_id WHERE c.id=$1`, [cur.customer_id])).rows[0]?.name || null;
-        await t(`UPDATE song_orders SET live_id=$2, kind=$3, level_name=$4, from_extra=$5,
+        await t(`UPDATE song_orders SET live_id=$2, kind=$3, level_name=$4, from_courtesy=$5,
                    amount_paid=CASE WHEN $3 IN ('franchise','courtesy') THEN 0 ELSE amount_paid END WHERE id=$1`, [cur.id, lv.id, kind, level, extra && kind === 'franchise']);
         return { kind };
       });
@@ -536,7 +590,7 @@ export function registerOrderRoutes(r, wrap) {
     const { rows } = await q(
       `UPDATE song_orders SET song=COALESCE($2,song), dedication=CASE WHEN $3::boolean THEN NULLIF($4,'') ELSE dedication END,
          kind=COALESCE($5::text,kind),
-         from_extra=CASE WHEN $5::text IS NOT NULL AND $5::text <> 'franchise' THEN false ELSE from_extra END,
+         from_courtesy=CASE WHEN $5::text IS NOT NULL AND $5::text <> 'franchise' THEN false ELSE from_courtesy END,
          amount_paid=CASE WHEN $5::text IN ('franchise','courtesy') THEN 0 WHEN $6::boolean THEN $7 ELSE amount_paid END,
          served_at=CASE WHEN $8::boolean THEN (CASE WHEN $9::boolean THEN COALESCE(served_at, now()) ELSE NULL END) ELSE served_at END
        WHERE id=$1 RETURNING *`, [req.params.id, song, b.dedication !== undefined, ded, b.kind ?? null, b.amount_paid !== undefined, valor, b.served !== undefined, b.served === true]);
@@ -558,7 +612,7 @@ export function registerOrderRoutes(r, wrap) {
   // acrescenta música(s) à lista: uma por vez (song) ou várias coladas (text, uma por linha). Nada é apagado; a música só sai quando é pedida.
   r.post('/suggestions', wrap(async (req, res) => {
     const itens = req.body?.song !== undefined ? [req.body.song] : String(req.body?.text ?? '').split('\n');
-    const songs = [...new Set(itens.map((x) => txt(String(x ?? ''), 200)).filter(Boolean))];
+    const songs = [...new Set(itens.map((x) => tituloMusica(txt(String(x ?? ''), 200))).filter(Boolean))];
     if (!songs.length) return res.status(400).json({ error: 'Digite o nome da música' });
     let added = 0;
     await run(async (t) => {

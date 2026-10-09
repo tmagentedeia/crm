@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { api, fmtPhone } from '../api.js';
 import { useSelecao, CelulaTodos, CelulaLinha, ApagarSelecionados, resumoApagado } from '../selecao.jsx';
 import ImportarAqui from '../ImportarAqui.jsx';
+import Cortesias from '../Cortesias.jsx';
 
 const SITUACAO = { confirmed: 'Confirmada', attended: 'Compareceu', cancelled: 'Cancelada', no_show: 'Não veio' };
 const BADGE = { confirmed: 'pending', attended: 'attended', cancelled: 'cancelled', no_show: 'no_show' };
@@ -32,7 +33,7 @@ export default function CasaDeShows() {
         <p className="muted">Vendas de mesa por setor. Cada local tem seus setores e formatos de uso; cada setor tem um espaço, e cada tipo de mesa ocupa uma parte dele.</p>
       </div>
       <div className="row" style={{ marginBottom: 12 }}>
-        {[['vendas', 'Vendas'], ['locais', 'Locais'], ['setores', 'Setores'], ['mesas', 'Mesas']].map(([v, l]) => (
+        {[['vendas', 'Vendas'], ['locais', 'Locais'], ['setores', 'Setores'], ['mesas', 'Mesas'], ['cortesias', 'Cortesias']].map(([v, l]) => (
           <button key={v} className={'btn' + (aba === v ? ' primary' : '')} onClick={() => setAba(v)}>{l}</button>
         ))}
       </div>
@@ -40,6 +41,7 @@ export default function CasaDeShows() {
       {aba === 'locais' && <Locais />}
       {aba === 'setores' && <Setores />}
       {aba === 'mesas' && <Mesas />}
+      {aba === 'cortesias' && <Cortesias item="ingresso" items="ingressos" />}
     </>
   );
 }

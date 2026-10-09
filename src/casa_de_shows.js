@@ -14,6 +14,7 @@ import { conexaoWhats, postarWhats, pausa } from './lista_evento.js';
 import { provedores, avisarAdm } from './decisoes_adm.js';
 import { gerarRef } from './documentos.js';
 import { posicoesDe } from './posicoes.js';
+import { saldoCortesias } from './pedidos.js';
 
 export const CASA_DE_SHOWS_SQL = `
   ALTER TABLE customers ADD COLUMN IF NOT EXISTS client_kinds TEXT[] NOT NULL DEFAULT '{}';   -- perfis do cliente: buyer (comprador), hirer (contratante)
@@ -257,6 +258,8 @@ export const SHOWS_LOCAIS_SQL = `
     END LOOP;
   END $n$;
 `;
+// Quantos lugares da venda saíram do saldo de cortesias do cliente (volta ao saldo se a venda for cancelada)
+export const SHOWS_CORTESIA_SQL = `ALTER TABLE shows_sales ADD COLUMN IF NOT EXISTS courtesy_used INT NOT NULL DEFAULT 0;`;
 const FORMAS = ['pix', 'dinheiro', 'cartao', 'parceiro', 'cortesia', 'outro'];
 const MIDIA_MAX_BYTES = 2.5 * 1024 * 1024, FOTOS_POR_SETOR = 8;
 // confere pelo conteúdo (não pelo nome) que é mesmo uma imagem aceita
@@ -425,10 +428,19 @@ export function registerCasaDeShowsRoutes(r, wrap) {
         [ev.id, phone, setor.id, people, OCUPAM, nomes.join('\n')])).rows[0];
       if (igual) return res.json({ ok: true, duplicate: true, sale_id: igual.id, message: `Essa venda já estava registrada (${igual.sector_name}, ${igual.people} pessoa(s)). Não cadastre de novo; siga com a confirmação ao cliente.` });
     }
-    // trava: a venda só nasce com pagamento ACEITO (comprovante validado ou aprovado pela equipe) ainda não usado em outra venda
-    const valor = b.amount === undefined || b.amount === null || b.amount === '' ? null : dinheiro(b.amount);
+    // forma de pagamento: "cortesia" gasta o saldo de cortesias do cliente (1 lugar = 1 cortesia), sem pagamento
+    const texto = semAcento(b.method || 'pix');
+    const forma = (FORMA_ALIAS.find(([re]) => re.test(texto)) || [null, 'pix'])[1];
+    const porCortesia = forma === 'cortesia';
     if (!phone) return nao('Sem o telefone do cliente não consigo conferir o pagamento. Não cadastre a venda.');
-    if (!valor || valor <= 0) return nao('Informe o valor pago. A venda só é cadastrada com pagamento confirmado.');
+    if (porCortesia) {
+      const cli = (await q('SELECT id, name FROM customers WHERE phone=$1', [phone])).rows[0];
+      const saldoC = cli ? (await saldoCortesias(q, cli.id)).remaining : 0;
+      if (saldoC < people) return nao(`Este cliente tem ${saldoC} cortesia(s) de saldo e a compra pede ${people}. Não cadastre como cortesia: explique ao cliente e siga com o pagamento normal, se ele quiser.`);
+    }
+    // trava: a venda só nasce com pagamento ACEITO (comprovante validado ou aprovado pela equipe) ainda não usado em outra venda
+    const valor = porCortesia ? null : (b.amount === undefined || b.amount === null || b.amount === '' ? null : dinheiro(b.amount));
+    if (!porCortesia && (!valor || valor <= 0)) return nao('Informe o valor pago. A venda só é cadastrada com pagamento confirmado.');
     const livres = (await q(`SELECT p.id, p.amount::float AS amount FROM payments p JOIN customers c ON c.id = p.customer_id
       WHERE c.phone = $1 AND p.status = 'accepted' AND p.source <> 'pedido' AND NOT EXISTS (SELECT 1 FROM shows_sale_payments sp WHERE sp.payment_id = p.id)
       ORDER BY p.id`, [phone])).rows;
@@ -436,8 +448,8 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     if (b.payment_id && idOk(b.payment_id)) usar = livres.filter((x) => String(x.id) === String(idOk(b.payment_id)));
     else { let soma = 0; for (const x of livres) { if (soma >= valor - 0.005) break; usar.push(x); soma += x.amount; } }
     const coberto = usar.reduce((a, x) => a + x.amount, 0);
-    if (!usar.length) return nao('NÃO há pagamento confirmado para este cliente. Não cadastre a venda, não envie ingressos e não diga que o pagamento foi recebido. Se o cliente mandou comprovante, o resultado dele não foi "aceito": avise que a equipe vai conferir e aguarde.');
-    if (coberto < valor - 0.005) return nao(`O pagamento confirmado deste cliente é de ${dinheiroBr(coberto)}, menor que os ${dinheiroBr(valor)} da compra. Não cadastre a venda: avise o cliente que falta completar o pagamento.`);
+    if (!porCortesia && !usar.length) return nao('NÃO há pagamento confirmado para este cliente. Não cadastre a venda, não envie ingressos e não diga que o pagamento foi recebido. Se o cliente mandou comprovante, o resultado dele não foi "aceito": avise que a equipe vai conferir e aguarde.');
+    if (!porCortesia && coberto < valor - 0.005) return nao(`O pagamento confirmado deste cliente é de ${dinheiroBr(coberto)}, menor que os ${dinheiroBr(valor)} da compra. Não cadastre a venda: avise o cliente que falta completar o pagamento.`);
     const corpo = { event_id: ev.id, sector_id: setor.id, name: nomes[0], people, guests: nomes.join('\n'), note: b.note ? String(b.note).slice(0, 300) : undefined };
     if (phone) corpo.phone = phone;
     if (b.code) corpo.code = String(b.code);
@@ -447,8 +459,6 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     try { id = await gravar({ ...p.v }); }
     catch (e) { if (e.status) return nao(`${e.message} Avise o cliente e ofereça outro setor (consulte a Disponibilidade).`); throw e; }
     // pagamento: cada comprovante aceito usado vira uma linha, ligada ao Recebimento
-    const texto = semAcento(b.method || 'pix');
-    const forma = (FORMA_ALIAS.find(([re]) => re.test(texto)) || [null, 'pix'])[1];
     const nota = /mercado\s*pago|link/.test(texto) ? 'Mercado Pago' : null;
     let falta = valor;
     for (const x of usar) {
@@ -456,7 +466,11 @@ export function registerCasaDeShowsRoutes(r, wrap) {
       await q('INSERT INTO shows_sale_payments (sale_id, method, amount, payment_id, note) VALUES ($1,$2,$3,$4,$5)', [id, forma, parte, x.id, nota]);
       falta -= parte;
     }
-    const pagto = ` Pagamento de ${dinheiroBr(valor)} registrado.`;
+    if (porCortesia) {
+      await q('UPDATE shows_sales SET courtesy_used=$2 WHERE id=$1', [id, people]);
+      await q(`INSERT INTO shows_sale_payments (sale_id, method, amount, note) VALUES ($1,'cortesia',0,'Saldo de cortesias')`, [id]);
+    }
+    const pagto = porCortesia ? ` ${people} cortesia(s) do saldo do cliente usada(s); não há valor a cobrar.` : ` Pagamento de ${dinheiroBr(valor)} registrado.`;
     const v = (await q(`${VENDA} WHERE v.id=$1`, [id])).rows[0];
     res.status(201).json({
       ok: true, sale_id: v.id, event: ev.title, sector: v.sector_name, people: v.people, tables: v.tables, table: v.table_name, seats_each: v.seats_each, unit_price: v.unit_price, paid: v.paid,
@@ -608,14 +622,20 @@ export function registerCasaDeShowsRoutes(r, wrap) {
   }));
 
   // O que o cliente já comprou (pelo telefone): serve para o atendente conferir uma compra ou ver os nomes da lista
+  const cortesiasDoTelefone = async (phone) => {
+    const c = (await q('SELECT id FROM customers WHERE phone=$1', [phone])).rows[0];
+    return c ? (await saldoCortesias(q, c.id)).remaining : 0;
+  };
   r.get('/casa-de-shows/sales/by-phone', comTratamento(async (req, res) => {
     const phone = normPhone(String(req.query.phone || '').replace(/@.*/, ''));
     if (!/^\d{8,15}$/.test(phone)) return res.json({ ok: false, message: 'Telefone inválido.' });
     const vs = (await q(`${VENDA} WHERE v.phone=$1 AND v.status = ANY($2) AND (v.event_id IS NULL OR COALESCE(e.ends_at, e.starts_at + interval '3 hours') > now()) ORDER BY v.id DESC LIMIT 5`, [phone, OCUPAM])).rows;
-    if (!vs.length) return res.json({ ok: true, sales: [], message: 'Este cliente não tem ingresso comprado para os próximos eventos.' });
+    const cortesias = await cortesiasDoTelefone(phone);
+    const aviso = cortesias > 0 ? `\nSaldo de cortesias do cliente: ${cortesias} (cada cortesia vale um lugar; para usar, registre a venda com forma de pagamento "cortesia").` : '';
+    if (!vs.length) return res.json({ ok: true, sales: [], courtesy_remaining: cortesias, message: 'Este cliente não tem ingresso comprado para os próximos eventos.' + aviso });
     for (const v of vs) v.nomes = (await nomesAtuais(v)).map((x) => x.nome);
     const linhas = vs.map((v) => `- ${v.event_title || v.date}, ${v.sector_name}: ${v.people} pessoa(s) em ${v.tables} mesa(s) de ${v.seats_each} lugares. Nomes na lista: ${v.nomes.join(', ')}. Pago: ${dinheiroBr(v.paid)}.`);
-    res.json({ ok: true, sales: vs.map((v) => ({ sale_id: v.id, event: v.event_title, sector: v.sector_name, people: v.people, names: v.nomes, paid: v.paid })), message: 'Compras deste cliente:\n' + linhas.join('\n') });
+    res.json({ ok: true, sales: vs.map((v) => ({ sale_id: v.id, event: v.event_title, sector: v.sector_name, people: v.people, names: v.nomes, paid: v.paid })), courtesy_remaining: cortesias, message: 'Compras deste cliente:\n' + linhas.join('\n') + aviso });
   }));
 
   // Envio: { kind: 'map' | 'photo', sector_id (fotos), caption, data: "data:image/jpeg;base64,..." }

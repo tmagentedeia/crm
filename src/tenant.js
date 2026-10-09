@@ -2,14 +2,14 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { pool, schemaOf } from './db.js';
-import { PEDIDOS_SQL, CORTESIA_SQL, ATENDIDO_SQL, SUGESTOES_SQL, ATENDIDO_FIX_SQL, CREDITO_EXTRA_SQL } from './pedidos.js';
+import { PEDIDOS_SQL, CORTESIA_SQL, ATENDIDO_SQL, SUGESTOES_SQL, ATENDIDO_FIX_SQL, CORTESIAS_SQL, PADRONIZA_TITULOS_SQL, CORTESIAS_RENOMEIA_SQL } from './pedidos.js';
 import { EVENTOS_SQL, EVENTOS_ABERTURA_SQL } from './eventos.js';
 import { ASSISTENTE_SQL } from './assistente.js';
 import { PRODUTOS_SQL } from './produtos.js';
 import { VENDAS_SQL } from './vendas.js';
 import { COMISSOES_SQL } from './comissoes.js';
 import { SHOWS_LISTA_SQL, SHOWS_LISTA_ENVIO_SQL, SHOWS_LISTA_QR_SQL, SHOWS_LISTA_RETIRADOS_SQL } from './lista_evento.js';
-import { CASA_DE_SHOWS_SQL, SHOWS_MEDIA_SQL, SHOWS_PAGAMENTOS_SQL, SHOWS_RENOMEAR_SQL, SHOWS_LOCAIS_SQL, SHOWS_LOCAL_PADRAO_SQL, SHOWS_PIX_EVENTO_SQL, SHOWS_LOTES_SQL, SHOWS_VENDAS_SQL, SHOWS_MESA_RESERVADA_SQL, SHOWS_CLUBE_SQL, SHOWS_FICHA_SETOR_SQL, SHOWS_CANCELAMENTOS_SQL } from './casa_de_shows.js';
+import { CASA_DE_SHOWS_SQL, SHOWS_MEDIA_SQL, SHOWS_PAGAMENTOS_SQL, SHOWS_RENOMEAR_SQL, SHOWS_LOCAIS_SQL, SHOWS_LOCAL_PADRAO_SQL, SHOWS_PIX_EVENTO_SQL, SHOWS_LOTES_SQL, SHOWS_VENDAS_SQL, SHOWS_MESA_RESERVADA_SQL, SHOWS_CLUBE_SQL, SHOWS_FICHA_SETOR_SQL, SHOWS_CANCELAMENTOS_SQL, SHOWS_CORTESIA_SQL } from './casa_de_shows.js';
 import { ANIVERSARIO_SQL, ANIVERSARIO_VARIAVEIS_SQL } from './aniversario.js';
 import { CONTATOS_SQL } from './contatos.js';
 import { ESPELHO_SQL } from './espelho_contatos.js';
@@ -313,7 +313,11 @@ export const TENANT_STEPS = [
   // 65: serviço e produto que as variáveis {servico} e {produto} da mensagem de aniversário representam
   { version: 65, sql: ANIVERSARIO_VARIAVEIS_SQL },
   // 66: crédito extra de pedidos e trava de música repetida
-  { version: 66, sql: CREDITO_EXTRA_SQL },
+  { version: 66, sql: CORTESIAS_SQL },
+  // 67: marca para padronizar os nomes de música que já existiam
+  { version: 67, sql: PADRONIZA_TITULOS_SQL },
+  // 68: o saldo vira "cortesias" e vale também para ingressos da Casa de Shows
+  { version: 68, sql: CORTESIAS_RENOMEIA_SQL + SHOWS_CORTESIA_SQL },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 
@@ -333,7 +337,8 @@ export async function createCompanySchema(cx, companyId) {
   await cx.query(VENDA_SQL);
   await cx.query(ATENDIDO_SQL);
   await cx.query(SUGESTOES_SQL);
-  await cx.query(CREDITO_EXTRA_SQL);
+  await cx.query(CORTESIAS_SQL);
+  await cx.query(PADRONIZA_TITULOS_SQL);
   await cx.query(FINANCEIRO_ORIGEM_SQL);
   await cx.query(FINANCEIRO_DEDUP_SQL);
   await cx.query(ASSISTENTE_SQL);
@@ -341,6 +346,7 @@ export async function createCompanySchema(cx, companyId) {
   await cx.query(VENDAS_SQL);
   await cx.query(COMISSOES_SQL);
   await cx.query(CASA_DE_SHOWS_SQL);
+  await cx.query(SHOWS_CORTESIA_SQL);
   await cx.query(ANIVERSARIO_SQL);
   await cx.query(ANIVERSARIO_VARIAVEIS_SQL);
   await cx.query(CONTRATACOES_SQL);

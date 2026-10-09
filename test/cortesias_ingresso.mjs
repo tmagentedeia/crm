@@ -1,0 +1,51 @@
+// Cortesias: o saldo do cliente vale também para ingressos (1 cortesia = 1 lugar). Uso: BASE=http://localhost:3999 DATABASE_URL=... node test/cortesias_ingresso.mjs
+import { execSync } from 'child_process';
+const BASE = process.env.BASE || 'http://localhost:3999';
+let ok = 0, fail = 0;
+const check = (name, cond, extra = '') => { cond ? ok++ : (fail++, console.log('FALHOU:', name, extra)); };
+const call = async (method, path, { token, body, headers: h } = {}) => {
+  const headers = { 'content-type': 'application/json', ...(h || {}) };
+  if (token) headers.authorization = 'Bearer ' + token;
+  const r = await fetch(BASE + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  let j = null; try { j = await r.json(); } catch {}
+  return { status: r.status, body: j };
+};
+const psql = (sql) => execSync(`psql "${process.env.DATABASE_URL}" -tAc "${sql}"`).toString().trim();
+const A = (await call('POST', '/api/auth/login', { body: { email: 'demo@demo.com', password: 'demo1234' } })).body;
+const B = (await call('POST', '/api/auth/login', { body: { email: 'dois@x.com', password: 'senhasenha' } })).body;
+const api = (m, p, body, t = A) => call(m, '/api' + p, { token: t.token, body });
+const ia = (m, p, body) => call(m, '/n8n' + p, { body, headers: { 'x-api-key': 'k', 'x-company-id': String(A.company.id) } });
+const marca = Date.now() % 100000;
+const ev = (await api('POST', '/events', { title: 'Show Cortesia ' + marca, starts_at: new Date(Date.now() + 10 * 864e5).toISOString() })).body;
+const setor = (await api('POST', '/casa-de-shows/sectors', { name: 'Setor Cortesia ' + marca, space: 8 })).body;
+await api('POST', '/casa-de-shows/table-types', { name: 'Mesa Cortesia ' + marca, seats: 4, space: 4 });
+await api('PUT', `/casa-de-shows/events/${ev.id}/conditions`, { price: 100 });
+const fone = '5532987' + String(marca).padStart(6, '0').slice(-6);
+const cli = (await api('POST', '/customers', { name: 'Cliente Cortesia', phone: fone, status: 'client' })).body;
+const reg = (names, method = 'cortesia') => ia('POST', '/casa-de-shows/sales/register', { event: ev.title, sector: setor.name, names, phone: fone, method });
+
+let r = await reg(['Ana Cortesia']);
+check('sem saldo a cortesia é recusada', r.body.ok === false && /0 cortesia/.test(r.body.message) && psql(`select count(*) from company_1.shows_sales where phone='${fone}'`) === '0', JSON.stringify(r.body));
+check('dar cortesias a um cliente', (await api('POST', '/courtesies', { customer_id: cli.id, qty: 2, note: 'bônus' })).status === 201);
+r = await ia('GET', `/casa-de-shows/sales/by-phone?phone=${fone}`);
+check('a consulta de compras traz o saldo de cortesias', r.body.courtesy_remaining === 2 && /Saldo de cortesias do cliente: 2/.test(r.body.message), JSON.stringify(r.body));
+r = await ia('GET', `/customers/by-phone/${fone}`);
+check('a ficha do cliente (agentes) traz o saldo', r.body.courtesy_remaining === 2, JSON.stringify(r.body));
+r = await reg(['Ana Cortesia', 'Bia Cortesia', 'Caio Cortesia']);
+check('mais lugares que o saldo = recusa', r.body.ok === false && /2 cortesia/.test(r.body.message), JSON.stringify(r.body));
+r = await reg(['Ana Cortesia', 'Bia Cortesia']);
+check('venda por cortesia registrada sem pagamento', r.status === 201 && r.body.ok === true && r.body.people === 2 && /cortesia/.test(r.body.message), JSON.stringify(r.body));
+const sid = r.body.sale_id;
+const pl = ((await api('GET', `/casa-de-shows/sales/${sid}/payments`)).body.payments) || [];
+check('pagamento registrado como cortesia, valor zero', pl.length === 1 && pl[0].method === 'cortesia' && Number(pl[0].amount) === 0, JSON.stringify(pl));
+check('lugares gastos gravados na venda', psql(`select courtesy_used from company_1.shows_sales where id=${sid}`) === '2');
+check('nenhum recebimento financeiro criado', psql(`select count(*) from company_1.payments where purpose like 'Venda de ingresso%' and customer_id=${cli.id}`) === '0');
+r = await ia('GET', `/customers/by-phone/${fone}`);
+check('saldo zerou depois de usar', r.body.courtesy_remaining === 0);
+const lista = (await api('GET', '/courtesies')).body.find((x) => x.customer_id === cli.id);
+check('lista mostra concedidas, usadas e restantes', lista && lista.granted === 2 && lista.used === 2 && lista.remaining === 0, JSON.stringify(lista));
+psql(`update company_1.shows_sales set status='cancelled' where id=${sid}`);
+check('venda cancelada devolve as cortesias', (await ia('GET', `/customers/by-phone/${fone}`)).body.courtesy_remaining === 2);
+check('empresa 2 não vê cortesias da 1', (await api('GET', '/courtesies', null, B)).body.length === 0);
+console.log(`cortesias_ingresso: ${ok} ok, ${fail} falhas`);
+process.exit(fail ? 1 : 0);

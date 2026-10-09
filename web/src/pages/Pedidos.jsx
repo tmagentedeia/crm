@@ -1,13 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api, fmtPhone, money } from '../api.js';
 import { rotulosDe, minusc } from '../rotulos.js';
+import Cortesias from '../Cortesias.jsx';
 import { useSelecao, CelulaTodos, CelulaLinha, ApagarSelecionados, resumoApagado } from '../selecao.jsx';
 
 const quando = (d) => (d ? new Date(d).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—');
 const paraInput = (d) => { if (!d) return ''; const x = new Date(d); x.setMinutes(x.getMinutes() - x.getTimezoneOffset()); return x.toISOString().slice(0, 16); };
 const nomeDe = (o) => [o.customer_name, o.customer_last_name].filter(Boolean).join(' ') || fmtPhone(o.customer_phone);
 const COBRANCA = { franchise: 'Franquia', paid: 'Pago', courtesy: 'Cortesia' };
-const cobrancaDe = (o) => (o.from_extra ? 'Crédito extra' : COBRANCA[o.kind]);
+const cobrancaDe = (o) => (o.from_courtesy ? 'Cortesia do saldo' : COBRANCA[o.kind]);
 const mesLabel = (m) => { const [y, mo] = m.split('-'); return new Date(+y, +mo - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }); };
 const mesAtual = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); };
 
@@ -108,7 +109,7 @@ export default function Pedidos({ company }) {
         </div>
       )}
       <div className="row" style={{ marginBottom: 12 }}>
-        {[['pedidos', L.items], ['fila', `${L.queue}${fila.length ? ` (${fila.length})` : ''}`], ['sugestoes', 'Sugestões'], ['creditos', 'Créditos extras'], ['resumo', 'Resumo do mês'], ['lives', L.groups]].map(([v, l]) => (
+        {[['pedidos', L.items], ['fila', `${L.queue}${fila.length ? ` (${fila.length})` : ''}`], ['sugestoes', 'Sugestões'], ['creditos', 'Cortesias'], ['resumo', 'Resumo do mês'], ['lives', L.groups]].map(([v, l]) => (
           <button key={v} className={'btn' + (tab === v ? ' primary' : '')} onClick={() => setTab(v)}>{l}</button>
         ))}
       </div>
@@ -139,7 +140,7 @@ export default function Pedidos({ company }) {
 
       {tab === 'sugestoes' && <Sugestoes L={L} onErro={setAviso} />}
 
-      {tab === 'creditos' && <CreditosExtras L={L} onErro={setAviso} />}
+      {tab === 'creditos' && <Cortesias item={minusc(L.item)} items={minusc(L.items)} franquia onErro={setAviso} />}
 
       {tab === 'resumo' && (
         <>
@@ -149,23 +150,23 @@ export default function Pedidos({ company }) {
           </div>
           <div className="card table-wrap">
             <table>
-              <thead><tr><th>Cliente</th><th>Nível</th><th>Franquia</th><th>Usada</th><th>Extras usados</th><th>Restam</th><th>Pagos</th><th>Total pago</th></tr></thead>
+              <thead><tr><th>Cliente</th><th>Nível</th><th>Franquia</th><th>Usada</th><th>Cortesias usadas</th><th>Restam</th><th>Pagos</th><th>Total pago</th></tr></thead>
               <tbody>
                 {resumo?.rows.map((r) => (
                   <tr key={r.customer_id}>
                     <td>{[r.name, r.last_name].filter(Boolean).join(' ') || fmtPhone(r.phone)}</td>
                     <td>{r.level_name || <span className="muted">—</span>}</td>
-                    <td>{r.franchise}</td><td>{r.used}</td><td>{r.extra_used || <span className="muted">—</span>}</td><td>{r.remaining}</td><td>{r.paid_count}</td><td>{money(r.paid_total)}</td>
+                    <td>{r.franchise}</td><td>{r.used}</td><td>{r.courtesy_used || <span className="muted">—</span>}</td><td>{r.remaining}</td><td>{r.paid_count}</td><td>{money(r.paid_total)}</td>
                   </tr>
                 ))}
                 {resumo && !resumo.rows.length && <tr><td colSpan="8" className="muted">Nada registrado neste mês.</td></tr>}
               </tbody>
               {resumo?.rows.length > 0 && (
-                <tfoot><tr><th colSpan="3">Total do mês</th><th>{resumo.totals.franchise}</th><th>{resumo.totals.extra}</th><th></th><th>{resumo.totals.paid}</th><th>{money(resumo.totals.paid_total)}</th></tr></tfoot>
+                <tfoot><tr><th colSpan="3">Total do mês</th><th>{resumo.totals.franchise}</th><th>{resumo.totals.courtesy}</th><th></th><th>{resumo.totals.paid}</th><th>{money(resumo.totals.paid_total)}</th></tr></tfoot>
               )}
             </table>
           </div>
-          {resumo?.rows.length > 0 && <p className="muted" style={{ marginTop: 6 }}>{resumo.totals.orders} registro(s) no mês: {resumo.totals.franchise} pela franquia, {resumo.totals.extra} por crédito extra e {resumo.totals.paid} pago(s).</p>}
+          {resumo?.rows.length > 0 && <p className="muted" style={{ marginTop: 6 }}>{resumo.totals.orders} registro(s) no mês: {resumo.totals.franchise} pela franquia, {resumo.totals.courtesy} por cortesia e {resumo.totals.paid} pago(s).</p>}
         </>
       )}
 
@@ -268,9 +269,9 @@ function NovoPedido({ L, lives, onClose, onSaved }) {
         {ok && (
           <p className="muted" style={{ marginBottom: 8 }}>
             {ok.status === 'queued' ? 'Anotado na fila: nada marcado ainda.'
-              : `Anotado para ${quando(ok.live.starts_at)} · ${ok.extra ? 'por crédito extra' : ok.kind === 'franchise' ? 'pela franquia' : ok.kind === 'courtesy' ? 'cortesia' : 'pago'}.`}
+              : `Anotado para ${quando(ok.live.starts_at)} · ${ok.from_courtesy ? 'por cortesia do saldo' : ok.kind === 'franchise' ? 'pela franquia' : ok.kind === 'courtesy' ? 'cortesia' : 'pago'}.`}
             {ok.balance.franchise > 0 ? ` Franquia do mês: ${ok.balance.used} de ${ok.balance.franchise}.` : ''}
-            {ok.balance.extra_remaining > 0 ? ` Crédito extra restante: ${ok.balance.extra_remaining}.` : ''}
+            {ok.balance.courtesy_remaining > 0 ? ` Cortesias restantes: ${ok.balance.courtesy_remaining}.` : ''}
           </p>
         )}
         <div className="field"><label>Telefone (com DDD)</label><input value={f.phone} onChange={set('phone')} /></div>
@@ -405,101 +406,5 @@ function Sugestoes({ L, onErro }) {
         </table>
       </div>
     </>
-  );
-}
-
-function CreditosExtras({ L, onErro }) {
-  const [lista, setLista] = useState([]);
-  const [novo, setNovo] = useState(false);
-  const [aviso, setAviso] = useState('');
-  const carrega = () => api('/credits').then(setLista).catch((e) => onErro(e.message));
-  useEffect(() => { carrega(); }, []);
-  const ajusta = async (c, qty) => {
-    try { await api('/credits', { method: 'POST', body: { customer_id: c.customer_id, qty } }); setAviso(''); carrega(); } catch (e) { setAviso(c.customer_id + '|' + e.message); }
-  };
-  const zerar = async (c) => {
-    if (!confirm('Tirar todo o crédito extra deste cliente?')) return;
-    try { await api('/credits/' + c.customer_id, { method: 'DELETE' }); carrega(); } catch (e) { onErro(e.message); }
-  };
-  return (
-    <>
-      <div className="card" style={{ marginBottom: 12 }}>
-        <p className="muted">Crédito extra é {minusc(L.item)} grátis dado antecipadamente a um cliente, além da franquia do mês. Ele só é usado depois que a franquia acaba, sem prazo para vencer, e volta se o {minusc(L.item)} for apagado.</p>
-        <div className="row" style={{ marginTop: 8 }}><button className="btn primary" onClick={() => setNovo(true)}>+ Dar crédito extra</button></div>
-      </div>
-      <div className="card table-wrap">
-        <table>
-          <thead><tr><th>Cliente</th><th>Concedidos</th><th>Usados</th><th>Restam</th><th></th></tr></thead>
-          <tbody>
-            {lista.map((c) => (
-              <tr key={c.customer_id}>
-                <td>{[c.name, c.last_name].filter(Boolean).join(' ') || fmtPhone(c.phone)}</td>
-                <td>{c.granted}</td><td>{c.used}</td><td><strong>{c.remaining}</strong></td>
-                <td className="row">
-                  <button className="btn" onClick={() => ajusta(c, 1)}>+ 1</button>
-                  <button className="btn" onClick={() => ajusta(c, -1)}>− 1</button>
-                  <button className="btn bad" onClick={() => zerar(c)}>Tirar tudo</button>
-                  {aviso.startsWith(c.customer_id + '|') && <span className="error">{aviso.split('|')[1]}</span>}
-                </td>
-              </tr>
-            ))}
-            {!lista.length && <tr><td colSpan="5" className="muted">Nenhum cliente com crédito extra.</td></tr>}
-          </tbody>
-        </table>
-      </div>
-      {novo && <NovoCredito L={L} onClose={() => setNovo(false)} onSaved={() => { setNovo(false); carrega(); }} />}
-    </>
-  );
-}
-
-function NovoCredito({ L, onClose, onSaved }) {
-  const [busca, setBusca] = useState('');
-  const [achados, setAchados] = useState([]);
-  const [cli, setCli] = useState(null);
-  const [f, setF] = useState({ qty: '1', note: '' });
-  const [err, setErr] = useState('');
-  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
-  const nomeCli = (c) => [c.name, c.last_name].filter(Boolean).join(' ') || fmtPhone(c.phone);
-  useEffect(() => {
-    if (cli || busca.trim().length < 2) { setAchados([]); return undefined; }
-    const t = setTimeout(() => api('/customers?search=' + encodeURIComponent(busca.trim())).then((r) => setAchados(r.slice(0, 8))).catch(() => {}), 250);
-    return () => clearTimeout(t);
-  }, [busca, cli]);
-  async function save(e) {
-    e.preventDefault(); setErr('');
-    if (!cli) { setErr('Escolha o cliente na lista'); return; }
-    try { await api('/credits', { method: 'POST', body: { customer_id: cli.id, qty: Number(f.qty), note: f.note } }); onSaved(); } catch (e2) { setErr(e2.message); }
-  }
-  return (
-    <div className="modal-bg" onClick={onClose}>
-      <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={save}>
-        <h2>Dar crédito extra</h2>
-        {err && <div className="error">{err}</div>}
-        {cli ? (
-          <div className="field"><label>Cliente</label>
-            <div className="row" style={{ gap: 8, alignItems: 'center' }}>
-              <strong>{nomeCli(cli)}</strong>{cli.name && cli.phone && <span className="muted">{fmtPhone(cli.phone)}</span>}
-              <button type="button" className="btn sm" onClick={() => { setCli(null); setBusca(''); }}>Trocar</button>
-            </div></div>
-        ) : (
-          <div className="field"><label>Procurar cliente *</label>
-            <input autoFocus value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Digite parte do nome ou do telefone" />
-            {achados.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
-                {achados.map((c) => (
-                  <button type="button" key={c.id} className="btn" style={{ textAlign: 'left', justifyContent: 'space-between' }} onClick={() => setCli(c)}>
-                    {nomeCli(c)}{c.name && c.phone ? <span className="muted"> · {fmtPhone(c.phone)}</span> : null}
-                  </button>
-                ))}
-              </div>
-            )}
-            {busca.trim().length >= 2 && !achados.length && <span className="muted">Ninguém encontrado com esse nome ou telefone.</span>}
-          </div>
-        )}
-        <div className="field"><label>Quantidade de {minusc(L.items)} *</label><input type="number" min="1" max="100" value={f.qty} onChange={set('qty')} required /></div>
-        <div className="field"><label>Observação (opcional)</label><input value={f.note} onChange={set('note')} maxLength={200} /></div>
-        <div className="row"><button className="btn primary" disabled={!cli}>Dar crédito</button><button type="button" className="btn" onClick={onClose}>Fechar</button></div>
-      </form>
-    </div>
   );
 }

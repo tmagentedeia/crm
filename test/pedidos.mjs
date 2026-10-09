@@ -179,7 +179,7 @@ check('mesmo nome de novo reaproveita o cliente', sp2.status === 201 && (await T
 check('sem telefone e sem nome = 400', (await T('POST', '/api/orders', { song: 'Nada' })).status === 400);
 check('telefone curto continua inválido', (await T('POST', '/api/orders', { phone: '123', song: 'Nada' })).status === 400);
 const todosPed = [...(await T('GET', '/api/orders?queue=1')).body, ...(await T('GET', '/api/orders?live_id=' + (sp1.body.live?.id ?? 0))).body];
-check('pedido sem telefone aparece na lista com o nome', todosPed.some((o) => o.song === 'Música sem telefone' && o.customer_name === 'Fulano Sem Fone' && o.customer_phone === null));
+check('pedido sem telefone aparece na lista com o nome', todosPed.some((o) => o.song === 'Música Sem Telefone' && o.customer_name === 'Fulano Sem Fone' && o.customer_phone === null));
 const sim = await T('POST', '/api/campaigns/simulate', { messages: ['Oi'], recipients: { mode: 'all' } });
 check('contato sem telefone fica fora das campanhas', sim.status === 200 && sim.body.total === (await T('GET', '/api/customers/export')).body.filter((c) => c.phone).length, JSON.stringify(sim.body).slice(0, 200));
 // modo de pagamento escolhido na anotação manual
@@ -192,7 +192,7 @@ check('modo pago guarda o valor', mp.status === 201 && mp.body.kind === 'paid', 
 check('modo inválido = 400', (await T('POST', '/api/orders', { phone: '553288880074', song: 'x', kind: 'doacao' })).status === 400);
 const filaMm = (await T('GET', '/api/orders?queue=1')).body;
 const lista = [...filaMm, ...(await T('GET', '/api/orders?live_id=' + (mf.body.live?.id ?? 0))).body, ...(await T('GET', '/api/orders?live_id=' + (mp.body.live?.id ?? 0))).body];
-const gf = lista.find((o) => o.song === 'Pela franquia'), gp = lista.find((o) => o.song === 'Pago manual');
+const gf = lista.find((o) => o.song === 'Pela Franquia'), gp = lista.find((o) => o.song === 'Pago Manual');
 check('franquia manual grava valor 0', gf && Number(gf.amount_paid) === 0 && gf.kind === 'franchise', JSON.stringify(gf));
 check('pago manual grava o valor informado', gp && Number(gp.amount_paid) === 25 && gp.kind === 'paid', JSON.stringify(gp));
 
@@ -262,26 +262,26 @@ check('sem sugestões: next vazio', (await T('GET', '/api/suggestions/next')).bo
 const lx1 = (await T('POST', '/api/lives', { title: 'Extra 1', starts_at: dia(6, 3), external_id: 'yt-extra-1' })).body.live;
 const lx2 = (await T('POST', '/api/lives', { title: 'Extra 2', starts_at: dia(6, 10), external_id: 'yt-extra-2' })).body.live;
 const semCred = await ped(P2, 'Credito Zero', { live_id: lx1.id });
-check('sem crédito extra: pago', semCred.status === 201 && semCred.body.kind === 'paid' && semCred.body.extra === false, JSON.stringify(semCred.body));
-check('crédito sem quantidade = 400', (await T('POST', '/api/credits', { phone: P2 })).status === 400);
-check('crédito de cliente inexistente = 404', (await T('POST', '/api/credits', { phone: '553270000000', qty: 1 })).status === 404);
-const cr = await T('POST', '/api/credits', { phone: P2, qty: 2, note: 'bônus' });
-check('dar 2 créditos extras', cr.status === 201 && cr.body.extra_remaining === 2, JSON.stringify(cr.body));
-check('saldo mostra crédito extra', (await T('GET', '/api/orders/balance?phone=' + P2)).body.extra_remaining === 2);
+check('sem crédito extra: pago', semCred.status === 201 && semCred.body.kind === 'paid' && semCred.body.from_courtesy === false, JSON.stringify(semCred.body));
+check('crédito sem quantidade = 400', (await T('POST', '/api/courtesies', { phone: P2 })).status === 400);
+check('crédito de cliente inexistente = 404', (await T('POST', '/api/courtesies', { phone: '553270000000', qty: 1 })).status === 404);
+const cr = await T('POST', '/api/courtesies', { phone: P2, qty: 2, note: 'bônus' });
+check('dar 2 créditos extras', cr.status === 201 && cr.body.courtesy_remaining === 2, JSON.stringify(cr.body));
+check('saldo mostra crédito extra', (await T('GET', '/api/orders/balance?phone=' + P2)).body.courtesy_remaining === 2);
 const e1 = await ped(P2, 'Credito Um', { live_id: lx1.id }), e2 = await ped(P2, 'Credito Dois', { live_id: lx1.id }), e3 = await ped(P2, 'Credito Tres', { live_id: lx1.id });
-check('1º e 2º pedidos saem pelo crédito extra', e1.body.kind === 'franchise' && e1.body.extra === true && e2.body.kind === 'franchise' && e2.body.extra === true, JSON.stringify([e1.body, e2.body]));
-check('3º pedido volta a ser pago', e3.body.kind === 'paid' && e3.body.extra === false && e3.body.balance.extra_remaining === 0, JSON.stringify(e3.body));
-const credito = (await T("GET", "/api/credits")).body.find((x) => x.phone === P2);
+check('1º e 2º pedidos saem pelo crédito extra', e1.body.kind === 'franchise' && e1.body.from_courtesy === true && e2.body.kind === 'franchise' && e2.body.from_courtesy === true, JSON.stringify([e1.body, e2.body]));
+check('3º pedido volta a ser pago', e3.body.kind === 'paid' && e3.body.from_courtesy === false && e3.body.balance.courtesy_remaining === 0, JSON.stringify(e3.body));
+const credito = (await T("GET", "/api/courtesies")).body.find((x) => x.phone === P2);
 check("lista de créditos: dado, usado e resta", credito && credito.granted === 2 && credito.used === 2 && credito.remaining === 0, JSON.stringify(credito));
 check('crédito extra não conta na franquia do mês', (await T('GET', '/api/orders/summary?month=' + mesDe(dia(6, 3)))).body.rows.find((x) => x.phone === P2)?.used === 0);
 await T('DELETE', `/api/orders/${e1.body.id}`);
-check('apagar o pedido devolve o crédito', (await T('GET', '/api/orders/balance?phone=' + P2)).body.extra_remaining === 1);
+check('apagar o pedido devolve o crédito', (await T('GET', '/api/orders/balance?phone=' + P2)).body.courtesy_remaining === 1);
 await T('PUT', `/api/orders/${e2.body.id}`, { kind: 'paid' });
-check('mudar para pago devolve o crédito', (await T('GET', '/api/orders/balance?phone=' + P2)).body.extra_remaining === 2);
-check('tirar mais crédito do que tem = 409', (await T('POST', '/api/credits', { phone: P2, qty: -5 })).status === 409);
-check('tirar 1 crédito', (await T('POST', '/api/credits', { phone: P2, qty: -1 })).body.extra_remaining === 1);
-check('empresa 2 não vê créditos da 1', (await T('GET', '/api/credits', null, B)).body.length === 0);
-check('zerar créditos do cliente', (await T('DELETE', `/api/credits/${credito.customer_id}`)).status === 200 && (await T('GET', '/api/orders/balance?phone=' + P2)).body.extra_remaining === 0);
+check('mudar para pago devolve o crédito', (await T('GET', '/api/orders/balance?phone=' + P2)).body.courtesy_remaining === 2);
+check('tirar mais crédito do que tem = 409', (await T('POST', '/api/courtesies', { phone: P2, qty: -5 })).status === 409);
+check('tirar 1 crédito', (await T('POST', '/api/courtesies', { phone: P2, qty: -1 })).body.courtesy_remaining === 1);
+check('empresa 2 não vê créditos da 1', (await T('GET', '/api/courtesies', null, B)).body.length === 0);
+check('zerar créditos do cliente', (await T('DELETE', `/api/courtesies/${credito.customer_id}`)).status === 200 && (await T('GET', '/api/orders/balance?phone=' + P2)).body.courtesy_remaining === 0);
 
 // ---- trava de música repetida ----
 check('trava vem desligada', (await T('GET', '/api/orders/config')).body.block_repeat === false);
@@ -300,5 +300,14 @@ check('trocar a música por uma repetida = 409', (await T('PUT', `/api/orders/${
 check('trocar por outra liberada passa', (await T('PUT', `/api/orders/${trocar.id}`, { song: 'Terceira Canção' })).status === 200);
 check('uma live depois de pular a música, libera', (await ped(P1, 'Amor Eterno', { live_id: (await T('POST', '/api/lives', { title: 'Extra 4', starts_at: dia(6, 24), external_id: 'yt-extra-4' })).body.live.id, kind: 'courtesy' })).status === 201);
 await T('PUT', '/api/orders/config', { block_repeat: false });
+
+// ---- nome da música padronizado ----
+const pt = await ped(P1, '  trem   das ONZE e a lua ', { live_id: lx2.id, kind: 'courtesy' });
+const ptLinha = (await T('GET', '/api/orders?live_id=' + lx2.id)).body.find((x) => x.id === pt.body.id);
+check('pedido novo: inicial maiúscula, de/da/e/a minúsculos no meio', ptLinha.song === 'Trem das Onze e a Lua', ptLinha.song);
+await T('PUT', `/api/orders/${pt.body.id}`, { song: 'é pra você, meu AMOR' });
+check('troca de música também padroniza', (await T('GET', '/api/orders?live_id=' + lx2.id)).body.find((x) => x.id === pt.body.id).song === 'É pra Você, Meu Amor');
+await T('POST', '/api/suggestions', { song: 'chega de saudade' });
+check('sugestão padronizada', (await T('GET', '/api/suggestions')).body.some((x) => x.song === 'Chega de Saudade'));
 console.log(`pedidos: ${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);
