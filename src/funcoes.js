@@ -20,12 +20,20 @@ CREATE TABLE IF NOT EXISTS company_funcoes (
 ALTER TABLE users ADD COLUMN IF NOT EXISTS funcao_id BIGINT REFERENCES company_funcoes(id) ON DELETE SET NULL;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS telas_proprias JSONB;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT true;
+-- Uma vez só: quem já existia continua vendo telefones e valores do painel todo (as novas permissões ver_telefones e ver_valores)
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='company_funcoes' AND column_name='dados_v2') THEN
+    ALTER TABLE company_funcoes ADD COLUMN dados_v2 BOOLEAN NOT NULL DEFAULT true;
+    UPDATE company_funcoes SET telas = (SELECT COALESCE(jsonb_agg(DISTINCT t), '[]'::jsonb) FROM jsonb_array_elements_text(telas || '["ver_telefones","ver_valores"]'::jsonb) t);
+    UPDATE users SET telas_proprias = (SELECT COALESCE(jsonb_agg(DISTINCT t), '[]'::jsonb) FROM jsonb_array_elements_text(telas_proprias || '["ver_telefones","ver_valores"]'::jsonb) t) WHERE telas_proprias IS NOT NULL;
+  END IF;
+END $$;
 `;
 
 // Telas que podem ser dadas à equipe. "config" e "equipe" ficam só com o dono.
 export const TELAS = [
   'dashboard', 'agenda', 'fila', 'clientes', 'inativos', 'profissionais', 'servicos', 'atendente', 'comandos', 'bloqueios', 'campanhas',
-  'clube', 'pedidos', 'eventos', 'financeiro', 'comissoes', 'casa_de_shows', 'lista_evento', 'lista_evento_comentarista', 'lista_evento_editor', 'lista_evento_telefone', 'documentos', 'delivery',
+  'clube', 'pedidos', 'eventos', 'financeiro', 'comissoes', 'casa_de_shows', 'lista_evento', 'lista_evento_comentarista', 'lista_evento_editor', 'lista_evento_telefone', 'ver_telefones', 'ver_valores', 'documentos', 'delivery',
   'rst_salao', 'rst_cozinha', 'rst_caixa', 'rst_gestao',
 ];
 export const registrarTelas = (...novas) => { for (const t of novas) if (!TELAS.includes(t)) TELAS.push(t); };
@@ -53,6 +61,8 @@ export const ROTAS_DA_TELA = {
   lista_evento_comentarista: ['event-list-comment'],               // marca entrada e anota na portaria
   lista_evento_editor: ['event-list', 'event-list-comment'],   // edita a lista toda
   lista_evento_telefone: [],                                   // só libera ver os telefones da lista (não abre rota nenhuma)
+  ver_telefones: [],                                           // permissão de dados: telefones do painel todo (não abre rota nenhuma)
+  ver_valores: [],                                             // permissão de dados: valores em dinheiro do painel todo
   documentos: ['documents'],
   delivery: ['delivery'],
   rst_salao: ['restaurant'],
@@ -117,7 +127,44 @@ export async function acessoDe(userId) {
 export async function podeVerTelefone(user) {
   if (!user || user.imp || user.role !== 'staff') return true;
   const acc = await acessoDe(user.id);
-  return !!acc?.telas.includes('lista_evento_telefone');
+  return !!(acc?.telas.includes('ver_telefones') || acc?.telas.includes('lista_evento_telefone'));
+}
+export async function podeVerValores(user) {
+  if (!user || user.imp || user.role !== 'staff') return true;
+  const acc = await acessoDe(user.id);
+  return !!acc?.telas.includes('ver_valores');
+}
+
+// ---- Esconder telefones e valores de quem não tem a permissão (vale no painel todo, no servidor) ----
+export const OCULTO = '(oculto)';
+const CHAVE_FONE = /(^|_)(phone|phones|telefone|telefones|whatsapp|fone)(_|$)/;
+const CHAVE_VALOR = /(^|_)(price|preco|amount|valor|fee|fees|commission|commissions|revenue|balance|subtotal|ticket|discount|total)(_|$)|^(unit_price|amount_paid|average_value|avg_ticket|value|paid|troco)$/;
+const SEM_TOTAL = new Set(['campaigns', 'documents', 'waitlist', 'conversations', 'dashboard']); // nessas rotas "total" é contagem
+const ehFone = (k) => CHAVE_FONE.test(k) && k !== 'phone_hidden';
+const ehValor = (k, seg) => !/(^|_)pct$/.test(k) && CHAVE_VALOR.test(k) && !(k === 'total' && SEM_TOTAL.has(seg));
+const numero = (v) => typeof v === 'number' || (typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v));
+export function esconder(o, { fone, valor }, seg) {
+  if (Array.isArray(o)) return o.map((x) => esconder(x, { fone, valor }, seg));
+  if (!o || typeof o !== 'object' || o instanceof Date) return o;
+  const out = {};
+  for (const [k, v] of Object.entries(o)) {
+    if (fone && ehFone(k) && (typeof v === 'string' || Array.isArray(v))) out[k] = Array.isArray(v) ? v.map(() => OCULTO) : (v ? OCULTO : v);
+    else if (valor && ehValor(k, seg) && numero(v)) out[k] = null;
+    else out[k] = esconder(v, { fone, valor }, seg);
+  }
+  return out;
+}
+// No que a pessoa envia de volta: o que veio escondido não pode apagar nem trocar o dado verdadeiro
+function limparEnvio(o, { fone, valor }, seg) {
+  if (Array.isArray(o)) return o.map((x) => limparEnvio(x, { fone, valor }, seg));
+  if (!o || typeof o !== 'object') return o;
+  const out = {};
+  for (const [k, v] of Object.entries(o)) {
+    if (v === OCULTO || (Array.isArray(v) && v.length && v.every((x) => x === OCULTO))) continue;
+    if (valor && ehValor(k, seg) && v === null) continue;
+    out[k] = limparEnvio(v, { fone, valor }, seg);
+  }
+  return out;
 }
 
 // Vai antes de todas as rotas de /api. Só mexe com quem é da equipe; dono e administrador seguem como sempre.
@@ -131,15 +178,23 @@ export async function bloqueioPorFuncao(req, res, next) {
     const acc = await acessoDe(p.id);
     if (!acc) return res.status(401).json({ error: 'Sessão inválida ou expirada' });
     const seg = req.path.split('/')[1] || '';
-    if (rotaPermitida(acc.telas, seg, req.method)) return next();
+    if (rotaPermitida(acc.telas, seg, req.method)) {
+      const ocultar = { fone: !(acc.telas.includes('ver_telefones') || acc.telas.includes('lista_evento_telefone')), valor: !acc.telas.includes('ver_valores') };
+      if (ocultar.fone || ocultar.valor) {
+        if (req.body && typeof req.body === 'object' && req.method !== 'GET') req.body = limparEnvio(req.body, ocultar, seg);
+        const json = res.json.bind(res);
+        res.json = (corpo) => json(esconder(corpo, ocultar, seg));
+      }
+      return next();
+    }
     res.status(403).json({ error: 'Você não tem acesso a esta área' });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Erro interno' }); }
 }
 
 const FUNCOES_PADRAO = [
-  { name: 'Recepção', telas: ['dashboard', 'agenda', 'fila', 'clientes', 'inativos'], inicio: 'agenda' },
-  { name: 'Profissional', telas: ['agenda', 'clientes'], inicio: 'agenda' },
-  { name: 'Caixa', telas: ['financeiro', 'clientes'], inicio: 'financeiro' },
+  { name: 'Recepção', telas: ['dashboard', 'agenda', 'fila', 'clientes', 'inativos', 'ver_telefones', 'ver_valores'], inicio: 'agenda' },
+  { name: 'Profissional', telas: ['agenda', 'clientes', 'ver_telefones'], inicio: 'agenda' },
+  { name: 'Caixa', telas: ['financeiro', 'clientes', 'ver_telefones', 'ver_valores'], inicio: 'financeiro' },
 ];
 
 async function garantirPadrao(companyId) {
@@ -153,9 +208,9 @@ async function garantirPadrao(companyId) {
 const extrasPadrao = [];
 // Quem tem o restaurante ligado ganha as funções de garçom, cozinha e caixa prontas (uma vez, enquanto não houver nenhuma função do restaurante)
 const FUNCOES_RESTAURANTE = [
-  { name: 'Garçom', telas: ['rst_salao'], inicio: 'rst_salao' },
+  { name: 'Garçom', telas: ['rst_salao', 'ver_valores'], inicio: 'rst_salao' },
   { name: 'Cozinha', telas: ['rst_cozinha'], inicio: 'rst_cozinha' },
-  { name: 'Caixa do restaurante', telas: ['rst_salao', 'rst_caixa'], inicio: 'rst_caixa' },
+  { name: 'Caixa do restaurante', telas: ['rst_salao', 'rst_caixa', 'ver_valores', 'ver_telefones'], inicio: 'rst_caixa' },
 ];
 async function garantirRestaurante(companyId) {
   const c = (await qg("SELECT modules->>'restaurante' AS on FROM companies WHERE id=$1", [companyId])).rows[0];

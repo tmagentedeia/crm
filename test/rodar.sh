@@ -139,6 +139,7 @@ BASE=http://localhost:3999 node test/ferramentas.mjs || R=1
 BASE=http://localhost:3999 node test/espelho_contatos.mjs || R=1
 BASE=http://localhost:3999 node test/delivery.mjs || R=1
 BASE=http://localhost:3999 node test/equipe.mjs || R=1
+BASE=http://localhost:3999 node test/equipe_dados.mjs || R=1
 BASE=http://localhost:3999 node test/restaurante.mjs || R=1
 BASE=http://localhost:3999 node test/modelos.mjs || R=1
 BASE=http://localhost:3999 node test/acesso_admin.mjs || R=1
