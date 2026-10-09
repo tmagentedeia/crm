@@ -712,6 +712,11 @@ export function buildRouter() {
     if (status !== undefined && !['lead', 'client'].includes(status)) return res.status(400).json({ error: 'Tipo inválido' });
     const f = await lerFicha(req.body);
     if (f.erro) return res.status(400).json({ error: f.erro });
+    // Cadastro feito por uma pessoa no painel não aceita telefone repetido (a agente continua completando o contato que já existe)
+    if (req.user?.role !== 'n8n' && phone) {
+      const ja = (await q('SELECT id, name, status FROM customers WHERE phone=$1', [custPhone(phone)])).rows[0];
+      if (ja) return res.status(409).json({ error: `Já existe ${ja.status === 'client' ? 'um cliente' : 'um lead'} com este telefone${ja.name ? ': ' + ja.name : ''}`, existing_id: ja.id });
+    }
     const { rows } = await q(
       `INSERT INTO customers (name,phone,chat_id,source,notes,status)
        VALUES ($1,$2,$3,$4,$5,COALESCE($6,'lead'))
@@ -776,6 +781,10 @@ export function buildRouter() {
       const validos = await chavesDePerfil();
       if (!Array.isArray(req.body.client_kinds) || req.body.client_kinds.some((k) => !validos.includes(k))) return res.status(400).json({ error: 'Perfil inválido' });
       perfis = [...new Set(req.body.client_kinds)];
+    }
+    if (phone) {
+      const ja = (await q('SELECT id, name, status FROM customers WHERE phone=$1 AND id<>$2', [custPhone(phone), req.params.id])).rows[0];
+      if (ja) return res.status(409).json({ error: `Já existe ${ja.status === 'client' ? 'um cliente' : 'um lead'} com este telefone${ja.name ? ': ' + ja.name : ''}`, existing_id: ja.id });
     }
     const { rows } = await q(
       `UPDATE customers SET name=COALESCE($2,name), phone=COALESCE($3,phone), notes=COALESCE($4,notes),

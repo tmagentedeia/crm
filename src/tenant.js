@@ -159,6 +159,19 @@ const VENDA_SQL = `
        OR EXISTS (SELECT 1 FROM payments p WHERE p.status = 'accepted' AND p.amount > 0
                     AND c.id = COALESCE(p.customer_id, (SELECT o.customer_id FROM song_orders o WHERE o.id = p.order_id))));`;
 
+const DOC_VERSOES_SQL = `
+CREATE TABLE IF NOT EXISTS doc_template_versions (
+  id          BIGSERIAL PRIMARY KEY,
+  template_id BIGINT NOT NULL,
+  name        TEXT NOT NULL,
+  kind        TEXT NOT NULL,
+  html        TEXT NOT NULL,
+  blocks      JSONB,
+  saved_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS doc_template_versions_idx ON doc_template_versions (template_id, id DESC);
+`;
+
 export const TENANT_STEPS = [
   // 2: manual e avisos do atendente (empresas criadas antes dele; as novas já nascem com isso na base)
   { version: 2, sql: atendenteSql },
@@ -295,6 +308,8 @@ export const TENANT_STEPS = [
   { version: 62, sql: SHOWS_LISTA_RETIRADOS_SQL },
   // 63: recebimento gerado pela venda da Casa de Shows some junto com o pagamento da venda
   { version: 63, sql: RECEBIMENTO_DA_VENDA_SQL },
+  // 64: versões anteriores dos modelos de documento (para voltar atrás depois de salvar por cima)
+  { version: 64, sql: DOC_VERSOES_SQL },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 

@@ -85,7 +85,7 @@ const exp = (await T('/api/customers/export?club=member')).body;
 check('planilha traz cidade, aniversário e nível', exp.length >= 1 && exp[0].club_level_name === 'Nível 2' && 'city' in exp[0] && 'birth_day' in exp[0], JSON.stringify(exp[0]));
 const bp = (await T('/api/customers/by-phone/553291112222')).body;
 check('consulta por telefone devolve o nível (para o agente)', bp.club_level_name === 'Nível 2' && bp.club_benefit_qty === 1, JSON.stringify(bp));
-check('upsert sem ficha não apaga a ficha', (await T('/api/customers', { method: 'POST', body: { name: 'Ana Clube', phone: '32991112222' } })).body.club_level_name === 'Nível 2');
+check('upsert sem ficha não apaga a ficha', (await (await fetch(BASE + '/n8n/customers', { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': 'k', 'x-company-id': '1' }, body: JSON.stringify({ name: 'Ana Clube', phone: '32991112222' }) })).json()).club_level_name === 'Nível 2');
 
 // ordem da lista
 await T('/api/customers', { method: 'POST', body: { name: 'Zeca Ordem', phone: '32988880031', city: 'Ubá' } });

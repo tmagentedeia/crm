@@ -15,7 +15,7 @@ const psql = (sql) => execSync(`psql "${process.env.DATABASE_URL}" -tAc "${sql}"
 const A = (await call('POST', '/api/auth/login', { body: { email: 'demo@demo.com', password: 'demo1234' } })).body;
 const B = (await call('POST', '/api/auth/login', { body: { email: 'dois@x.com', password: 'senhasenha' } })).body;
 psql("update public.companies set doc_slots=null, doc_nivel=null where id=(select company_id from public.users where email='dois@x.com')");   // sem limite de vagas
-psql('delete from company_1.doc_files; delete from company_1.doc_templates; delete from company_1.doc_settings');
+psql('delete from company_1.doc_files; delete from company_1.doc_templates; delete from company_1.doc_template_versions; delete from company_1.doc_settings');
 psql(`delete from company_${B.company.id}.doc_files; delete from company_${B.company.id}.doc_templates; delete from company_${B.company.id}.doc_settings`);
 
 check('status informa que o PDF está ligado', (await call('GET', '/api/documents/status', { token: A.token })).body?.configured === true);
@@ -69,6 +69,20 @@ const ing = await call('POST', '/api/documents/generate', { token: A.token, body
 check('gera o ingresso do exemplo', ing.status === 201 && psql("select client_kinds::text from company_1.customers where phone='553288880000'").includes('buyer'));
 const id = (await call('GET', '/api/documents', { token: A.token })).body[0].id;
 check('apaga o documento', (await call('DELETE', `/api/documents/${id}`, { token: A.token })).status === 200);
+
+// versões anteriores do modelo: salvar por cima guarda a anterior e dá para restaurar
+const tl = (await call('GET', '/api/documents/templates', { token: A.token })).body;
+const tid = tl[0].id;
+const antes = (await call('GET', `/api/documents/templates/${tid}`, { token: A.token })).body;
+const put = await call('PUT', `/api/documents/templates/${tid}`, { token: A.token, body: { name: antes.name, kind: antes.kind, html: '<p>customizado novo {{nome}}</p>' } });
+check('salvar por cima funciona', put.status === 200, JSON.stringify(put.body));
+const vs = (await call('GET', `/api/documents/templates/${tid}/versions`, { token: A.token })).body;
+check('a versão anterior fica guardada', Array.isArray(vs) && vs.length === 1, JSON.stringify(vs));
+const rest = await call('POST', `/api/documents/templates/${tid}/versions/${vs[0].id}/restore`, { token: A.token });
+const depois = (await call('GET', `/api/documents/templates/${tid}`, { token: A.token })).body;
+check('restaurar devolve o conteúdo anterior', rest.status === 200 && depois.html === antes.html, JSON.stringify(rest.body));
+check('restaurar guarda também o conteúdo que estava', (await call('GET', `/api/documents/templates/${tid}/versions`, { token: A.token })).body.length === 2);
+check('versão de outro modelo não restaura', (await call('POST', `/api/documents/templates/${tid}/versions/999999/restore`, { token: A.token })).status === 404);
 
 psql('delete from company_1.doc_files; delete from company_1.doc_templates; delete from company_1.doc_settings');
 psql(`delete from company_${B.company.id}.doc_files; delete from company_${B.company.id}.doc_templates; delete from company_${B.company.id}.doc_settings`);

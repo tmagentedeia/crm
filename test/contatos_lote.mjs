@@ -57,6 +57,14 @@ check('lote: sem campo = 400', (await api('POST', '/customers/bulk-update', { id
 check('lote: tipo inválido = 400', (await api('POST', '/customers/bulk-update', { ids, status: 'vip' })).status === 400);
 check('lote: estado inválido = 400', (await api('POST', '/customers/bulk-update', { ids, state: 'Minas' })).status === 400);
 
+// telefone repetido: o painel não deixa cadastrar nem trocar para um número que já existe
+const rep = await api('POST', '/customers', { name: 'Repetido', phone: '55329999777' + '00', status: 'lead' });
+check('cadastro com telefone repetido é recusado', rep.status === 409 && /Já existe/.test(rep.body?.error || ''), JSON.stringify(rep.body));
+const rep9 = await api('POST', '/customers', { name: 'Repetido 9', phone: '(32) 9 9997-7700', status: 'lead' });
+check('mesmo número escrito de outro jeito também', rep9.status === 409, JSON.stringify(rep9.body));
+const troca = await api('PUT', '/customers/' + ids[1], { phone: '5532999977700' });
+check('trocar para telefone de outro contato é recusado', troca.status === 409, JSON.stringify(troca.body));
+check('o nome do contato original não foi alterado', psql(`select name from ${T}.customers where id=${ids[0]}`) === 'Lote A');
 psql(`delete from ${T}.customers where id in (${ids.join(',')})`);
 console.log(`${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);

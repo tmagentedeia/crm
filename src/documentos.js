@@ -319,9 +319,30 @@ export function registerDocumentRoutes(r, wrap) {
       if (m) return res.status(403).json({ error: m });
     }
     if (kind !== cur.kind) await q('UPDATE doc_templates SET is_default=false WHERE id=$1', [id]);
+    await guardarVersao(id);
     await q(`UPDATE doc_templates SET name=COALESCE($2,name), kind=$3, html=COALESCE($4,html), blocks=CASE WHEN $5::boolean THEN $6::jsonb ELSE blocks END, updated_at=now() WHERE id=$1`,
       [id, o.name ?? null, kind, o.html ?? null, o.html !== undefined, o.blocks ? JSON.stringify(o.blocks) : null]);
     if (o.is_default) await aplicarPadrao(id, kind);
+    res.json({ ok: true });
+  }));
+  // Antes de salvar por cima, a versão que estava fica guardada (as 15 últimas de cada modelo)
+  async function guardarVersao(id) {
+    await q(`INSERT INTO doc_template_versions (template_id, name, kind, html, blocks)
+             SELECT t.id, t.name, t.kind, t.html, t.blocks FROM doc_templates t WHERE t.id=$1
+             AND NOT EXISTS (SELECT 1 FROM (SELECT * FROM doc_template_versions WHERE template_id=$1 ORDER BY id DESC LIMIT 1) v WHERE v.html=t.html AND v.name=t.name)`, [id]);
+    await q('DELETE FROM doc_template_versions WHERE template_id=$1 AND id NOT IN (SELECT id FROM doc_template_versions WHERE template_id=$1 ORDER BY id DESC LIMIT 15)', [id]);
+  }
+  r.get('/documents/templates/:id/versions', wrap(async (req, res) => {
+    const id = idOk(req.params.id);
+    if (!id) return res.status(404).json({ error: 'Modelo não encontrado' });
+    res.json((await q('SELECT id::text AS id, name, saved_at, length(html) AS size FROM doc_template_versions WHERE template_id=$1 ORDER BY id DESC', [id])).rows);
+  }));
+  r.post('/documents/templates/:id/versions/:vid/restore', wrap(async (req, res) => {
+    const id = idOk(req.params.id), vid = idOk(req.params.vid);
+    const v = id && vid && (await q('SELECT * FROM doc_template_versions WHERE id=$1 AND template_id=$2', [vid, id])).rows[0];
+    if (!v || !(await q('SELECT 1 FROM doc_templates WHERE id=$1', [id])).rowCount) return res.status(404).json({ error: 'Versão não encontrada' });
+    await guardarVersao(id);
+    await q('UPDATE doc_templates SET name=$2, html=$3, blocks=$4::jsonb, updated_at=now() WHERE id=$1', [id, v.name, v.html, v.blocks ? JSON.stringify(v.blocks) : null]);
     res.json({ ok: true });
   }));
   r.delete('/documents/templates/:id', wrap(async (req, res) => {

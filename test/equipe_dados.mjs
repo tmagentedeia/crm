@@ -18,7 +18,7 @@ const eq = (await api('GET', '/equipe')).body;
 check('permissões existem na lista', eq.telas.includes('ver_telefones') && eq.telas.includes('ver_valores'));
 check('funções padrão já trazem telefones', eq.funcoes.every((f) => f.telas.includes('ver_telefones')) || true);
 
-const cli = (await api('POST', '/customers', { name: 'Dados Teste', phone: '5532988887777' })).body;
+const cli = (await api('POST', '/customers', { name: 'Dados Teste', phone: '5532977776655' })).body;
 check('cliente criado', !!cli.id, JSON.stringify(cli));
 const fun = (await api('POST', '/equipe/funcoes', { name: 'Dados ' + Date.now(), telas: ['clientes', 'financeiro', 'agenda'] })).body;
 

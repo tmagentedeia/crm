@@ -130,6 +130,7 @@ function DadosFixos() {
   const mudar = (i, campo, valor) => setLinhas(linhas.map((l, j) => (j === i ? { ...l, [campo]: valor } : l)));
   async function salvar() {
     setErr(''); setMsg('');
+    if (m.id && !window.confirm(`Salvar por cima do modelo "${m.name}"? O conteúdo atual será substituído (a versão anterior fica guardada em "Versões anteriores").`)) return;
     try {
       const vars = {};
       for (const l of linhas) if (l.k.trim()) vars[l.k.trim()] = l.v;
@@ -204,6 +205,7 @@ function Modelos({ admin }) {
   const [fixas, setFixas] = useState([]);
   const [avancado, setAvancado] = useState(false);
   const [limite, setLimite] = useState(null);
+  const [versoes, setVersoes] = useState(null);
   const carregar = () => api('/documents/templates').then(setLista).catch((e) => setErr(e.message));
   useEffect(() => {
     carregar();
@@ -217,7 +219,7 @@ function Modelos({ admin }) {
   ];
 
   async function abrir(id) {
-    setErr(''); setMsg(''); setPrev(''); setAvancado(false);
+    setErr(''); setMsg(''); setPrev(''); setAvancado(false); setVersoes(null);
     try { setM(await api(`/documents/templates/${id}`)); } catch (e) { setErr(e.message); }
   }
   async function salvar() {
@@ -226,8 +228,16 @@ function Modelos({ admin }) {
       const corpo = { name: m.name, kind: m.kind, is_default: m.is_default, ...(m.blocks ? { blocks: m.blocks } : { html: m.html }) };
       if (m.id) await api(`/documents/templates/${m.id}`, { method: 'PUT', body: corpo });
       else { const r = await api('/documents/templates', { method: 'POST', body: corpo }); setM({ ...m, id: r.id }); }
-      setMsg('Modelo salvo'); carregar();
+      setMsg('Modelo salvo'); setVersoes(null); carregar();
     } catch (e) { setErr(e.message); }
+  }
+  async function verVersoes() {
+    setErr('');
+    try { setVersoes(await api(`/documents/templates/${m.id}/versions`)); } catch (e) { setErr(e.message); }
+  }
+  async function restaurar(v) {
+    if (!window.confirm(`Voltar o modelo para a versão de ${new Date(v.saved_at).toLocaleString('pt-BR')}? O conteúdo atual também fica guardado.`)) return;
+    try { await api(`/documents/templates/${m.id}/versions/${v.id}/restore`, { method: 'POST' }); setVersoes(null); setMsg('Versão restaurada'); await abrir(m.id); carregar(); } catch (e) { setErr(e.message); }
   }
   async function apagar() {
     if (!window.confirm(`Apagar o modelo "${m.name}"?`)) return;
@@ -311,9 +321,21 @@ function Modelos({ admin }) {
             {!m.blocks && <label className="btn">Inserir imagem<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" onChange={imagem} style={{ display: 'none' }} /></label>}
             {!m.blocks && <button className="btn" onClick={previa}>Pré-visualizar</button>}
             <button className="btn primary" onClick={salvar}>Salvar modelo</button>
+            {m.id && <button className="btn" onClick={versoes ? () => setVersoes(null) : verVersoes}>Versões anteriores</button>}
             {m.id && <button className="btn" onClick={apagar}>Apagar</button>}
             <button className="btn" onClick={() => setM(null)}>Fechar</button>
           </div>
+          {versoes && (
+            <div style={{ marginTop: 10 }}>
+              {versoes.length === 0 && <p className="muted">Ainda não há versões anteriores. Elas passam a ser guardadas a cada vez que você salva por cima.</p>}
+              {versoes.map((v) => (
+                <div key={v.id} className="row" style={{ justifyContent: 'space-between', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
+                  <span>{new Date(v.saved_at).toLocaleString('pt-BR')} <span className="muted">· {v.name}</span></span>
+                  <button className="btn sm" onClick={() => restaurar(v)}>Restaurar</button>
+                </div>
+              ))}
+            </div>
+          )}
           {faltam.length > 0 && <p className="muted">Sem valor na pré-visualização: {faltam.join(', ')}. Elas saem em branco se o atendente não enviar.</p>}
           {!m.blocks && prev && <iframe title="Pré-visualização" sandbox="" srcDoc={prev} style={{ width: '100%', height: 520, border: '1px solid #ccc', background: '#fff', marginTop: 10 }} />}
         </div>
