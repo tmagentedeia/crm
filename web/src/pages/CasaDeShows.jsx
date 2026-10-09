@@ -13,7 +13,7 @@ const vir = (v) => (v === null || v === undefined ? '' : String(v).replace('.', 
 const hoje = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
 
 const FORMAS = { pix: 'Pix', dinheiro: 'Dinheiro', cartao: 'Cartão', parceiro: 'Parceiro', cortesia: 'Cortesia', outro: 'Outro' };
-const dinheiroBR = (v) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const dinheiroBR = (v) => (v === null ? '' : Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }));
 // Resumo curto do pagamento de uma venda para a lista
 const situacaoPagto = (v) => {
   if (v.courtesy) return 'Cortesia';
@@ -264,7 +264,7 @@ function Vendas() {
         {disp && !disp.sectors.length && <p className="muted">Nenhum setor ativo.</p>}
       </div>
 
-      {resumo && resumo.sales > 0 && (
+      {resumo && resumo.sales > 0 && resumo.expected !== null && (
         <div className="card" style={{ padding: 12, marginBottom: 14 }}>
           <div className="row" style={{ justifyContent: 'space-between' }}>
             <strong>Pagamentos</strong>

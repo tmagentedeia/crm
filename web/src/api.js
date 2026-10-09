@@ -62,7 +62,7 @@ export async function api(path, { method = 'GET', body } = {}) {
   return data;
 }
 
-export const money = (v) => (v === null ? '—' : Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }));
+export const money = (v) => (v === null ? '' : Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }));
 export const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('pt-BR') : '—');
 export const fmtTime = (d) => new Date(d).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 export const fmtPhone = (p) => {

@@ -136,9 +136,8 @@ export async function podeVerValores(user) {
 }
 
 // ---- Esconder telefones e valores de quem não tem a permissão (vale no painel todo, no servidor) ----
-export const OCULTO = '(oculto)';
 const CHAVE_FONE = /(^|_)(phone|phones|telefone|telefones|whatsapp|fone)(_|$)/;
-const CHAVE_VALOR = /(^|_)(price|preco|amount|valor|fee|fees|commission|commissions|revenue|balance|subtotal|ticket|discount|total)(_|$)|^(unit_price|amount_paid|average_value|avg_ticket|value|paid|troco)$/;
+const CHAVE_VALOR = /(^|_)(price|preco|amount|valor|valores|fee|fees|commission|commissions|revenue|balance|subtotal|ticket|discount|total|expected|received|recebido|previsto|income|expense|cost|custo|despesa|receita|faturamento|saldo|gasto|spent)(_|$)|^(unit_price|amount_paid|average_value|avg_ticket|value|paid|troco)$/;
 const SEM_TOTAL = new Set(['campaigns', 'documents', 'waitlist', 'conversations', 'dashboard']); // nessas rotas "total" é contagem
 const ehFone = (k) => CHAVE_FONE.test(k) && k !== 'phone_hidden';
 const ehValor = (k, seg) => !/(^|_)pct$/.test(k) && CHAVE_VALOR.test(k) && !(k === 'total' && SEM_TOTAL.has(seg));
@@ -148,7 +147,7 @@ export function esconder(o, { fone, valor }, seg) {
   if (!o || typeof o !== 'object' || o instanceof Date) return o;
   const out = {};
   for (const [k, v] of Object.entries(o)) {
-    if (fone && ehFone(k) && (typeof v === 'string' || Array.isArray(v))) out[k] = Array.isArray(v) ? v.map(() => OCULTO) : (v ? OCULTO : v);
+    if (fone && ehFone(k) && (typeof v === 'string' || Array.isArray(v))) out[k] = Array.isArray(v) ? v.map(() => null) : null;
     else if (valor && ehValor(k, seg) && numero(v)) out[k] = null;
     else out[k] = esconder(v, { fone, valor }, seg);
   }
@@ -160,7 +159,7 @@ function limparEnvio(o, { fone, valor }, seg) {
   if (!o || typeof o !== 'object') return o;
   const out = {};
   for (const [k, v] of Object.entries(o)) {
-    if (v === OCULTO || (Array.isArray(v) && v.length && v.every((x) => x === OCULTO))) continue;
+    if (fone && ehFone(k) && (v === null || (Array.isArray(v) && v.every((x) => x === null)))) continue;
     if (valor && ehValor(k, seg) && v === null) continue;
     out[k] = limparEnvio(v, { fone, valor }, seg);
   }
