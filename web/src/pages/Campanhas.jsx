@@ -40,7 +40,7 @@ export default function Campanhas() {
     <div>
       <div className="topbar">
         <h1><Nome id="campanhas">Campanhas</Nome></h1>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button className="btn" onClick={() => setTela({ nome: 'aniversario' })}>Aniversariantes</button>
           <button className="btn" onClick={() => setTela({ nome: 'excecoes' })}>Não enviar para</button>
           <button className="btn" onClick={() => setTela({ nome: 'frases', de: { nome: 'lista' } })}>Saudações e cumprimentos</button>
@@ -49,7 +49,7 @@ export default function Campanhas() {
       </div>
       {erro && <div className="error">{erro}</div>}
       <p className="muted">Suas campanhas ficam guardadas. Só uma pode estar ativa por vez; para reaproveitar uma, abra e clique em “Duplicar”.</p>
-      <div className="card">
+      <div className="card table-wrap">
         <table>
           <thead><tr><th>Campanha</th><th>Situação</th><th>Enviadas</th><th>Na fila</th><th>Não enviadas</th></tr></thead>
           <tbody>
@@ -414,10 +414,10 @@ function Detalhe({ id, voltar, editar, irPara }) {
         </div>
       )}
 
-      <p style={{ margin: '0 0 14px' }}>
-        <strong>Ritmo:</strong> intervalo de {c.interval_min} a {c.interval_max} min entre mensagens · {c.batch_size} envios seguidos e pausa de {c.batch_pause_min} min · até {c.daily_limit} por dia · das 7h às 22h.
-        {c.status !== 'done' && c.status !== 'stopped' && <> <strong>Previsão:</strong> cerca de {c.per_day} por dia{c.days ? `; ainda leva uns ${c.days} dia${c.days === 1 ? '' : 's'}` : ''}.</>}
-      </p>
+      {c.status !== 'done' && c.status !== 'stopped' && (
+        <p style={{ margin: '0 0 14px' }}><strong>Previsão:</strong> cerca de {c.per_day} por dia{c.days ? `; ainda leva uns ${c.days} dia${c.days === 1 ? '' : 's'}` : ''}.</p>
+      )}
+      <DetalhesCampanha c={c} />
 
       <details className="card">
         <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Contatos ({rec.length}) — clique para ver a lista</summary>
@@ -436,6 +436,74 @@ function Detalhe({ id, voltar, editar, irPara }) {
         </table>
         </div>
       </details>
+    </div>
+  );
+}
+
+const dh = (d) => (d ? new Date(d).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—');
+const dia = (k) => { const [y, m, d] = k.split('-'); return `${d}/${m}/${y}`; };
+const minutos = (m) => (m >= 120 ? `${Math.floor(m / 60)} h ${Math.round(m % 60)} min` : `${String(m).replace('.', ',')} min`);
+function duracao(ini, fim) {
+  if (!ini || !fim) return null;
+  const min = Math.max(0, Math.round((new Date(fim) - new Date(ini)) / 60000));
+  const dias = Math.floor(min / 1440), h = Math.floor((min % 1440) / 60), m = min % 60;
+  return [dias ? `${dias} dia${dias === 1 ? '' : 's'}` : '', h ? `${h} h` : '', !dias && m ? `${m} min` : ''].filter(Boolean).join(' ') || 'menos de 1 min';
+}
+
+// Tudo o que a campanha usou (ritmo, limites, horários) e o que realmente aconteceu (envios, intervalos de verdade, dias)
+function DetalhesCampanha({ c }) {
+  const d = c.details;
+  if (!d) return null;
+  const par = (rotulo, valor) => (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '4px 0', borderBottom: '1px solid var(--line)' }}>
+      <span className="muted">{rotulo}</span><span style={{ textAlign: 'right' }}>{valor}</span>
+    </div>
+  );
+  const fim = c.finished_at || d.last_sent_at;
+  const dur = duracao(c.started_at || d.first_sent_at, fim);
+  const grade = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 18 };
+  return (
+    <div className="card" style={{ marginBottom: 14 }}>
+      <h3 style={{ marginTop: 0 }}>Detalhes da campanha</h3>
+      <div style={grade}>
+        <div>
+          <strong>Com o que ela trabalhou</strong>
+          {par('Intervalo entre mensagens', `${c.interval_min} a ${c.interval_max} min (sorteado a cada envio)`)}
+          {par('Envios seguidos', `${c.batch_size}, depois pausa de ${c.batch_pause_min} min`)}
+          {par('Limite por dia', d.daily_limit_applied === d.daily_limit_set ? `${d.daily_limit_set} envios` : `${d.daily_limit_set} definidos · ${d.daily_limit_applied} aplicados (limite da empresa)`)}
+          {par('Horário de envio', d.window.free ? 'sem restrição de horário (envio de teste)' : `das ${d.window.start}h às ${d.window.end}h`)}
+          {par('Versões da mensagem', `${(c.messages || []).filter((m) => String(m).trim()).length}${c.greeting_random ? ' · saudação e cumprimento sorteados' : ''}`)}
+          {par('Quem recebe', c.allow_excluded ? 'lista de exceções (envio de teste)' : `${d.totals.all} contato${d.totals.all === 1 ? '' : 's'}`)}
+          {par('Aviso de risco aceito', c.accepted_at ? `${dh(c.accepted_at)}${c.accepted_by ? ' por ' + c.accepted_by : ''}` : '—')}
+        </div>
+        <div>
+          <strong>Como foi</strong>
+          {par('Criada em', dh(c.created_at))}
+          {par('Iniciada em', dh(c.started_at))}
+          {par(c.status === 'done' || c.status === 'stopped' ? 'Terminou em' : 'Último envio', dh(c.finished_at || d.last_sent_at))}
+          {dur && par('Duração', dur)}
+          {par('Enviadas', `${d.totals.sent} de ${d.totals.all}`)}
+          {d.totals.failed > 0 && par('Não enviadas', d.totals.failed)}
+          {d.totals.cancelled > 0 && par('Canceladas', d.totals.cancelled)}
+          {d.totals.waiting > 0 && par('Na fila', d.totals.waiting)}
+          {d.gaps && par('Intervalo real entre mensagens', `média ${minutos(d.gaps.avg)} · de ${minutos(d.gaps.min)} a ${minutos(d.gaps.max)}`)}
+          {d.pauses && par('Pausas (lote, noite ou limite do dia)', `${d.pauses.count} · a maior de ${minutos(d.pauses.longest)}`)}
+        </div>
+      </div>
+      {d.per_day.length > 0 && (
+        <details style={{ marginTop: 12 }}>
+          <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Envios por dia ({d.per_day.length} dia{d.per_day.length === 1 ? '' : 's'})</summary>
+          <div style={{ marginTop: 8, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 4 }}>
+            {d.per_day.map((x) => <div key={x.day}><span className="muted">{dia(x.day)}</span> · <strong>{x.count}</strong></div>)}
+          </div>
+        </details>
+      )}
+      {d.reasons.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <strong>Por que não foram enviadas</strong>
+          {d.reasons.map((x) => par(x.error, x.count))}
+        </div>
+      )}
     </div>
   );
 }

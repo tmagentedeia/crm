@@ -76,6 +76,7 @@ check('logo após o play: sem horário a mostrar', det0.proximo_envio.motivo ===
 const c1 = (await call('POST', '/n8n/campaigns/claim', { headers: N8N })).body;
 const det1 = (await call('GET', `/api/campaigns/${cid}`, { token: A.token })).body;
 check('depois do sorteio: mostra o horário', det1.proximo_envio.motivo === 'sorteado' && new Date(det1.proximo_envio.at) > new Date(), JSON.stringify(det1.proximo_envio));
+check('detalhes: ritmo, janela e totais', det1.details && det1.details.window.start === 7 && det1.details.window.end === 22 && det1.details.totals.all === det1.recipients.length && det1.details.daily_limit_applied <= det1.daily_limit, JSON.stringify(det1.details));
 check('claim devolve mensagem', c1 && c1.phone && /(tá|ok|tudo bem)\s*\?$/i.test(c1.text), JSON.stringify(c1));
 check('começa com saudação, nome e cumprimento', c1 && /^(Oi|Ei|Olá|Opa) Camp! /.test(c1.text) && meus.some((m) => c1.text.includes(' ' + m + ' ')), c1 && c1.text);
 check('claim seguido espera o intervalo', (await call('POST', '/n8n/campaigns/claim', { headers: N8N })).body === null);
@@ -196,5 +197,11 @@ check('rodízio sem repetir', vistos.size === 3);
 const r4 = takeFromBag(bag, lista);
 check('rodízio recomeça', lista.includes(r4.item) && r4.bag.length === 2);
 
+// detalhes: intervalos reais entre envios
+psql(`update company_1.campaigns set interval_min=3, interval_max=10 where id=${cid}`);
+psql(`with r as (select id, row_number() over (order by id) n from company_1.campaign_recipients where campaign_id=${cid}) update company_1.campaign_recipients x set status='sent', sent_at = now() - (case r.n when 1 then interval '300 minutes' when 2 then interval '294 minutes' when 3 then interval '291 minutes' end) from r where x.id=r.id and r.n<=3`);
+const detR = (await call('GET', `/api/campaigns/${cid}`, { token: A.token })).body.details;
+check('detalhes: intervalo real médio, menor e maior', detR.gaps && detR.gaps.count === 2 && detR.gaps.avg === 4.5 && detR.gaps.min === 3 && detR.gaps.max === 6, JSON.stringify(detR.gaps));
+check('detalhes: envios por dia somam os enviados', detR.per_day.reduce((a, x) => a + x.count, 0) === 3 && detR.first_sent_at && detR.last_sent_at, JSON.stringify(detR.per_day));
 console.log(`campanhas: ${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);

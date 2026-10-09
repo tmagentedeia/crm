@@ -186,6 +186,39 @@ const hourOf = (tz, d = new Date()) => {
 const dayOf = (tz, d) => d.toLocaleDateString('en-CA', { timeZone: tz });
 export const inWindow = (tz, d) => { const h = hourOf(tz, d); return h >= LIMITS.START_HOUR && h < LIMITS.END_HOUR; };
 
+// Números da campanha para a tela de detalhes: o que foi configurado e o que realmente aconteceu (envios, intervalos de verdade, dias).
+// Intervalo "entre mensagens" = distância entre dois envios seguidos dentro de um lote; distâncias bem maiores são as pausas (lote, noite, limite do dia).
+async function detalhesDaCampanha(c, rec) {
+  const cfg = await companyCfg(currentCompany());
+  const tz = cfg.timezone || 'America/Sao_Paulo';
+  const empresaMax = Math.max(LIMITS.DAILY_MAX, cfg.campaign_daily_max ?? 0);
+  const quando = rec.filter((x) => x.sent_at).map((x) => new Date(x.sent_at)).sort((x, y) => x - y);
+  const corte = Math.max(c.interval_max, 1) * 2;   // minutos: acima disso é pausa, não intervalo entre mensagens
+  const dentro = [], pausas = [];
+  for (let i = 1; i < quando.length; i++) {
+    const m = (quando[i] - quando[i - 1]) / 60000;
+    (m <= corte ? dentro : pausas).push(m);
+  }
+  const r1 = (n) => Math.round(n * 10) / 10;
+  const porDia = new Map();
+  for (const d of quando) { const k = d.toLocaleDateString('en-CA', { timeZone: tz }); porDia.set(k, (porDia.get(k) || 0) + 1); }
+  const motivos = new Map();
+  for (const x of rec) if (['failed', 'cancelled'].includes(x.status) && x.error) motivos.set(x.error, (motivos.get(x.error) || 0) + 1);
+  return {
+    timezone: tz,
+    window: { start: LIMITS.START_HOUR, end: LIMITS.END_HOUR, free: !!c.allow_excluded },
+    daily_limit_set: c.daily_limit,
+    daily_limit_applied: Math.min(c.daily_limit, empresaMax),
+    totals: { sent: rec.filter((x) => x.status === 'sent').length, failed: rec.filter((x) => x.status === 'failed').length, cancelled: rec.filter((x) => x.status === 'cancelled').length, waiting: rec.filter((x) => ['pending', 'sending'].includes(x.status)).length, all: rec.length },
+    first_sent_at: quando[0] || null,
+    last_sent_at: quando[quando.length - 1] || null,
+    gaps: dentro.length ? { count: dentro.length, avg: r1(dentro.reduce((a, b) => a + b, 0) / dentro.length), min: r1(Math.min(...dentro)), max: r1(Math.max(...dentro)) } : null,
+    pauses: pausas.length ? { count: pausas.length, longest: r1(Math.max(...pausas)) } : null,
+    per_day: [...porDia].map(([day, count]) => ({ day, count })),
+    reasons: [...motivos].map(([error, count]) => ({ error, count })).sort((x, y) => y.count - x.count).slice(0, 5),
+  };
+}
+
 const toCampaign = (c) => ({ ...c, messages: c.messages || [] });
 
 // Quando sai o próximo envio de uma campanha em andamento, já considerando a janela de envio e o limite do dia.
@@ -516,7 +549,7 @@ export function registerCampaignRoutes(r, wrap) {
            AND (sent_at AT TIME ZONE $1)::date = (now() AT TIME ZONE $1)::date`, [tz])).rows[0].n;
       proximo = proximoEnvio({ nextSendAt: c.next_send_at, sentToday, dailyLimit: Math.min(c.daily_limit, Math.max(LIMITS.DAILY_MAX, cfg.campaign_daily_max ?? 0)), tz, semJanela: !!c.allow_excluded });
     }
-    res.json({ ...toCampaign(c), recipients: rec, proximo_envio: proximo, ...simulate(c, rec.filter((x) => ['pending', 'sending'].includes(x.status)).length) });
+    res.json({ ...toCampaign(c), recipients: rec, proximo_envio: proximo, ...simulate(c, rec.filter((x) => ['pending', 'sending'].includes(x.status)).length), details: await detalhesDaCampanha(c, rec) });
   }));
 
   async function saveDraft(req, res, id) {
