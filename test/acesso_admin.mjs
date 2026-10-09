@@ -61,4 +61,10 @@ check('empresa recebe seus nomes', meB.module_labels?.pedidos?.items === 'Compra
 check('lista da administração traz os nomes', (await call('GET', '/api/admin/companies', { token: A.token })).body.find((x) => x.id === idB).module_labels.pedidos.group === 'Loja');
 check('outra empresa não recebe', !((await call('GET', '/api/company', { token: A.token })).body.module_labels?.pedidos?.group));
 check('nomes: voltar ao padrão', Object.keys((await lb({})).body.module_labels).length === 0);
+// cor da empresa na Administração
+check('cor: só administrador muda', (await call('PUT', `/api/admin/companies/${idB}/color`, { token: B.token, body: { color: '#336699' } })).status === 403);
+check('cor inválida recusada', (await call('PUT', `/api/admin/companies/${idB}/color`, { token: A.token, body: { color: 'azul' } })).status === 400);
+check('cor salva', (await call('PUT', `/api/admin/companies/${idB}/color`, { token: A.token, body: { color: '#336699' } })).body.admin_color === '#336699');
+check('a lista traz a cor', (await call('GET', '/api/admin/companies', { token: A.token })).body.find((x) => x.id === idB).admin_color === '#336699');
+check('tirar a cor', (await call('PUT', `/api/admin/companies/${idB}/color`, { token: A.token, body: { color: null } })).body.admin_color === null);
 console.log(`acesso_admin: ${ok} ok, ${fail} falhas`); process.exit(fail ? 1 : 0);

@@ -47,6 +47,7 @@ try {
     await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS campaign_interval_min INT CHECK (campaign_interval_min BETWEEN 1 AND 120)');
     // liberação progressiva de campanhas: marca o dia em que o módulo Campanhas foi ligado (só vale daí em diante)
     await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS campaign_prog_desde TIMESTAMPTZ');
+    await pool.query('ALTER TABLE companies ADD COLUMN IF NOT EXISTS admin_color TEXT');
     await pool.query(`CREATE OR REPLACE FUNCTION companies_campanhas_desde() RETURNS trigger AS $f$
       BEGIN
         IF COALESCE(NEW.modules->>'campanhas','') = 'true' AND NEW.campaign_prog_desde IS NULL

@@ -87,6 +87,20 @@ export default function Admin() {
   const [opcoes, setOpcoes] = useState(null); // id da empresa cujas opções do Atendente estão abertas
   const [nomes, setNomes] = useState(null); // { id, empresa, modulo, valores } — nomes do módulo em edição
   const [abertas, setAbertas] = useState({});
+  // cor de cada empresa na Administração: escolhe na paleta e salva sozinha logo depois
+  const [cores, setCores] = useState({});
+  const [corSalva, setCorSalva] = useState({});
+  const tempoCor = useRef({});
+  const escolherCor = (s, cor) => {
+    setCores((x) => ({ ...x, [s.id]: cor }));
+    setCorSalva((x) => ({ ...x, [s.id]: 'salvando' }));
+    clearTimeout(tempoCor.current[s.id]);
+    tempoCor.current[s.id] = setTimeout(async () => {
+      try { await api(`/admin/companies/${s.id}/color`, { method: 'PUT', body: { color: cor } }); setCorSalva((x) => ({ ...x, [s.id]: 'salva' })); load(); }
+      catch (e) { setCorSalva((x) => ({ ...x, [s.id]: 'erro' })); }
+    }, 500);
+  };
+  const corDe = (s) => (s.id in cores ? cores[s.id] : s.admin_color) || null;
   const [em, setEm] = useState({}); // id -> e-mail do responsável em edição
   const [trocaEmail, setTrocaEmail] = useState(null); // { id, empresa, de, para, senha }
   const [esp, setEsp] = useState({}); // endereço do espelho dos contatos em edição, por empresa
@@ -483,7 +497,7 @@ export default function Admin() {
       {list.map((s) => {
         const changed = s.id in edit;
         return (
-          <div key={s.id} className="card" style={{ marginBottom: 12 }}>
+          <div key={s.id} className="card" style={{ marginBottom: 12, ...(corDe(s) ? { background: `color-mix(in srgb, ${corDe(s)} 18%, var(--card))`, borderLeft: `5px solid ${corDe(s)}` } : {}) }}>
             {onde === s.id && msg && <div style={{ color: 'var(--ok)', marginBottom: 8 }}>{msg}</div>}
             {onde === s.id && err && <div className="error" style={{ marginBottom: 8 }}>{err}</div>}
             <div style={{ display: 'flex', gap: 22, flexWrap: 'wrap', alignItems: 'flex-end' }}>
@@ -512,6 +526,14 @@ export default function Admin() {
               </Campo>
               <Campo rotulo="Indicações"><span>{s.referrals_total ?? 0}</span></Campo>
               <Campo rotulo="Plano"><strong>{planoDe(s.modules) || 'personalizado'}</strong></Campo>
+              <Campo rotulo="Cor">
+                <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                  <input type="color" aria-label={`Cor de ${s.name}`} title="Escolher a cor desta empresa" value={corDe(s) || '#888888'} onChange={(e) => escolherCor(s, e.target.value)}
+                    style={{ width: 34, height: 28, padding: 0, border: '1px solid var(--line)', borderRadius: 6, background: 'transparent', cursor: 'pointer' }} />
+                  {corDe(s) && <button type="button" className="btn sm" title="Tirar a cor" onClick={() => escolherCor(s, null)}>×</button>}
+                  {corSalva[s.id] && <span className="muted" style={{ fontSize: 12 }}>{corSalva[s.id] === 'salvando' ? 'salvando…' : corSalva[s.id] === 'salva' ? 'salva' : 'não salvou'}</span>}
+                </span>
+              </Campo>
             </div>
             {abertas[s.id] && (
             <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border, #ddd)', display: 'flex', gap: 24, alignItems: 'flex-start', flexWrap: 'wrap' }}>

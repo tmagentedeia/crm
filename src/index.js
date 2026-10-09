@@ -295,7 +295,7 @@ app.get('/api/admin/diagnostico', requireUser, requireAdmin, async (req, res) =>
 
 app.get('/api/admin/companies', requireUser, requireAdmin, async (req, res) => {
   const { rows } = await qg(
-    `SELECT c.id, c.name, c.max_professionals, c.doc_slots, c.doc_extras, c.doc_nivel, c.billing_due_day, c.billing_exempt, (SELECT count(*) FROM partner_referrals pr WHERE pr.company_id=c.id)::int AS referrals_total, c.created_at, c.modules, c.locked_modules, c.module_labels, c.whatsapp_instance, c.chat_table, c.redis_prefix, c.redis_url, c.conv_db_url, c.contact_mirror_url, c.contact_mirror_on, c.contact_sheet_url, c.wa_api_url, (c.wa_api_token IS NOT NULL) AS wa_api_set, right(c.wa_api_token, 4) AS wa_api_fim, c.booking_mode, c.campaign_daily_max, c.campaign_interval_min, c.campaign_prog_desde, c.api_key_hint, c.api_key_created_at,
+    `SELECT c.id, c.name, c.max_professionals, c.doc_slots, c.doc_extras, c.doc_nivel, c.billing_due_day, c.billing_exempt, (SELECT count(*) FROM partner_referrals pr WHERE pr.company_id=c.id)::int AS referrals_total, c.created_at, c.modules, c.locked_modules, c.module_labels, c.whatsapp_instance, c.chat_table, c.redis_prefix, c.redis_url, c.conv_db_url, c.contact_mirror_url, c.contact_mirror_on, c.contact_sheet_url, c.wa_api_url, (c.wa_api_token IS NOT NULL) AS wa_api_set, right(c.wa_api_token, 4) AS wa_api_fim, c.booking_mode, c.campaign_daily_max, c.campaign_interval_min, c.campaign_prog_desde, c.admin_color, c.api_key_hint, c.api_key_created_at,
             (SELECT u.email FROM users u WHERE u.company_id = c.id ORDER BY (u.role = 'owner') DESC, u.id LIMIT 1) AS owner_email
      FROM companies c ORDER BY c.id`);
   // profissionais ativos: contados dentro do schema de cada empresa
@@ -490,6 +490,16 @@ app.put('/api/admin/companies/:id/modules', requireUser, requireAdmin, async (re
 
 // Aplica um plano (starter, pro ou advanced): liga os módulos dele, desliga os demais e deixa os de fora à vista, apagados.
 // O limite de profissionais e as demais configurações da empresa não mudam.
+// Cor com que a empresa aparece na Administração (só visual, escolhida pelo administrador da plataforma; null = sem cor)
+app.put('/api/admin/companies/:id/color', requireUser, requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id <= 0) return res.status(404).json({ error: 'Empresa não encontrada' });
+  const cor = req.body?.color === null || req.body?.color === '' ? null : String(req.body?.color);
+  if (cor !== null && !/^#[0-9a-fA-F]{6}$/.test(cor)) return res.status(400).json({ error: 'Cor inválida' });
+  const { rows } = await qg('UPDATE companies SET admin_color=$2 WHERE id=$1 RETURNING id, admin_color', [id, cor ? cor.toLowerCase() : null]);
+  rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Empresa não encontrada' });
+});
+
 app.put('/api/admin/companies/:id/plan', requireUser, requireAdmin, async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isSafeInteger(id) || id <= 0) return res.status(404).json({ error: 'Empresa não encontrada' });
