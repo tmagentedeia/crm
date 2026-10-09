@@ -576,7 +576,8 @@ function Aniversario({ voltar }) {
   const [aceite, setAceite] = useState(false);
   const [erro, setErro] = useState('');
   const [msg, setMsg] = useState('');
-  const aplicar = (r) => { setD(r); setF({ days_ahead: r.days_ahead, audience: r.audience, daily_limit: r.daily_limit, messages: r.messages }); };
+  const foco = useRef({ i: 0 }), refs = useRef([]);
+  const aplicar = (r) => { setD(r); setF({ days_ahead: r.days_ahead, audience: r.audience, daily_limit: r.daily_limit, messages: r.messages, servico_id: r.servico_id || '', produto_id: r.produto_id || '' }); };
   useEffect(() => { api('/campaigns/birthday').then(aplicar).catch((e) => setErro(e.message)); }, []);
   if (!d || !f) return <div>{erro ? <div className="error">{erro}</div> : 'Carregando…'}</div>;
 
@@ -589,6 +590,14 @@ function Aniversario({ voltar }) {
   };
   const c = d.campanha;
   const msgs = f.messages;
+  const inserir = (chave) => {
+    const i = foco.current.i, ta = refs.current[i];
+    const pos = ta ? ta.selectionStart : msgs[i].length, fim = ta ? ta.selectionEnd : pos;
+    const novo = msgs[i].slice(0, pos) + '{' + chave + '}' + msgs[i].slice(fim);
+    setF({ ...f, messages: msgs.map((x, j) => (j === i ? novo : x)) });
+    setTimeout(() => { if (ta) { ta.focus(); ta.setSelectionRange(pos + chave.length + 2, pos + chave.length + 2); } }, 0);
+  };
+  const usa = (chave) => msgs.some((m) => m.includes('{' + chave + '}'));
   return (
     <div>
       <div className="topbar">
@@ -618,11 +627,33 @@ function Aniversario({ voltar }) {
       </div>
       <div className="card" style={{ marginBottom: 14 }}>
         <h3>Mensagem</h3>
-        <p className="muted">Três versões, usadas em rodízio. Use {'{nome}'} para o primeiro nome. Cada uma termina com a frase de saída em forma de pergunta (“tá?”, “ok?” ou “tudo bem?”). Sem links.</p>
+        <p className="muted">Três versões, usadas em rodízio. Clique em uma variável para colocá-la no texto, no ponto onde o cursor estiver. Quando a mensagem usa {'{saudacao}'}, ela vale como está escrita, sem saudação nem cumprimento extras na frente. Cada versão termina com a frase de saída em forma de pergunta (“tá?”, “ok?” ou “tudo bem?”). Sem links.</p>
+        <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+          {d.variaveis.filter((v) => v.disponivel).map((v) => (
+            <button key={v.chave} type="button" className="btn sm" title={v.rotulo} onMouseDown={(e) => e.preventDefault()} onClick={() => inserir(v.chave)}>{'{' + v.chave + '}'} <span className="muted">{v.rotulo}</span></button>
+          ))}
+        </div>
         {msgs.map((m, i) => (
           <div className="field" key={i}><label>Versão {i + 1}</label>
-            <textarea rows={4} value={m} onChange={(e) => setF({ ...f, messages: msgs.map((x, j) => (j === i ? e.target.value : x)) })} /></div>
+            <textarea rows={6} ref={(el) => { refs.current[i] = el; }} onFocus={() => { foco.current.i = i; }} value={m} onChange={(e) => setF({ ...f, messages: msgs.map((x, j) => (j === i ? e.target.value : x)) })} /></div>
         ))}
+        {(usa('evento') || usa('servico') || usa('produto')) && (
+          <div className="row" style={{ gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
+            {usa('evento') && <p className="muted" style={{ margin: 0 }}>{'{evento}'} é sempre o próximo evento da agenda. Versões que usam {'{evento}'} ficam de fora enquanto não houver evento marcado.</p>}
+            {usa('servico') && (
+              <div className="field"><label>Serviço que {'{servico}'} representa</label>
+                <select value={f.servico_id} onChange={(e) => setF({ ...f, servico_id: e.target.value })}>
+                  <option value="">Escolha…</option>{d.servicos.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                </select></div>
+            )}
+            {usa('produto') && (
+              <div className="field"><label>Produto que {'{produto}'} representa</label>
+                <select value={f.produto_id} onChange={(e) => setF({ ...f, produto_id: e.target.value })}>
+                  <option value="">Escolha…</option>{d.produtos.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                </select></div>
+            )}
+          </div>
+        )}
         <button className="btn" onClick={() => setF({ ...f, messages: d.padrao })}>Voltar ao texto original</button>
       </div>
       {!d.enabled && (

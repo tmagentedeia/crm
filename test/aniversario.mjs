@@ -1,6 +1,7 @@
 // Campanha automática de aniversariantes. Uso: BASE=http://localhost:3999 node test/aniversario.mjs
 import { execSync } from 'child_process';
 import { alvos } from '../src/aniversario.js';
+import { buildText } from '../src/campaigns.js';
 const BASE = process.env.BASE || 'http://localhost:3999';
 let ok = 0, fail = 0;
 const check = (name, cond, extra = '') => { cond ? ok++ : (fail++, console.log('FALHOU:', name, extra)); };
@@ -99,6 +100,31 @@ check('desligada não envia', (await call('POST', '/n8n/campaigns/claim', { head
 psql(`delete from company_1.birthday_sends where customer_id=${cA}; update company_1.campaign_recipients set status='sent' where phone like '%90003001'; update company_1.birthday_settings set last_run=null`);
 const on2 = await call('PUT', '/api/campaigns/birthday', { token: A.token, body: { ...base, audience: 'clients' } });
 check('próximo ano volta para a fila', psql("select status from company_1.campaign_recipients where phone like '%90003001'") === 'pending' && psql("select count(*) from company_1.campaign_recipients where phone like '%90003001'") === '1', JSON.stringify(on2.body.campanha));
+
+
+// variáveis da mensagem: {saudacao}, {nome}, {cumprimento}, {evento}, {servico}, {produto}
+check('modo livre: saudação e cumprimento onde o texto manda', buildText({ messages: ['{saudacao} {nome}! Que dia! {cumprimento} Vem aí {evento}. Se não quiser, avise, tá?'] }, 'Ana Souza', 'Oi', 'Como vai?', 0, { evento: 'Baile, dia 10/11' }) === 'Oi Ana! Que dia! Como vai? Vem aí Baile, dia 10/11. Se não quiser, avise, tá?');
+check('mensagem antiga continua levando saudação e cumprimento na frente', buildText({ messages: ['Olá {nome}, vem aí. Se não quiser, avise, tá?'] }, 'Ana', 'Oi', 'Como vai?', 0) === 'Oi Ana! Como vai? Olá Ana, vem aí. Se não quiser, avise, tá?');
+const livre = (txt) => [txt, txt + ' ', txt].map((x) => x.trim());
+const msgsEv = livre('{saudacao} {nome}! {adm} avisou: vem aí o {evento} de {empresa}, vamos? Se não quiser mais receber, é só avisar, tá?');
+check('variável desconhecida recusada', (await call('PUT', '/api/campaigns/birthday', { token: A.token, body: { ...base, messages: livre('{saudacao} {nome}! Veja {xyz}. Se não quiser, avise, tá?') } })).status === 400);
+check('{servico} exige escolher o serviço', (await call('PUT', '/api/campaigns/birthday', { token: A.token, body: { ...base, messages: livre('{saudacao} {nome}! Conheça {servico}. Se não quiser, avise, tá?') } })).status === 400);
+check('serviço inexistente recusado', (await call('PUT', '/api/campaigns/birthday', { token: A.token, body: { ...base, servico_id: '99999999', messages: livre('{saudacao} {nome}! Conheça {servico}. Se não quiser, avise, tá?') } })).status === 400);
+const ver = await call('GET', '/api/campaigns/birthday', { token: A.token });
+check('lista as variáveis disponíveis', ver.body.variaveis.some((v) => v.chave === 'evento') && ver.body.variaveis.some((v) => v.chave === 'saudacao'));
+psql("insert into company_1.events (title, starts_at) values ('Baile Teste', now() + interval '10 days')");
+psql('update company_1.birthday_settings set last_run=null');
+const comEv = await call('PUT', '/api/campaigns/birthday', { token: A.token, body: { ...base, messages: msgsEv, audience: 'clients' } });
+check('mensagem com {evento} é aceita', comEv.status === 200, JSON.stringify(comEv.body));
+psql("update company_1.campaigns set next_send_at=now() where kind='birthday'; update company_1.campaign_recipients set status='pending', sent_text=null, claimed_at=null where campaign_id in (select id from company_1.campaigns where kind='birthday')");
+const cl2 = await call('POST', '/n8n/campaigns/claim', { headers: N8N });
+const nomeEmp = psql('select name from public.companies where id=1'), nomeAdm = psql("select split_part(btrim(name),' ',1) from public.users where company_id=1 and role='owner' order by id limit 1");
+check('{adm} e {empresa} viram o primeiro nome do administrador e o nome da empresa', cl2.body && (cl2.body.text || '').includes(`${nomeAdm} avisou`) && (cl2.body.text || '').includes(`de ${nomeEmp},`), JSON.stringify([cl2.body?.text, nomeAdm, nomeEmp]));
+check('{evento} vira o próximo evento, com a data', cl2.body && /Baile Teste, dia \d\d\/\d\d/.test(cl2.body.text || '') && !/\{/.test(cl2.body.text), JSON.stringify(cl2.body));
+if (cl2.body?.recipient_id) await call('POST', `/n8n/campaigns/recipients/${cl2.body.recipient_id}/report`, { headers: N8N, body: { ok: true } });
+psql("delete from company_1.events where title='Baile Teste'; update company_1.campaigns set next_send_at=now() where kind='birthday'; update company_1.campaign_recipients set status='pending', sent_text=null, claimed_at=null where campaign_id in (select id from company_1.campaigns where kind='birthday')");
+const cl3 = await call('POST', '/n8n/campaigns/claim', { headers: N8N });
+check('sem evento marcado, a mensagem com {evento} não sai', cl3.body === null && psql("select count(*) from company_1.campaign_recipients where status='failed' and error like 'Sem evento%'") !== '0', JSON.stringify(cl3.body));
 
 // limpeza para não interferir nos outros testes
 await call('PUT', '/api/campaigns/birthday', { token: A.token, body: { ...base, enabled: false } });

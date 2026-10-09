@@ -10,7 +10,7 @@ import { VENDAS_SQL } from './vendas.js';
 import { COMISSOES_SQL } from './comissoes.js';
 import { SHOWS_LISTA_SQL, SHOWS_LISTA_ENVIO_SQL, SHOWS_LISTA_QR_SQL, SHOWS_LISTA_RETIRADOS_SQL } from './lista_evento.js';
 import { CASA_DE_SHOWS_SQL, SHOWS_MEDIA_SQL, SHOWS_PAGAMENTOS_SQL, SHOWS_RENOMEAR_SQL, SHOWS_LOCAIS_SQL, SHOWS_LOCAL_PADRAO_SQL, SHOWS_PIX_EVENTO_SQL, SHOWS_LOTES_SQL, SHOWS_VENDAS_SQL, SHOWS_MESA_RESERVADA_SQL, SHOWS_CLUBE_SQL, SHOWS_FICHA_SETOR_SQL, SHOWS_CANCELAMENTOS_SQL } from './casa_de_shows.js';
-import { ANIVERSARIO_SQL } from './aniversario.js';
+import { ANIVERSARIO_SQL, ANIVERSARIO_VARIAVEIS_SQL } from './aniversario.js';
 import { CONTATOS_SQL } from './contatos.js';
 import { ESPELHO_SQL } from './espelho_contatos.js';
 import { CAMPOS_EXTRA_SQL } from './planilha_contatos.js';
@@ -310,6 +310,8 @@ export const TENANT_STEPS = [
   { version: 63, sql: RECEBIMENTO_DA_VENDA_SQL },
   // 64: versões anteriores dos modelos de documento (para voltar atrás depois de salvar por cima)
   { version: 64, sql: DOC_VERSOES_SQL },
+  // 65: serviço e produto que as variáveis {servico} e {produto} da mensagem de aniversário representam
+  { version: 65, sql: ANIVERSARIO_VARIAVEIS_SQL },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 
@@ -337,6 +339,7 @@ export async function createCompanySchema(cx, companyId) {
   await cx.query(COMISSOES_SQL);
   await cx.query(CASA_DE_SHOWS_SQL);
   await cx.query(ANIVERSARIO_SQL);
+  await cx.query(ANIVERSARIO_VARIAVEIS_SQL);
   await cx.query(CONTRATACOES_SQL);
   await cx.query(DOCUMENTOS_SQL);
   await cx.query(DOC_FILES_VENDA_SQL);

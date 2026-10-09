@@ -137,12 +137,46 @@ const rand = (a, b) => a + Math.random() * (b - a);
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 const firstName = (s) => String(s || '').trim().split(/\s+/)[0] || '';
 
+// Variáveis que a mensagem de aniversário aceita
+export const VARIAVEIS_ANIVERSARIO = ['nome', 'saudacao', 'cumprimento', 'evento', 'servico', 'produto', 'empresa', 'adm'];
+const EXTRAS = ['evento', 'servico', 'produto', 'empresa', 'adm'];
+// A mensagem que traz {saudacao} ou {cumprimento} controla sozinha onde eles aparecem; as demais levam saudação, nome e cumprimento na frente
+export const mensagemLivre = (m) => /\{(saudacao|cumprimento)\}/.test(String(m));
+export const extrasUsados = (m) => EXTRAS.filter((k) => String(m).includes(`{${k}}`));
+
 // Saudação + nome (se houver) + cumprimento + texto da campanha (que já traz a frase de saída).
-export function buildText(campaign, name, greeting, compliment, variantIndex = 0) {
-  const body = campaign.messages[variantIndex % campaign.messages.length]
-    .replaceAll('{nome}', firstName(name)).replace(/\s+([,!?.])/g, '$1').trim();
+// extras: { evento, servico, produto } já resolvidos (só para a campanha de aniversariantes).
+export function buildText(campaign, name, greeting, compliment, variantIndex = 0, extras = {}) {
   const nome = firstName(name);
-  return `${greeting}${nome ? ' ' + nome : ''}! ${compliment} ${body}`;
+  const cru = campaign.messages[variantIndex % campaign.messages.length];
+  const preenche = (txt) => {
+    let r = txt.replaceAll('{nome}', nome);
+    for (const k of EXTRAS) r = r.replaceAll(`{${k}}`, extras[k] || '');
+    return r.replace(/\s+([,!?.])/g, '$1').replace(/\s{2,}/g, ' ').trim();
+  };
+  if (mensagemLivre(cru)) return preenche(cru.replaceAll('{saudacao}', greeting).replaceAll('{cumprimento}', compliment));
+  return `${greeting}${nome ? ' ' + nome : ''}! ${compliment} ${preenche(cru)}`;
+}
+// Valores das variáveis de aniversário: próximo evento da casa e o serviço/produto escolhido nas configurações
+export async function valoresDoAniversario(t, tz) {
+  const ev = (await t(`SELECT title, to_char(starts_at AT TIME ZONE $1, 'DD/MM') AS dd FROM events
+                       WHERE COALESCE(ends_at, starts_at + interval '3 hours') > now() ORDER BY starts_at, id LIMIT 1`, [tz])).rows[0];
+  const st = (await t('SELECT featured_service_id AS s, featured_product_id AS p FROM birthday_settings WHERE id=1')).rows[0] || {};
+  const nome = async (id, kind) => (id ? (await t('SELECT name FROM services WHERE id=$1 AND kind=$2 AND active', [id, kind])).rows[0]?.name : null) || null;
+  // {empresa}: nome da empresa no painel; {adm}: primeiro nome do administrador (dono) da empresa
+  const emp = (await qg('SELECT name FROM companies WHERE id=$1', [currentCompany()])).rows[0]?.name || null;
+  const dono = (await qg(`SELECT name FROM users WHERE company_id=$1 AND role='owner' ORDER BY id LIMIT 1`, [currentCompany()])).rows[0]?.name || null;
+  return { evento: ev ? `${ev.title}, dia ${ev.dd}` : null, servico: await nome(st.s, 'service'), produto: await nome(st.p, 'product'), empresa: emp, adm: dono ? firstName(dono) : null };
+}
+// Primeira versão (a partir da vez do rodízio) cujas variáveis têm valor; null se nenhuma tiver
+async function escolherVersaoAniversario(t, c, vez, tz) {
+  const valores = await valoresDoAniversario(t, tz);
+  const n = c.messages.length;
+  for (let k = 0; k < n; k++) {
+    const indice = (vez + k) % n;
+    if (extrasUsados(c.messages[indice]).every((v) => valores[v])) return { indice, extras: valores };
+  }
+  return null;
 }
 const fmtCache = new Map();
 const hourOf = (tz, d = new Date()) => {
@@ -218,7 +252,16 @@ export async function claimNext(companyId) {
       const g = takeFromBag(st.greetings_bag, greetings), k = takeFromBag(st.compliments_bag, compliments);
       await t('UPDATE campaign_settings SET greetings_bag=$1, compliments_bag=$2 WHERE id=1', [JSON.stringify(g.bag), JSON.stringify(k.bag)]);
       const done = (await t("SELECT COUNT(*)::int AS n FROM campaign_recipients WHERE campaign_id=$1 AND status IN ('sent','sending','failed')", [c.id])).rows[0].n;
-      const text = buildText(toCampaign(c), rec.name, g.item, k.item, done);
+      let extras = {}, indice = done;
+      if (c.kind === 'birthday') {
+        const r = await escolherVersaoAniversario(t, toCampaign(c), done, tz);
+        if (!r) {
+          await t("UPDATE campaign_recipients SET status='failed', error=$2 WHERE id=$1", [rec.id, 'Sem evento, serviço ou produto cadastrado para preencher a mensagem']);
+          continue;
+        }
+        extras = r.extras; indice = r.indice;
+      }
+      const text = buildText(toCampaign(c), rec.name, g.item, k.item, indice, extras);
       await t("UPDATE campaign_recipients SET status='sending', claimed_at=now(), sent_text=$2 WHERE id=$1", [rec.id, text]);
       let gap = rand(c.interval_min, c.interval_max);
       let batch = c.batch_sent + 1;

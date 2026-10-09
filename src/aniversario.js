@@ -3,7 +3,7 @@
 // uma vez por ano por pessoa. O envio usa o mesmo motor das campanhas (janela de horário, intervalos, limite diário,
 // lista "Não enviar para"), então as regras de segurança são as mesmas.
 import { q, qg, tx, currentCompany } from './db.js';
-import { LIMITS, validateConfig, hasLink, limitesDaEmpresa } from './campaigns.js';
+import { LIMITS, validateConfig, hasLink, limitesDaEmpresa, VARIAVEIS_ANIVERSARIO, extrasUsados } from './campaigns.js';
 
 export const ANIVERSARIO_SQL = `
   ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'manual';
@@ -25,11 +25,18 @@ export const ANIVERSARIO_SQL = `
     PRIMARY KEY (customer_id, year)
   );`;
 
-// Texto de partida (a casa ajusta a oferta). Cada versão termina com a frase de saída em forma de pergunta.
+// Serviço e produto que as variáveis {servico} e {produto} representam (o evento é sempre o próximo da agenda)
+export const ANIVERSARIO_VARIAVEIS_SQL = `
+  ALTER TABLE birthday_settings ADD COLUMN IF NOT EXISTS featured_service_id BIGINT REFERENCES services(id) ON DELETE SET NULL;
+  ALTER TABLE birthday_settings ADD COLUMN IF NOT EXISTS featured_product_id BIGINT REFERENCES services(id) ON DELETE SET NULL;`;
+
+// Texto de partida. Variáveis: {saudacao}, {nome}, {cumprimento}, {evento} (próximo evento), {servico}, {produto}, {empresa} (nome da empresa), {adm} (primeiro nome do administrador).
+// A mensagem que usa {evento} só sai se houver evento; a terceira versão não depende de nada e serve de reserva.
+// Cada versão termina com a frase de saída em forma de pergunta.
 export const MENSAGENS_PADRAO = [
-  'Seu aniversário está chegando e queremos comemorar com você! Você ganha um ingresso de cortesia, mais um para o seu acompanhante, e seus convidados pagam 20% menos na entrada. Quer saber como funciona? Se não quiser mais receber, é só avisar, tá?',
-  'Vem aí o seu aniversário! Que tal comemorar com a gente? Cortesia para você e para um acompanhante, e 20% de desconto na entrada dos seus convidados. Posso te explicar? Se preferir não receber mais, me avisa, ok?',
-  '{nome}, seu aniversário está perto e a gente quer fazer parte dele: ingresso de cortesia para você e para quem for com você, e 20% de desconto para os seus convidados. Vamos combinar? Qualquer coisa é só pedir para sair, tudo bem?',
+  '{saudacao} {nome}! Que dia especial, né? Desejamos tudo de melhor para você! E {adm} pediu para avisar que você e um acompanhante são nossos convidados VIPs, além de darmos 20% de desconto na entrada dos seus amigos no próximo evento: {evento}. Que tal? Se quiser, é só confirmar aqui comigo e mandar seus amigos me procurarem falando o seu nome para obterem o desconto, tá? Um grande abraço para você e aproveite seu dia! Se preferir não receber mais mensagens, é só avisar, ok?',
+  '{saudacao} {nome}, tudo bem? {cumprimento} Seu aniversário está chegando e queremos comemorar com você! Você e um acompanhante são nossos convidados VIPs, e os seus amigos pagam 20% menos na entrada do nosso próximo evento: {evento}. Se topar, é só me confirmar aqui e pedir para eles me procurarem falando o seu nome. Um grande abraço e que seja um dia incrível! Se não quiser mais receber, é só me avisar, ok?',
+  '{saudacao} {nome}! Que dia especial, né? Desejamos tudo de melhor para você. Passando para avisar que você e um acompanhante são nossos convidados VIPs, e os seus amigos ganham 20% de desconto na entrada dos nossos eventos. Quer combinar? É só confirmar aqui comigo e mandar seus amigos me procurarem falando o seu nome. Um grande abraço e aproveite o seu dia! Se preferir não receber mais mensagens, é só avisar, tudo bem?',
 ];
 
 const DIAS_DE_FOLGA = 2; // se o painel ficar fora do ar, pega também quem faria aniversário 1–2 dias antes do alvo
@@ -120,7 +127,21 @@ export function registerBirthdayRoutes(r, wrap) {
            COUNT(r.id) FILTER (WHERE r.status='sent' AND r.sent_at > now() - interval '365 days')::int AS enviadas
          FROM campaigns c LEFT JOIN campaign_recipients r ON r.campaign_id=c.id WHERE c.id=$1 GROUP BY c.id`, [st.campaign_id])).rows[0] || null;
     }
-    return { enabled: st.enabled, days_ahead: st.days_ahead, audience: st.audience, daily_limit: st.daily_limit,
+    const mod = (await qg('SELECT modules FROM companies WHERE id=$1', [currentCompany()])).rows[0]?.modules || {};
+    const itens = async (kind) => (await q('SELECT id::text AS id, name FROM services WHERE kind=$1 AND active ORDER BY name LIMIT 300', [kind])).rows;
+    const variaveis = [
+      { chave: 'saudacao', rotulo: 'Saudação', disponivel: true },
+      { chave: 'nome', rotulo: 'Nome', disponivel: true },
+      { chave: 'cumprimento', rotulo: 'Cumprimento', disponivel: true },
+      { chave: 'evento', rotulo: 'Próximo evento', disponivel: mod.eventos !== false },
+      { chave: 'servico', rotulo: 'Serviço', disponivel: mod.servicos !== false },
+      { chave: 'produto', rotulo: 'Produto', disponivel: mod.servicos !== false },
+      { chave: 'empresa', rotulo: 'Nome da empresa', disponivel: true },
+      { chave: 'adm', rotulo: 'Nome do administrador', disponivel: true },
+    ];
+    return { variaveis, servicos: variaveis[4].disponivel ? await itens('service') : [], produtos: variaveis[5].disponivel ? await itens('product') : [],
+             servico_id: st.featured_service_id ? String(st.featured_service_id) : '', produto_id: st.featured_product_id ? String(st.featured_product_id) : '',
+             enabled: st.enabled, days_ahead: st.days_ahead, audience: st.audience, daily_limit: st.daily_limit,
              messages: custom ? st.messages : MENSAGENS_PADRAO, padrao: MENSAGENS_PADRAO, personalizada: custom,
              campanha: andamento, limites: { daily_max: (await limitesDaEmpresa(currentCompany())).DAILY_MAX } };
   };
@@ -138,12 +159,28 @@ export function registerBirthdayRoutes(r, wrap) {
       batch_size: 10, batch_pause_min: LIMITS.BATCH_PAUSE_MIN, daily_limit: lim }, L);
     if (falha) return res.status(400).json({ error: falha });
     if (hasLink(messages)) return res.status(400).json({ error: 'A mensagem não pode ter link' });
+    const desconhecida = messages.flatMap((m) => [...m.matchAll(/\{([^{}\s]*)\}/g)].map((x) => x[1])).find((v) => !VARIAVEIS_ANIVERSARIO.includes(v));
+    if (desconhecida !== undefined) return res.status(400).json({ error: `A variável {${desconhecida}} não existe. Use: ${VARIAVEIS_ANIVERSARIO.map((v) => '{' + v + '}').join(', ')}` });
+    const usadas = new Set(messages.flatMap(extrasUsados));
+    const mod = (await qg('SELECT modules FROM companies WHERE id=$1', [currentCompany()])).rows[0]?.modules || {};
+    if (usadas.has('evento') && mod.eventos === false) return res.status(400).json({ error: 'Esta empresa não usa Eventos; tire {evento} da mensagem' });
+    if ((usadas.has('servico') || usadas.has('produto')) && mod.servicos === false) return res.status(400).json({ error: 'Esta empresa não usa Serviços e produtos; tire {servico} e {produto} da mensagem' });
+    const idDe = async (v, kind) => {
+      if (v === undefined || v === null || v === '') return null;
+      if (!/^\d+$/.test(String(v)) || !(await q('SELECT 1 FROM services WHERE id=$1 AND kind=$2 AND active', [v, kind])).rowCount) return undefined;
+      return String(v);
+    };
+    const servicoId = await idDe(b.servico_id, 'service'), produtoId = await idDe(b.produto_id, 'product');
+    if (servicoId === undefined) return res.status(400).json({ error: 'Serviço inválido' });
+    if (produtoId === undefined) return res.status(400).json({ error: 'Produto inválido' });
+    if (usadas.has('servico') && !servicoId) return res.status(400).json({ error: 'Escolha qual serviço a variável {servico} representa' });
+    if (usadas.has('produto') && !produtoId) return res.status(400).json({ error: 'Escolha qual produto a variável {produto} representa' });
     const ligar = b.enabled === true;
     const antes = (await q('SELECT enabled FROM birthday_settings WHERE id=1')).rows[0];
     if (ligar && !antes.enabled && b.accept !== true) return res.status(400).json({ error: 'É preciso confirmar o aviso antes de ligar' });
     await tx(currentCompany(), async (t) => {
-      await t('UPDATE birthday_settings SET enabled=$1, days_ahead=$2, audience=$3, daily_limit=$4, messages=$5, last_run=CASE WHEN $6 THEN NULL ELSE last_run END WHERE id=1',
-        [ligar, days, b.audience, lim, JSON.stringify(messages), ligar && !antes.enabled]);
+      await t('UPDATE birthday_settings SET enabled=$1, days_ahead=$2, audience=$3, daily_limit=$4, messages=$5, last_run=CASE WHEN $6 THEN NULL ELSE last_run END, featured_service_id=$7, featured_product_id=$8 WHERE id=1',
+        [ligar, days, b.audience, lim, JSON.stringify(messages), ligar && !antes.enabled, servicoId, produtoId]);
       const st = await lerConfig(t);
       const cid = await garantirCampanha(t, st);
       if (ligar) await t("UPDATE campaigns SET status='running', pause_reason=NULL, consecutive_failures=0, next_send_at=GREATEST(COALESCE(next_send_at, now()), now()) WHERE id=$1", [cid]);
