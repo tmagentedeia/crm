@@ -77,6 +77,40 @@ check('liberar comprovante depois de apagar', (await api('DELETE', `/casa-de-sho
 const s2 = (await api('GET', `/casa-de-shows/payments/summary?date=${dia}`)).body;
 check('venda cancelada sai do resumo', (await api('PUT', `/casa-de-shows/sales/${r2.id}`, { status: 'cancelled' })).status === 200 && (await api('GET', `/casa-de-shows/payments/summary?date=${dia}`)).body.sales === 2 && s2.sales === 3);
 check('apagar venda leva os pagamentos', (await api('DELETE', `/casa-de-shows/sales/${r1.id}`)).status === 200 && psql(`select count(*) from company_1.shows_sale_payments where sale_id=${r1.id}`) === '0');
+
+// ---- pagamento da venda também aparece em Recebimentos ----
+const r4 = await venda('Comprador Quatro', 2, 50);
+const rec = (sql) => psql(`select ${sql} from company_1.payments where source='venda'`);
+const antes = Number(rec('count(*)'));
+const pd = await P(r4.id, { method: 'dinheiro', amount: 100 });
+check('pagamento lançado no painel vira recebimento aceito, sem chave', pd.status === 201 && psql(`select status||'|'||coalesce(pix_key_id::text,'-')||'|'||amount||'|'||category from company_1.payments where id=${pd.body.payment_id}`) === 'accepted|-|100.00|outro', JSON.stringify(pd.body));
+check('o recebimento fica ligado ao pagamento da venda', Number(rec('count(*)')) === antes + 1 && psql(`select source from company_1.payments where id=${pd.body.payment_id}`) === 'venda');
+const pk = await P(r4.id, { method: 'pix', amount: 30, pix_key_id: kT.id });
+check('Pix com chave indicada leva a chave para Recebimentos', pk.status === 201 && psql(`select pix_key_id from company_1.payments where id=${pk.body.payment_id}`) === String(kT.id));
+const cort = await P(r3.id, { method: 'cortesia' });
+check('cortesia não gera recebimento', cort.status === 201 && Number(rec('count(*)')) === antes + 2);
+const ag = await call('POST', `/n8n/casa-de-shows/sales/${r4.id}/payments`, { headers: N8N, body: { method: 'cartao', amount: 60 } });
+check('lançado pela atendente entra Em análise (não soma)', ag.status === 201 && psql(`select status from company_1.payments where id=${ag.body.payment_id}`) === 'review');
+check('aceitar em Recebimentos passa a somar', (await api('POST', `/payments/${ag.body.payment_id}/approve`, {})).status === 200 && psql(`select status from company_1.payments where id=${ag.body.payment_id}`) === 'accepted');
+check('editar o valor em Recebimentos acompanha a venda', (await api('PUT', `/payments/${ag.body.payment_id}`, { amount: '70' })).status === 200 && psql(`select amount from company_1.shows_sale_payments where id=${ag.body.id}`) === '70.00');
+check('apagar o pagamento da venda apaga o recebimento', (await api('DELETE', `/casa-de-shows/payments/${ag.body.id}`)).status === 200 && psql(`select count(*) from company_1.payments where id=${ag.body.payment_id}`) === '0');
+const pidB = psql(`set search_path to company_1, public; insert into company_1.payments (txid, amount, status) values ('E2E-PAGTO-3',55,'accepted') returning id`).split('\n').find((l) => /^\d+$/.test(l));
+const antes2 = Number(rec('count(*)'));
+check('com comprovante vinculado não cria outro recebimento', (await P(r4.id, { method: 'pix', payment_id: pidB })).status === 201 && Number(rec('count(*)')) === antes2);
+
+// ---- recebimento lançado à mão ----
+const tot = async () => (await api('GET', '/payments/summary')).body.total;
+const t0 = await tot();
+const mn = await api('POST', '/payments', { amount: '100,00', payer_name: 'Roberto E2E', purpose: 'E2E-MANUAL', txid: 'E2E-PAGTO-M1' });
+check('recebimento à mão aceito', mn.status === 201 && psql(`select status||'|'||source||'|'||coalesce(pix_key_id::text,'-') from company_1.payments where id=${mn.body.id}`) === 'accepted|manual|-', JSON.stringify(mn.body));
+check('recebimento à mão soma', (await tot()) === t0 + 100);
+check('mesmo ID de transação não lança duas vezes', (await api('POST', '/payments', { amount: '100', txid: 'E2E-PAGTO-M1' })).status === 409);
+check('recebimento à mão sem valor = 400', (await api('POST', '/payments', { amount: '0' })).status === 400);
+check('recebimento à mão com tipo inválido = 400', (await api('POST', '/payments', { amount: '10', category: 'x' })).status === 400);
+const mk = await api('POST', '/payments', { amount: '15', key: 'thiago.pagto@x.com', paid_at: '2031-05-17T10:30', category: 'contribuicao' });
+check('com chave cadastrada vincula; data informada vale', mk.status === 201 && psql(`select pix_key_id::text||'|'||to_char(paid_at at time zone (select timezone from public.companies where id=1),'YYYY-MM-DD HH24:MI') from company_1.payments where id=${mk.body.id}`) === `${kT.id}|2031-05-17 10:30`);
+psql("delete from company_1.payments where purpose='E2E-MANUAL' or id=" + mk.body.id);
+
 psql("set search_path to company_1, public; delete from company_1.shows_sale_payments; delete from company_1.payments where txid like 'E2E-PAGTO%'; delete from company_1.pix_keys where key like '%.pagto@x.com'; delete from company_1.shows_sales where occasion_date='2031-05-17'");
 console.log(`casa_de_shows_pagamentos: ${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);

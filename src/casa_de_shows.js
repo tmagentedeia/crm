@@ -385,6 +385,22 @@ export function registerCasaDeShowsRoutes(r, wrap) {
   // Corpo: { event, sector, names: ["Comprador Sobrenome", "Acompanhante Sobrenome", ...] (um por lugar, o primeiro é quem compra), phone, amount (total pago),
   //          method: pix | mercado pago | dinheiro..., payment_id (comprovante já aceito em Recebimentos, opcional), code (palavra-chave de desconto), note }
   // O painel escolhe a mesa que cabe, grava a venda com os nomes na lista e registra o pagamento. Resultados esperados voltam como resposta normal (ok: false + explicação).
+  // Todo pagamento lançado numa venda também aparece em Recebimentos (sem chave Pix, a menos que a chave seja indicada).
+  // Lançado por quem usa o painel = validado: entra aceito e soma. Lançado pela atendente: entra "Em análise" e só soma quando o responsável aceita.
+  async function lancarRecebimento(req, { vendaId, forma, valor, keyId }) {
+    if (forma === 'cortesia' || !(valor > 0)) return null;
+    const venda = (await q('SELECT name, phone FROM shows_sales WHERE id=$1', [vendaId])).rows[0] || {};
+    const cli = venda.phone ? (await q('SELECT id FROM customers WHERE phone=$1', [venda.phone])).rows[0] : null;
+    const chave = keyId ? (await q('SELECT id, key FROM pix_keys WHERE id=$1', [keyId])).rows[0] : null;
+    const validado = req.user?.role !== 'n8n';
+    const rotulo = { pix: 'Pix', dinheiro: 'dinheiro', cartao: 'cartão', parceiro: 'parceiro', outro: 'outro' }[forma] || forma;
+    return (await q(
+      `INSERT INTO payments (payer_name, amount, key_text, pix_key_id, paid_at, purpose, customer_id, status, reason, source, category)
+       VALUES (NULLIF($1,''),$2,$3,$4,now(),$5,$6,$7,$8,'venda','outro') RETURNING id`,
+      [venda.name || '', valor, chave?.key || null, chave?.id || null, `Venda de ingresso (${rotulo})`, cli?.id || null,
+       validado ? 'accepted' : 'review', validado ? null : 'pagamento lançado pela atendente na venda: confirme para somar'])).rows[0].id;
+  }
+
   const FORMA_ALIAS = [[/mercado\s*pago|link/, 'outro'], [/pix/, 'pix'], [/dinheiro/, 'dinheiro'], [/cart/, 'cartao'], [/cortesia/, 'cortesia']];
   const dinheiroBr = (n) => 'R$ ' + Number(n).toFixed(2).replace('.', ',');
   const nomesDe = (v) => (Array.isArray(v) ? v : String(v ?? '').split('\n')).map((n) => String(n).trim().replace(/\s+/g, ' ')).filter(Boolean);
@@ -2196,6 +2212,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     if (method === 'cortesia') amount = 0;
     else if (amount === null || amount <= 0) return res.status(400).json({ error: 'Informe o valor pago' });
     const note = b.note ? String(b.note).slice(0, 300) : null;
+    if (!payId) payId = await lancarRecebimento(req, { vendaId: id, forma: method, valor: amount, keyId });
     const novo = (await q('INSERT INTO shows_sale_payments (sale_id, method, amount, pix_key_id, payment_id, note) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id',
       [id, method, amount, keyId, payId, note])).rows[0].id;
     res.status(201).json((await q(`${PAGTO} WHERE p.id=$1`, [novo])).rows[0]);

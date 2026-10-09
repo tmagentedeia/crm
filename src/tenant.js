@@ -63,6 +63,16 @@ UPDATE customers c SET
   extra = (SELECT COALESCE(jsonb_object_agg(e.k, e.v), '{}'::jsonb) FROM jsonb_each(c.extra) e(k, v) WHERE lower(btrim(e.k)) <> 'assunto')
 WHERE EXISTS (SELECT 1 FROM jsonb_object_keys(c.extra) k WHERE lower(btrim(k)) = 'assunto');
 `;
+// Recebimento criado pela venda da Casa de Shows: apagar o pagamento da venda (ou a venda) apaga o recebimento que ele gerou
+const RECEBIMENTO_DA_VENDA_SQL = `
+CREATE OR REPLACE FUNCTION apagar_recebimento_da_venda() RETURNS trigger AS $f$
+BEGIN
+  IF OLD.payment_id IS NOT NULL THEN DELETE FROM payments WHERE id = OLD.payment_id AND source = 'venda'; END IF;
+  RETURN OLD;
+END $f$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS shows_sale_payments_recebimento ON shows_sale_payments;
+CREATE TRIGGER shows_sale_payments_recebimento AFTER DELETE ON shows_sale_payments FOR EACH ROW EXECUTE FUNCTION apagar_recebimento_da_venda();
+`;
 const EDICOES_AGENDAMENTO_SQL = `
 CREATE TABLE IF NOT EXISTS appointment_edits (
   id BIGSERIAL PRIMARY KEY,
@@ -283,6 +293,8 @@ export const TENANT_STEPS = [
   { version: 61, sql: SHOWS_CANCELAMENTOS_SQL },
   // 62: pessoas tiradas da lista do evento (quem fica mantém a posição e o ingresso)
   { version: 62, sql: SHOWS_LISTA_RETIRADOS_SQL },
+  // 63: recebimento gerado pela venda da Casa de Shows some junto com o pagamento da venda
+  { version: 63, sql: RECEBIMENTO_DA_VENDA_SQL },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 

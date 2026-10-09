@@ -41,6 +41,7 @@ function Recebimentos() {
   const [resumo, setResumo] = useState(null);
   const [aviso, setAviso] = useState('');
   const [edit, setEdit] = useState(null);
+  const [novo, setNovo] = useState(false);
   const sel = useSelecao(rows);
   const load = () => {
     api(`/payments?month=${mes}${status ? '&status=' + status : ''}${cat ? '&category=' + cat : ''}`).then(setRows).catch((e) => setAviso(e.message));
@@ -86,6 +87,7 @@ function Recebimentos() {
           <option value="">Todos os tipos</option>
           {Object.entries(CATEGORIAS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
         </select>
+        <button className="btn primary" onClick={() => setNovo(true)}>+ Novo recebimento</button>
       </div>
       {resumo && (
         <div className="card" style={{ marginBottom: 12 }}>
@@ -147,7 +149,40 @@ function Recebimentos() {
         </table>
       </div>
       {edit && <FormRecebimento r={edit} chaves={chaves} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); load(); }} />}
+      {novo && <FormNovoRecebimento chaves={chaves} onClose={() => setNovo(false)} onSaved={() => { setNovo(false); setAviso('Recebimento lançado.'); load(); }} />}
     </>
+  );
+}
+
+// Lança um recebimento à mão (pagamento sem comprovante): entra aceito, soma, e a chave Pix é opcional.
+function FormNovoRecebimento({ chaves, onClose, onSaved }) {
+  const [f, setF] = useState({ amount: '', payer_name: '', paid_at: '', key: '', category: 'outro', purpose: '', txid: '' });
+  const [err, setErr] = useState('');
+  const set = (c) => (e) => setF({ ...f, [c]: e.target.value });
+  async function save(e) {
+    e.preventDefault(); setErr('');
+    try { await api('/payments', { method: 'POST', body: { ...f, paid_at: f.paid_at || undefined } }); onSaved(); } catch (x) { setErr(x.message); }
+  }
+  return (
+    <div className="modal-bg" onClick={onClose}>
+      <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={save}>
+        <h2>Novo recebimento</h2>
+        <p className="muted">Para um pagamento que não chegou por comprovante. Ele entra como aceito e soma nos recebimentos.</p>
+        {err && <div className="error">{err}</div>}
+        <div className="field"><label>Valor *</label><input value={f.amount} onChange={set('amount')} required autoFocus placeholder="100,00" /></div>
+        <div className="field"><label>Pagador</label><input value={f.payer_name} maxLength={120} onChange={set('payer_name')} /></div>
+        <div className="field"><label>Data e hora do pagamento</label><input type="datetime-local" value={f.paid_at} onChange={set('paid_at')} />
+          <small className="muted">Em branco vale agora.</small></div>
+        <div className="field"><label>Chave Pix que recebeu</label><input value={f.key} maxLength={120} onChange={set('key')} list="chaves-pix-novo" />
+          <datalist id="chaves-pix-novo">{chaves.filter((k) => k.active).map((k) => <option key={k.id} value={k.key}>{k.beneficiary || ''}</option>)}</datalist>
+          <small className="muted">Opcional. Sem chave, o recebimento fica sem chave vinculada.</small></div>
+        <div className="field"><label>Tipo de entrada</label>
+          <select value={f.category} onChange={set('category')}>{Object.entries(CATEGORIAS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
+        <div className="field"><label>Finalidade</label><input value={f.purpose} maxLength={120} onChange={set('purpose')} /></div>
+        <div className="field"><label>ID da transação</label><input value={f.txid} maxLength={120} onChange={set('txid')} /><small className="muted">Opcional. Evita lançar duas vezes o mesmo comprovante.</small></div>
+        <div className="row"><button className="btn primary">Lançar</button><button type="button" className="btn" onClick={onClose}>Cancelar</button></div>
+      </form>
+    </div>
   );
 }
 

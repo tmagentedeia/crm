@@ -241,6 +241,7 @@ export function registerFinanceRoutes(r, wrap) {
 
   // dá baixa no pedido pago que está esperando (um só, ou o indicado) e vincula o recebimento
   async function darBaixa(t, pagamento, orderId) {
+    if (pagamento.source === 'venda') return null;   // vem da venda da Casa de Shows: não tem pedido de música para dar baixa
     let alvo = null;
     if (orderId) alvo = (await t('SELECT id, customer_id FROM song_orders WHERE id=$1', [orderId])).rows[0];
     else if (pagamento.customer_id) {
@@ -384,6 +385,48 @@ export function registerFinanceRoutes(r, wrap) {
   // O N8N manda aqui toda mensagem que o responsável digitou para a agente. Se for a resposta a um aviso, o painel decide; senão, devolve handled=false.
   r.post('/payments/adm-reply', wrap(async (req, res) => res.json(await responderAviso(req.body?.text))));
 
+  // ---------- lançar um recebimento à mão (sem comprovante) ----------
+  // Entra como aceito e soma. A chave Pix é opcional: sem ela (ou se não for uma das cadastradas) fica sem chave vinculada.
+  r.post('/payments', wrap(async (req, res) => {
+    const b = req.body || {};
+    const amount = dinheiro(b.amount ?? b.valor);
+    if (amount === null || Number.isNaN(amount) || amount <= 0) return res.status(400).json({ error: 'Informe o valor recebido' });
+    const payer = txt(b.payer_name, 120), purpose = txt(b.purpose, 120), keyText = txt(b.key, 120);
+    const txid = (txt(b.txid, 120) || '').replace(/\s+/g, '') || null;
+    if (payer === null || purpose === null || keyText === null) return res.status(400).json({ error: 'Texto inválido' });
+    const category = b.category === undefined || b.category === '' ? 'outro' : String(b.category);
+    if (!CATEGORIAS.includes(category)) return res.status(400).json({ error: 'Tipo de entrada inválido' });
+    const tz = await fuso();
+    const raw = String(b.paid_at ?? '').trim();
+    const out = await tx(currentCompany(), async (t) => {
+      let paidAt = null;
+      if (raw) {
+        const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+        if (m) paidAt = (await t('SELECT ($1::timestamp AT TIME ZONE $2) AS d', [`${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}:00`, tz])).rows[0].d;
+        else if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) paidAt = (await t('SELECT ($1::timestamp AT TIME ZONE $2) AS d', [`${raw} 12:00:00`, tz])).rows[0].d;
+        if (!paidAt) return { code: 400, error: 'Data do pagamento inválida' };
+      }
+      if (txid) {
+        await t('SELECT pg_advisory_xact_lock(hashtext($1))', [txid]);
+        if ((await t("SELECT 1 FROM payments WHERE txid=$1 AND status='accepted'", [txid])).rowCount) return { code: 409, error: 'Já existe um recebimento aceito com este ID de transação' };
+      }
+      const chaves = (await t('SELECT * FROM pix_keys')).rows;
+      const achada = keyText ? chaves.find((k) => normKey(k.key_type, keyText) === k.key_norm) : null;
+      let customerId = null;
+      if (b.customer_id) {
+        customerId = (await t('SELECT id FROM customers WHERE id=$1', [Number(b.customer_id) || 0])).rows[0]?.id || null;
+        if (!customerId) return { code: 400, error: 'Cliente não encontrado' };
+      }
+      const p = (await t(
+        `INSERT INTO payments (txid, payer_name, amount, key_text, pix_key_id, paid_at, purpose, customer_id, status, reason, source, category)
+         VALUES ($1,NULLIF($2,''),$3,NULLIF($4,''),$5,COALESCE($6, now()),NULLIF($7,''),$8,'accepted',NULL,'manual',$9) RETURNING *`,
+        [txid, payer || '', amount, keyText || '', achada?.id || null, paidAt, purpose || '', customerId, category])).rows[0];
+      const ordem = await darBaixa(t, p, null);
+      return { id: p.id, order_id: ordem };
+    });
+    out.error ? res.status(out.code).json({ error: out.error }) : res.status(201).json(out);
+  }));
+
   // ---------- recebimentos ----------
   r.get('/payments', wrap(async (req, res) => {
     const tz = await fuso();
@@ -454,6 +497,7 @@ export function registerFinanceRoutes(r, wrap) {
         `UPDATE payments SET key_text=NULLIF($2,''), pix_key_id=$3, payer_name=NULLIF($4,''), purpose=NULLIF($5,''), amount=$6, status=$7, reason=$8, category=$9 WHERE id=$1 RETURNING *`,
         [p.id, keyText, achada?.id || null, payer, purpose, amount, status, reason, category])).rows[0];
       let ordem = u.order_id;
+      if (u.source === 'venda' && Number(p.amount) !== amount) await t('UPDATE shows_sale_payments SET amount=$2 WHERE payment_id=$1', [u.id, amount]);   // o valor da venda acompanha
       if (u.status === 'accepted' && p.status !== 'accepted') ordem = await darBaixa(t, u, null);
       else if (u.status === 'accepted' && u.order_id && Number(p.amount) !== amount) {
         await t('UPDATE song_orders SET amount_paid=$2 WHERE id=$1', [u.order_id, amount]);
