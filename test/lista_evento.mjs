@@ -142,32 +142,52 @@ check('leitor não exclui', (await leitor('POST', '/event-list/bulk-delete', { i
 check('comentarista não exclui', (await comentarista('POST', '/event-list/bulk-delete', { ids: [`${v3.id}:2`] })).status === 403);
 check('sem escolher ninguém: erro', (await rm([])).status === 400);
 const previa = await rm([{ sale_id: v3.id, seq: 2 }], { dry_run: true });
-check('a prévia mostra de que compra a pessoa faz parte, sem apagar nada', previa.status === 200 && previa.body.purchases.length === 1 && previa.body.purchases[0].buyer === 'Vera' && previa.body.purchases[0].people === 3 && previa.body.purchases[0].remove === 1 && previa.body.purchases[0].delete_sale === false && previa.body.purchases[0].resend === true && (await lista()).length === antes, JSON.stringify(previa.body));
+const pc = previa.body.purchases?.[0] || {};
+check('a prévia mostra de que compra a pessoa faz parte, sem apagar nada', previa.status === 200 && pc.buyer === 'Vera' && pc.people === 3 && pc.remove === 1 && pc.remaining === 2 && pc.delete_sale === false && pc.needs_buyer === false && (await lista()).length === antes, JSON.stringify(previa.body));
 let xr = await rm([{ sale_id: v3.id, seq: 2 }]);
 check('tira uma pessoa da venda', xr.status === 200 && xr.body.deleted === 1 && xr.body.sales_deleted === 0, JSON.stringify(xr.body));
 let lv = (await lista()).filter((r) => String(r.sale_id) === String(v3.id));
 check('a venda fica com uma pessoa a menos', lv.length === 2 && psql(`select people from company_1.shows_sales where id=${v3.id}`) === '2');
-check('quem vinha depois sobe uma posição, com o nome certo', lv[0].name === 'Vera' && lv[1].name === 'Cadu Lima', JSON.stringify(lv.map((r) => r.name)));
+check('quem ficou mantém a posição e o nome', lv[0].seq === 1 && lv[0].name === 'Vera' && lv[1].seq === 3 && lv[1].name === 'Cadu Lima', JSON.stringify(lv.map((r) => [r.seq, r.name])));
+check('quem ficou continua com a mesma posição (o ingresso dela segue valendo)', (await editor('PUT', `/event-list/${v3.id}/3`, { note: 'ok' })).status === 200);
+check('a posição tirada não existe mais', (await editor('PUT', `/event-list/${v3.id}/2`, { note: 'x' })).status === 404);
 check('a observação da pessoa tirada vai embora', !lv.some((r) => r.note === 'obs do Beto'));
 check('a lista de nomes da venda perde a linha dela', psql(`select replace(guests, chr(10), '|') from company_1.shows_sales where id=${v3.id}`) === 'Vera|Cadu');
-check('o QR Code antigo das posições que mudaram deixa de valer', Number(psql(`select qr_ver from company_1.shows_attendees where sale_id=${v3.id} and seq=2`)) >= 1);
+check('o QR Code de quem ficou não muda', psql(`select qr_ver from company_1.shows_attendees where sale_id=${v3.id} and seq=3`) === '0');
+check('marcar a venda inteira como entrou funciona com a posição vaga', (await editor('PUT', `/event-list-comment/${v3.id}/entry`, { entered: true })).status === 200 && (await lista()).filter((r) => String(r.sale_id) === String(v3.id) && r.entered_at).length === 2);
+await editor('PUT', `/event-list-comment/${v3.id}/entry`, { entered: false });
 check('a exclusão fica no registro de quem mexeu', (await api('GET', `/event-list/log?event_id=${ev.id}`)).body.some((e) => e.action === 'exclusao' && e.person === 'Beto'));
-check('pessoa que não existe mais é pulada, sem derrubar', (await rm([{ sale_id: v3.id, seq: 9 }])).body.skipped.length === 1);
-check('venda de outro lugar/inexistente é pulada', (await rm([{ sale_id: 99999999, seq: 1 }])).body.skipped.length === 1);
+check('pessoa que não existe mais é pulada, sem derrubar', (await rm([{ sale_id: v3.id, seq: 2 }])).body.skipped.length === 1);
+check('venda inexistente é pulada', (await rm([{ sale_id: 99999999, seq: 1 }])).body.skipped.length === 1);
 check('pessoa inválida: erro', (await editor('POST', '/event-list/bulk-delete', { ids: ['x'] })).status === 400);
-// várias de uma vez, na mesma venda e em vendas diferentes
-const w2 = await venda({ name: 'Wilson', phone: '32988860011', people: 2, unit_price: 100 });
-xr = await rm([{ sale_id: w2.id, seq: 1 }, { sale_id: w2.id, seq: 2 }, { sale_id: v3.id, seq: 1 }]);
-check('várias de uma vez: apaga a venda que ficou vazia e reduz a outra', xr.body.deleted === 3 && xr.body.sales_deleted === 1, JSON.stringify(xr.body));
-check('a venda sem ninguém some do banco', psql(`select count(*) from company_1.shows_sales where id=${w2.id}`) === '0');
-lv = (await lista()).filter((r) => String(r.sale_id) === String(v3.id));
-check('a outra ficou só com a pessoa que sobrou', lv.length === 1 && lv[0].name === 'Cadu Lima' && psql(`select people from company_1.shows_sales where id=${v3.id}`) === '1');
+// tirar o comprador: o título passa para outro nome e telefone
+const pb = await rm([{ sale_id: v3.id, seq: 1 }], { dry_run: true });
+check('a prévia avisa que falta o novo comprador', pb.body.purchases[0].needs_buyer === true && pb.body.purchases[0].remaining === 1, JSON.stringify(pb.body));
 xr = await rm([{ sale_id: v3.id, seq: 1 }]);
-check('a última pessoa apaga a venda', xr.body.sales_deleted === 1 && psql(`select count(*) from company_1.shows_sales where id=${v3.id}`) === '0');
-check('o total da lista caiu pelas três pessoas da venda da Vera', (await lista()).length === antes - 3);
+check('sem novo comprador, não tira o comprador', xr.body.deleted === 0 && xr.body.skipped.length === 1 && (await lista()).filter((r) => String(r.sale_id) === String(v3.id)).length === 2, JSON.stringify(xr.body));
+xr = await rm([{ sale_id: v3.id, seq: 1 }], { buyers: { [v3.id]: { name: 'Marta Souza', phone: '(32) 98888-6099' } } });
+lv = (await lista()).filter((r) => String(r.sale_id) === String(v3.id));
+check('o título de comprador passa para o nome e telefone informados', xr.body.deleted === 1 && lv.length === 1 && lv[0].seq === 3 && lv[0].name === 'Cadu Lima' && lv[0].buyer === 'Marta Souza' && psql(`select phone from company_1.shows_sales where id=${v3.id}`) === '553288886099', JSON.stringify([xr.body, lv]));
+// várias de uma vez, em vendas diferentes
+const w2 = await venda({ name: 'Wilson', phone: '32988860011', people: 2, unit_price: 100 });
+xr = await rm([{ sale_id: w2.id, seq: 1 }, { sale_id: w2.id, seq: 2 }, { sale_id: v3.id, seq: 3 }]);
+check('várias de uma vez: sem ninguém e sem convidados a venda é apagada', xr.body.deleted === 3 && xr.body.sales_deleted === 2, JSON.stringify(xr.body));
+check('as vendas sem ninguém somem do banco', psql(`select count(*) from company_1.shows_sales where id in (${w2.id}, ${v3.id})`) === '0');
+check('o total da lista caiu pelas três pessoas', (await lista()).length === antes - 3);
+// anfitrião de mesa reservada: a mesa e os convidados ficam
+const anf = await venda({ name: 'Anfitrião', phone: '32988860020', people: 1, unit_price: 100 });
+const conv = await venda({ name: 'Convidada', phone: '32988860021', people: 2, unit_price: 100 });
+psql(`update company_1.shows_sales set held=true where id=${anf.id}`);
+psql(`update company_1.shows_sales set host_sale_id=${anf.id} where id=${conv.id}`);
+const pa = await rm([{ sale_id: anf.id, seq: 1 }], { dry_run: true });
+check('a prévia do anfitrião com convidados pede novo comprador e não apaga a venda', pa.body.purchases[0].needs_buyer === true && pa.body.purchases[0].delete_sale === false && pa.body.purchases[0].table_guests === 1, JSON.stringify(pa.body));
+check('anfitrião sem novo comprador não é apagado', (await rm([{ sale_id: anf.id, seq: 1 }])).body.skipped.length === 1);
+xr = await rm([{ sale_id: anf.id, seq: 1 }], { buyers: { [anf.id]: { name: 'Novo Anfitrião', phone: '32988860030' } } });
+const la = (await lista()).filter((r) => String(r.sale_id) === String(anf.id));
+check('o anfitrião é trocado e a mesa continua com os convidados', xr.body.deleted === 1 && la.length === 1 && la[0].name === 'Novo Anfitrião' && psql(`select count(*) from company_1.shows_sales where host_sale_id=${anf.id}`) === '1', JSON.stringify([xr.body, la]));
 
 // limpeza
-psql("set search_path to company_1, public; delete from shows_attendee_log; delete from shows_attendees; delete from shows_sale_payments; delete from shows_sales where sector_id in (select id from shows_sectors where name = 'Setor Lista'); delete from customers where phone like '%3288860001' or phone like '%3288860002'");
+psql("set search_path to company_1, public; delete from shows_attendee_log; delete from shows_attendees; delete from shows_sale_payments; update shows_sales set host_sale_id = null; delete from shows_sales where sector_id in (select id from shows_sectors where name = 'Setor Lista'); delete from customers where phone like '%3288860001' or phone like '%3288860002'");
 await api('DELETE', `/casa-de-shows/sectors/${setor.id}`); await api('DELETE', `/casa-de-shows/table-types/${mesa.id}`); await api('DELETE', '/events/' + ev.id);
 psqlGlobal("delete from public.users where email like 'lista-%@x.com'; delete from public.company_funcoes where name like 'Lista %'");
 console.log(`${ok} ok, ${fail} falhas`);

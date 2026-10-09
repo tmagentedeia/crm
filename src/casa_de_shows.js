@@ -13,6 +13,7 @@ import { beneficiosDeParceiros } from './parcerias.js';
 import { conexaoWhats, postarWhats, pausa } from './lista_evento.js';
 import { provedores, avisarAdm } from './decisoes_adm.js';
 import { gerarRef } from './documentos.js';
+import { posicoesDe } from './posicoes.js';
 
 export const CASA_DE_SHOWS_SQL = `
   ALTER TABLE customers ADD COLUMN IF NOT EXISTS client_kinds TEXT[] NOT NULL DEFAULT '{}';   -- perfis do cliente: buyer (comprador), hirer (contratante)
@@ -473,7 +474,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     const nomeDe = async (n) => (await q('SELECT name FROM shows_attendees WHERE sale_id=$1 AND seq=$2', [venda.id, n])).rows[0]?.name || nomesVenda[n - 1] || (n === 1 ? venda.name : `Acompanhante de ${venda.name}`);
     const base = process.env.PUBLIC_URL || `${req.headers['x-forwarded-proto'] || req.protocol}://${req.headers['x-forwarded-host'] || req.get('host')}`;
     let enviados = 0; const falharam = [];
-    for (let n = 1; n <= venda.people; n++) {
+    for (const n of posicoesDe(venda)) {
       const nome = await nomeDe(n);
       try {
         // reaproveita o PDF já emitido para este nome; se o nome mudou, emite outro
@@ -553,7 +554,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
   const nomesAtuais = async (v) => {
     const base = nomesDe(v.guests);
     const at = (await q('SELECT seq, name FROM shows_attendees WHERE sale_id=$1 AND name IS NOT NULL', [v.id])).rows;
-    return Array.from({ length: v.people }, (_, i) => at.find((a) => Number(a.seq) === i + 1)?.name || base[i] || (i === 0 ? v.name : `Acompanhante de ${v.name}`));
+    return posicoesDe(v).map((n) => ({ seq: n, nome: at.find((a) => Number(a.seq) === n)?.name || base[n - 1] || (n === 1 ? v.name : `Acompanhante de ${v.name}`) }));
   };
   // Troca de nome pelo atendente: só vale para quem comprou (o telefone da conversa é o do comprador) e só dentro das compras dele.
   // Um nome igual na mesa de outro comprador nunca é tocado.
@@ -570,7 +571,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     const vendas = (await q(`${VENDA} WHERE ${w} ORDER BY v.id DESC LIMIT 10`, a)).rows;
     if (!vendas.length) return nao('Este telefone não tem compra de ingresso para os próximos eventos. Só quem comprou pode trocar nomes da lista; se for outra pessoa, peça para o comprador falar com você.');
     const todos = [];
-    for (const v of vendas) (await nomesAtuais(v)).forEach((nome, i) => todos.push({ v, seq: i + 1, nome }));
+    for (const v of vendas) (await nomesAtuais(v)).forEach((x) => todos.push({ v, seq: x.seq, nome: x.nome }));
     const alvo = semAcento(antigo).replace(/\s+/g, ' ');
     let achou = todos.filter((x) => semAcento(x.nome).replace(/\s+/g, ' ') === alvo);
     if (!achou.length) { const pal = alvo.split(' '); achou = todos.filter((x) => { const n = semAcento(x.nome); return pal.every((p) => n.includes(p)); }); }
@@ -596,7 +597,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     if (!/^\d{8,15}$/.test(phone)) return res.json({ ok: false, message: 'Telefone inválido.' });
     const vs = (await q(`${VENDA} WHERE v.phone=$1 AND v.status = ANY($2) AND (v.event_id IS NULL OR COALESCE(e.ends_at, e.starts_at + interval '3 hours') > now()) ORDER BY v.id DESC LIMIT 5`, [phone, OCUPAM])).rows;
     if (!vs.length) return res.json({ ok: true, sales: [], message: 'Este cliente não tem ingresso comprado para os próximos eventos.' });
-    for (const v of vs) v.nomes = await nomesAtuais(v);
+    for (const v of vs) v.nomes = (await nomesAtuais(v)).map((x) => x.nome);
     const linhas = vs.map((v) => `- ${v.event_title || v.date}, ${v.sector_name}: ${v.people} pessoa(s) em ${v.tables} mesa(s) de ${v.seats_each} lugares. Nomes na lista: ${v.nomes.join(', ')}. Pago: ${dinheiroBr(v.paid)}.`);
     res.json({ ok: true, sales: vs.map((v) => ({ sale_id: v.id, event: v.event_title, sector: v.sector_name, people: v.people, names: v.nomes, paid: v.paid })), message: 'Compras deste cliente:\n' + linhas.join('\n') });
   }));
@@ -1771,7 +1772,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
 
   // ---------- vendas ----------
   const VENDA = `SELECT v.id, v.event_id, e.title AS event_title, v.occasion_date::text AS date, v.sector_id, s.name AS sector_name,
-                          v.customer_id, v.name, v.phone, v.people, v.table_type_id, v.table_name, v.seats_each, v.space_each::float AS space_each,
+                          v.customer_id, v.name, v.phone, v.people, v.removed_seqs, v.table_type_id, v.table_name, v.seats_each, v.space_each::float AS space_each,
                           v.tables, (v.tables * v.space_each)::float AS space, (v.tables * v.seats_each) AS seats, v.status, v.note, v.guests, v.unit_price::float AS unit_price, v.club_discount::float AS club_discount, (v.people * v.unit_price - v.club_discount)::float AS total, v.code_word, v.created_at, v.held, v.host_sale_id,
                           (SELECT h.name FROM shows_sales h WHERE h.id = v.host_sale_id) AS host_name,
                           CASE WHEN v.held THEN GREATEST(0, v.seats_each * v.tables - v.people) END AS held_seats,

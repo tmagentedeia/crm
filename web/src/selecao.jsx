@@ -46,8 +46,9 @@ export const CelulaLinha = ({ s, id }) => (
 //  rota: endereço da exclusão em massa (aceita { ids, dry_run } e devolve o que seria afetado)
 //  descreve(info): texto sobre o que vai ser apagado junto
 //  opcao: { chave, texto, mostrarSe(info) } caixinha extra (ex.: apagar também o histórico)
+//  corpo: dados extras enviados junto na exclusão · bloqueado(info): texto/true enquanto falta algo para poder apagar
 //  onDone(resultado): chamado depois de apagar
-export function ApagarSelecionados({ s, total, rotulo, rota, descreve, opcao, onDone, acoes }) {
+export function ApagarSelecionados({ s, total, rotulo, rota, descreve, opcao, onDone, acoes, corpo, bloqueado }) {
   const [info, setInfo] = useState(null);
   const [txt, setTxt] = useState('');
   const [extra, setExtra] = useState(false);
@@ -62,12 +63,12 @@ export function ApagarSelecionados({ s, total, rotulo, rota, descreve, opcao, on
   const apagar = async () => {
     setBusy(true); setErr('');
     try {
-      const r = await api(rota, { method: 'POST', body: { ids: s.ids, ...(opcao ? { [opcao.chave]: extra } : {}) } });
+      const r = await api(rota, { method: 'POST', body: { ids: s.ids, ...(opcao ? { [opcao.chave]: extra } : {}), ...(corpo || {}) } });
       setInfo(null); s.limpar(); onDone?.(r);
     } catch (e) { setErr(e.message); }
     setBusy(false);
   };
-  const pronto = txt.trim().toUpperCase() === 'X';
+  const pronto = txt.trim().toUpperCase() === 'X' && !(bloqueado && info && bloqueado(info));
   return (
     <>
       <div className="card row" style={{ marginBottom: 8, gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>

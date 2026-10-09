@@ -137,6 +137,7 @@ export default function ListaDoEvento({ eventoId = null, onVoltar = null }) {
   const [paraEmpresa, setParaEmpresa] = useState(false);
   const [aviso, setAviso] = useState('');
   const [apagou, setApagou] = useState('');
+  const [novos, setNovos] = useState({});   // novo comprador de cada compra cujo comprador está sendo apagado
   const carregarEnvio = () => api('/event-list-settings').then((x) => { setEnvio(x); setTelefones(x.phones.join('\n')); setParaAdm(x.to_admin); setParaEmpresa(x.to_company); }).catch(() => {});
   useEffect(() => { if (dono) carregarEnvio(); }, [dono]);
   const salvarEnvio = async (enabled) => {
@@ -220,16 +221,27 @@ export default function ListaDoEvento({ eventoId = null, onVoltar = null }) {
           </div>
           {nivel === 'editor' && (
             <ApagarSelecionados s={sel} total={rows.length} rotulo="pessoa(s)" rota="/event-list/bulk-delete"
-              onDone={(r) => { setApagou(resumoApagado(r, 'pessoa(s)')); carregar(); }}
+              corpo={{ buyers: novos }}
+              bloqueado={(i) => (i.purchases || []).some((c) => c.needs_buyer && !(novos[c.id]?.name?.trim() && String(novos[c.id]?.phone || '').replace(/\D/g, '').length >= 8))}
+              onDone={(r) => { setApagou(resumoApagado(r, 'pessoa(s)')); setNovos({}); carregar(); }}
               descreve={(i) => (
                 <>
-                  <p>Cada pessoa apagada sai da lista e libera o lugar na venda do ingresso.</p>
+                  <p>Cada pessoa apagada sai da lista e libera o lugar na venda. Quem fica continua com o mesmo ingresso.</p>
                   {(i.purchases || []).map((c) => (
-                    <p key={c.id} style={{ margin: '6px 0' }}>
-                      {c.delete_sale
-                        ? <>Atenção: {c.remove === 1 ? 'esta pessoa faz' : 'estas pessoas fazem'} parte da compra de <strong>{c.buyer}</strong> ({c.people} {c.people === 1 ? 'pessoa' : 'pessoas'}). Como {c.remove === 1 ? 'é a única' : 'serão todas'}, a compra inteira será apagada.</>
-                        : <>Atenção: {c.remove === 1 ? 'esta pessoa faz' : 'estas pessoas fazem'} parte da compra de <strong>{c.buyer}</strong> ({c.people} {c.people === 1 ? 'pessoa' : 'pessoas'}). A compra passará a ter {c.people - c.remove}.{c.resend ? ' Os ingressos já enviados das pessoas seguintes deixam de valer: será preciso reenviar.' : ''}</>}
-                    </p>
+                    <div key={c.id} style={{ margin: '8px 0' }}>
+                      <p style={{ margin: '0 0 4px' }}>
+                        {c.delete_sale
+                          ? <>{c.remove === 1 ? 'Esta pessoa faz' : 'Estas pessoas fazem'} parte da compra de <strong>{c.buyer}</strong> e é tudo o que ela tem: <strong>a compra será apagada</strong>. Tem certeza?</>
+                          : <>{c.remove === 1 ? 'Esta pessoa faz' : 'Estas pessoas fazem'} parte da compra de <strong>{c.buyer}</strong> ({c.people} {c.people === 1 ? 'pessoa' : 'pessoas'}). A compra passará a ter {c.remaining}. Tem certeza?</>}
+                      </p>
+                      {c.needs_buyer && (
+                        <div style={{ marginLeft: 8 }}>
+                          <p className="muted" style={{ margin: '0 0 4px' }}>{c.buyer} é quem comprou{c.table_guests ? ' e tem convidados na mesa' : ''}. Informe quem passa a ser o comprador:</p>
+                          <input placeholder="Nome do novo comprador" value={novos[c.id]?.name || ''} onChange={(e) => setNovos({ ...novos, [c.id]: { ...novos[c.id], name: e.target.value } })} style={{ marginBottom: 4 }} />
+                          <input placeholder="Telefone com DDD" value={novos[c.id]?.phone || ''} onChange={(e) => setNovos({ ...novos, [c.id]: { ...novos[c.id], phone: e.target.value } })} />
+                        </div>
+                      )}
+                    </div>
                   ))}
                 </>
               )} />

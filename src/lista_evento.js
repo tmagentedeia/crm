@@ -6,9 +6,13 @@ import { normPhone } from './phone.js';
 import { gerarRef, htmlParaPdf, gotenbergLigado } from './documentos.js';
 import { lerCodigo } from './ingresso_qr.js';
 import { podeVerTelefone } from './funcoes.js';
+import { posicoesDe, retirados } from './posicoes.js';
 
 // Versão do QR Code de cada pessoa: quando o ingresso é substituído (troca de nome), o código antigo deixa de valer
 export const SHOWS_LISTA_QR_SQL = `ALTER TABLE shows_attendees ADD COLUMN IF NOT EXISTS qr_ver INT NOT NULL DEFAULT 0;`;
+
+// posições (1, 2, 3…) de pessoas tiradas da venda: quem fica mantém a sua posição e o seu ingresso
+export const SHOWS_LISTA_RETIRADOS_SQL = `ALTER TABLE shows_sales ADD COLUMN IF NOT EXISTS removed_seqs INT[] NOT NULL DEFAULT '{}';`;
 
 export const SHOWS_LISTA_SQL = `
   CREATE TABLE IF NOT EXISTS shows_attendees (
@@ -128,15 +132,15 @@ export function registerListaEventoRoutes(r, wrap) {
     const rs = (await q(
       `SELECT s.id AS sale_id, g.seq, s.name AS buyer, s.phone AS buyer_phone, sec.name AS sector, s.table_name, s.tables, s.host_sale_id,
               (SELECT h.name FROM shows_sales h WHERE h.id = s.host_sale_id) AS host_name,
-              s.status, s.people, s.guests, s.unit_price::float AS unit_price, s.club_discount::float AS club_discount,
+              s.status, s.people, s.removed_seqs, s.guests, s.unit_price::float AS unit_price, s.club_discount::float AS club_discount,
               COALESCE((SELECT SUM(p.amount) FROM shows_sale_payments p WHERE p.sale_id = s.id AND p.method <> 'cortesia'), 0)::float AS paid,
               EXISTS (SELECT 1 FROM shows_sale_payments p WHERE p.sale_id = s.id AND p.method = 'cortesia') AS courtesy,
               a.name AS att_name, a.phone AS att_phone, a.note, a.door_note, a.entered_at, a.entered_by
        FROM shows_sales s
        JOIN shows_sectors sec ON sec.id = s.sector_id
-       CROSS JOIN LATERAL generate_series(1, s.people) AS g(seq)
+       CROSS JOIN LATERAL generate_series(1, s.people + cardinality(s.removed_seqs)) AS g(seq)
        LEFT JOIN shows_attendees a ON a.sale_id = s.id AND a.seq = g.seq
-       WHERE s.event_id = $1 AND s.status = ANY($2)
+       WHERE s.event_id = $1 AND s.status = ANY($2) AND NOT (g.seq = ANY(s.removed_seqs))
        ORDER BY sec.position, COALESCE(s.host_sale_id, s.id), (s.host_sale_id IS NOT NULL), s.id, g.seq`, [eventId, OCUPAM])).rows;
     return rs.map((x) => {
       const nomes = String(x.guests || '').split('\n').map((l) => l.trim()).filter(Boolean);
@@ -180,12 +184,17 @@ export function registerListaEventoRoutes(r, wrap) {
   }));
 
   // confere que a pessoa existe (a venda está no evento e tem essa posição)
+  async function vendaDe(run, saleId) {
+    const sid = idOk(saleId);
+    const s = sid && (await run('SELECT id, event_id, name, people, removed_seqs, guests, status FROM shows_sales WHERE id=$1', [sid])).rows[0];
+    if (!s || !s.event_id) throw erro(404, 'Pessoa não encontrada');
+    if (!OCUPAM.includes(s.status)) throw erro(409, 'Essa venda está cancelada');
+    return s;
+  }
   async function pessoa(run, saleId, seq) {
     const sid = idOk(saleId), n = idOk(seq);
-    const s = sid && (await run('SELECT id, event_id, name, people, guests, status FROM shows_sales WHERE id=$1', [sid])).rows[0];
-    if (!s || !s.event_id) throw erro(404, 'Pessoa não encontrada');
-    if (!n || Number(n) < 1 || Number(n) > s.people) throw erro(404, 'Pessoa não encontrada');
-    if (!OCUPAM.includes(s.status)) throw erro(409, 'Essa venda está cancelada');
+    const s = await vendaDe(run, sid);
+    if (!n || !posicoesDe(s).includes(Number(n))) throw erro(404, 'Pessoa não encontrada');
     const a = (await run('SELECT * FROM shows_attendees WHERE sale_id=$1 AND seq=$2', [s.id, n])).rows[0] || {};
     const nomes = String(s.guests || '').split('\n').map((l) => l.trim()).filter(Boolean);
     const nome = a.name || nomes[Number(n) - 1] || (Number(n) === 1 ? s.name : `Acompanhante de ${s.name}`);
@@ -221,27 +230,52 @@ export function registerListaEventoRoutes(r, wrap) {
   }));
 
   // ---- excluir pessoas da lista (editor) ----
-  // Tira a pessoa da venda (a venda passa a ter uma pessoa a menos). Se era a única, a venda inteira é apagada.
-  // Quem vinha depois na mesma venda sobe uma posição; o QR Code antigo dessas posições deixa de valer (o ingresso precisa ser reenviado).
-  async function tirarPessoa(saleId, n) {
+  // Tira as pessoas escolhidas de uma venda. Quem fica mantém a posição e o ingresso; a venda passa a ter menos gente.
+  // Se o comprador (1ª pessoa) sai e a venda continua (tem outras pessoas ou é mesa reservada com convidados), o título de
+  // comprador passa para o nome e telefone informados em `comprador`. Se não sobra ninguém e não há convidados, a venda é apagada.
+  async function tirarPessoas(saleId, posicoes, comprador) {
     return tx(currentCompany(), async (t) => {
-      const p = await pessoa(t, saleId, n);
-      const s = p.s;
-      if (s.people <= 1) {
-        try { await t('DELETE FROM shows_sales WHERE id=$1', [s.id]); }
-        catch (e) { if (e.code === '23503') throw erro(409, 'Essa mesa tem convidados. Apague os convidados antes.'); throw e; }
-        return { p, apagouVenda: true };
-      }
+      const s = (await t('SELECT id, event_id, name, phone, people, removed_seqs, guests, status, held FROM shows_sales WHERE id=$1 FOR UPDATE', [saleId])).rows[0];
+      if (!s || !s.event_id) throw erro(404, 'Venda não encontrada');
+      const vagas = posicoesDe(s);
+      const tira = [...new Set(posicoes)].filter((n) => vagas.includes(n)).sort((a, b) => a - b);
+      if (!tira.length) throw erro(404, 'Pessoa não encontrada');
+      const restam = vagas.filter((n) => !tira.includes(n));
       const nomes = String(s.guests || '').split('\n').map((l) => l.trim()).filter(Boolean);
-      if (nomes.length >= p.seq) nomes.splice(p.seq - 1, 1);
-      await t('UPDATE shows_sales SET people = people - 1, guests = $2, updated_at = now() WHERE id=$1', [s.id, nomes.length ? nomes.join('\n') : null]);
-      await t('DELETE FROM shows_attendees WHERE sale_id=$1 AND seq=$2', [s.id, p.seq]);
-      for (let k = p.seq + 1; k <= s.people; k++) await t('UPDATE shows_attendees SET seq=$2 WHERE sale_id=$1 AND seq=$3', [s.id, k - 1, k]);
-      for (let k = p.seq; k < s.people; k++) await t('INSERT INTO shows_attendees (sale_id, seq, qr_ver) VALUES ($1,$2,1) ON CONFLICT (sale_id, seq) DO UPDATE SET qr_ver = shows_attendees.qr_ver + 1', [s.id, k]);
-      return { p, apagouVenda: false };
+      const at = new Map((await t('SELECT seq, name FROM shows_attendees WHERE sale_id=$1', [s.id])).rows.map((a) => [Number(a.seq), a.name]));
+      const nomeDe = (n) => at.get(n) || nomes[n - 1] || (n === 1 ? s.name : `Acompanhante de ${s.name}`);
+      const tiradas = tira.map((n) => ({ seq: n, nome: nomeDe(n) }));
+      const convidados = s.held ? Number((await t('SELECT count(*) AS n FROM shows_sales WHERE host_sale_id=$1', [s.id])).rows[0].n) : 0;
+      const sai1 = tira.includes(1);
+      const trocaComprador = sai1 && (restam.length > 0 || convidados > 0);
+      let novoComprador = null;
+      if (trocaComprador) {
+        const nm = txt(String(comprador?.name ?? '').replace(/\s+/g, ' '), 120), fone = normPhone(String(comprador?.phone ?? ''));
+        if (!nm || !/^\d{8,15}$/.test(fone)) throw erro(400, 'Informe o nome e o telefone do novo comprador');
+        novoComprador = { name: nm, phone: fone };
+      }
+      await t("DELETE FROM doc_files WHERE kind='ingresso' AND sale_id=$1 AND seq = ANY($2::int[])", [s.id, tira]);
+      if (!restam.length && !convidados) {
+        await t('DELETE FROM shows_sales WHERE id=$1', [s.id]);
+        return { s, tiradas, apagouVenda: true, novoComprador: null };
+      }
+      if (!restam.length) {   // mesa reservada com convidados: a mesa fica e a 1ª posição passa para o novo comprador
+        await t('DELETE FROM shows_attendees WHERE sale_id=$1', [s.id]);
+        await t('INSERT INTO shows_attendees (sale_id, seq, name, qr_ver) VALUES ($1,1,$2,1)', [s.id, novoComprador.name]);
+        const todas = Array.from({ length: s.people + retirados(s).length }, (_, i) => i + 1).filter((n) => n !== 1);
+        await t('UPDATE shows_sales SET name=$2, phone=$3, people=1, removed_seqs=$4::int[], guests=NULL, updated_at=now() WHERE id=$1', [s.id, novoComprador.name, novoComprador.phone, todas]);
+        return { s, tiradas, apagouVenda: false, novoComprador };
+      }
+      // quem fica guarda o próprio nome, para que tirar uma linha da lista de nomes não troque o nome de ninguém
+      for (const n of restam) if (!at.get(n) && nomes[n - 1]) await t('INSERT INTO shows_attendees (sale_id, seq, name) VALUES ($1,$2,$3) ON CONFLICT (sale_id, seq) DO UPDATE SET name = COALESCE(shows_attendees.name, EXCLUDED.name)', [s.id, n, nomes[n - 1]]);
+      for (const n of [...tira].reverse()) if (n - 1 < nomes.length) nomes.splice(n - 1, 1);
+      await t('DELETE FROM shows_attendees WHERE sale_id=$1 AND seq = ANY($2::int[])', [s.id, tira]);
+      await t('UPDATE shows_sales SET people=$2, removed_seqs=$3::int[], guests=$4, name=COALESCE($5, name), phone=COALESCE($6, phone), updated_at=now() WHERE id=$1',
+        [s.id, restam.length, [...retirados(s), ...tira].sort((a, b) => a - b), nomes.length ? nomes.join('\n') : null, novoComprador?.name ?? null, novoComprador?.phone ?? null]);
+      return { s, tiradas, apagouVenda: false, novoComprador };
     });
   }
-  // Mesmo formato das outras exclusões em massa do painel. Corpo: { ids: ['venda:posição', ...], dry_run? }.
+  // Mesmo formato das outras exclusões em massa do painel. Corpo: { ids: ['venda:posição', ...], buyers?: { [venda]: { name, phone } }, dry_run? }.
   // dry_run só mostra o que aconteceria (de que compra cada pessoa faz parte); sem ele, exclui.
   r.post('/event-list/bulk-delete', tratar(async (req, res) => {
     const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
@@ -257,28 +291,31 @@ export function registerListaEventoRoutes(r, wrap) {
     if (req.body?.dry_run) {
       const compras = [];
       for (const [sid, posicoes] of porVenda) {
-        const v = (await q('SELECT id, name, people, status FROM shows_sales WHERE id=$1', [sid])).rows[0];
+        const v = (await q('SELECT id, name, people, removed_seqs, held, status FROM shows_sales WHERE id=$1', [sid])).rows[0];
         if (!v) continue;
-        const tira = [...posicoes].filter((n) => n >= 1 && n <= v.people);
+        const vagas = posicoesDe(v);
+        const tira = [...posicoes].filter((n) => vagas.includes(n));
         if (!tira.length) continue;
-        compras.push({ id: v.id, buyer: v.name, people: v.people, remove: tira.length, delete_sale: tira.length >= v.people,
-          resend: tira.length < v.people && Math.min(...tira) < v.people });
+        const restam = vagas.length - tira.length;
+        const convidados = v.held ? Number((await q('SELECT count(*) AS n FROM shows_sales WHERE host_sale_id=$1', [v.id])).rows[0].n) : 0;
+        compras.push({ id: v.id, buyer: v.name, people: v.people, remove: tira.length, remaining: restam,
+          delete_sale: restam === 0 && !convidados, needs_buyer: tira.includes(1) && (restam > 0 || convidados > 0), table_guests: convidados });
       }
       return res.json({ people: ids.length, purchases: compras });
     }
     const por = await ator(req);
     const out = { deleted: 0, sales_deleted: 0, skipped: [] };
     for (const [sid, posicoes] of porVenda) {
-      // da última posição para a primeira: tirar uma pessoa muda a posição das que vêm depois
-      for (const n of [...posicoes].sort((a, b) => b - a)) {
-        try {
-          const { p, apagouVenda } = await tirarPessoa(sid, n);
-          await registrar(p.s.event_id, p.s.id, p.seq, p.nome, por, 'exclusao', apagouVenda ? 'venda apagada (era a única pessoa)' : `tirada da venda de ${p.s.name}`);
-          out.deleted++; if (apagouVenda) out.sales_deleted++;
-        } catch (e) {
-          if (!e.status) throw e;
-          out.skipped.push({ id: `${sid}:${n}`, name: `pessoa ${n} da venda ${sid}`, motivo: e.message });
+      try {
+        const { s, tiradas, apagouVenda, novoComprador } = await tirarPessoas(sid, [...posicoes], req.body?.buyers?.[sid]);
+        for (const x of tiradas) {
+          await registrar(s.event_id, s.id, x.seq, x.nome, por, 'exclusao', apagouVenda ? 'venda apagada (não sobrou ninguém)' : `tirada da venda de ${s.name}` + (novoComprador ? ` · novo comprador: ${novoComprador.name}` : ''));
+          out.deleted++;
         }
+        if (apagouVenda) out.sales_deleted++;
+      } catch (e) {
+        if (!e.status) throw e;
+        out.skipped.push({ id: `${sid}:${[...posicoes].join(',')}`, name: `venda ${sid}`, motivo: e.message });
       }
     }
     res.json({ ok: true, ...out });
@@ -297,9 +334,9 @@ export function registerListaEventoRoutes(r, wrap) {
   }));
   // todos os ingressos de uma venda, um PDF por pessoa
   r.post('/event-list/:sale/tickets', tratar(async (req, res) => {
-    const p = await pessoa(q, req.params.sale, 1);
+    const sale = await vendaDe(q, req.params.sale);
     const out = [];
-    for (let n = 1; n <= p.s.people; n++) out.push({ ...(await ingressoDe(req, p.s.id, n)), name: (await pessoa(q, p.s.id, n)).nome });
+    for (const n of posicoesDe(sale)) out.push({ ...(await ingressoDe(req, sale.id, n)), name: (await pessoa(q, sale.id, n)).nome });
     res.status(201).json({ tickets: out });
   }));
 
@@ -319,13 +356,13 @@ export function registerListaEventoRoutes(r, wrap) {
   // Marca (ou desmarca) todas as pessoas de uma venda de uma vez
   r.put('/event-list-comment/:sale/entry', tratar(async (req, res) => {
     if (typeof req.body?.entered !== 'boolean') throw erro(400, 'Informe se as pessoas entraram');
-    const p = await pessoa(q, req.params.sale, 1);
+    const sale = await vendaDe(q, req.params.sale);
     const por = await ator(req);
-    for (let n = 1; n <= p.s.people; n++) {
-      const pn = await pessoa(q, p.s.id, n);
+    for (const n of posicoesDe(sale)) {
+      const pn = await pessoa(q, sale.id, n);
       await garantir(pn);
-      await q('UPDATE shows_attendees SET entered_at = CASE WHEN $3::boolean THEN COALESCE(entered_at, now()) ELSE NULL END, entered_by = CASE WHEN $3::boolean THEN COALESCE(entered_by, $4) ELSE NULL END WHERE sale_id=$1 AND seq=$2', [p.s.id, n, req.body.entered, por]);
-      await registrar(p.s.event_id, p.s.id, n, pn.nome, por, req.body.entered ? 'entrada' : 'entrada_desfeita', 'venda inteira');
+      await q('UPDATE shows_attendees SET entered_at = CASE WHEN $3::boolean THEN COALESCE(entered_at, now()) ELSE NULL END, entered_by = CASE WHEN $3::boolean THEN COALESCE(entered_by, $4) ELSE NULL END WHERE sale_id=$1 AND seq=$2', [sale.id, n, req.body.entered, por]);
+      await registrar(sale.event_id, sale.id, n, pn.nome, por, req.body.entered ? 'entrada' : 'entrada_desfeita', 'venda inteira');
     }
     res.json({ ok: true });
   }));

@@ -34,14 +34,14 @@ export async function variaveisDoIngresso(saleId, seq) {
   if (!/^\d+$/.test(String(saleId ?? ''))) return { erro: [400, 'Venda inválida'] };
   const n = Number(seq ?? 1);
   const s = (await q(
-    `SELECT s.id, s.event_id, s.name, s.people, s.guests, s.status, s.table_name, s.tables, s.host_sale_id, sec.name AS sector,
+    `SELECT s.id, s.event_id, s.name, s.people, s.removed_seqs, s.guests, s.status, s.table_name, s.tables, s.host_sale_id, sec.name AS sector,
             (SELECT h.name FROM shows_sales h WHERE h.id = s.host_sale_id) AS host_name,
             e.title, e.starts_at, e.doors_at, e.place, s.seats_each,
             (SELECT v.address FROM shows_venues v WHERE v.id = sec.venue_id) AS venue_address,
             (SELECT v.name FROM shows_venues v WHERE v.id = sec.venue_id) AS venue_name
      FROM shows_sales s JOIN shows_sectors sec ON sec.id = s.sector_id LEFT JOIN events e ON e.id = s.event_id WHERE s.id = $1`, [saleId])).rows[0];
   if (!s) return { erro: [404, 'Venda não encontrada'] };
-  if (!Number.isInteger(n) || n < 1 || n > s.people) return { erro: [404, 'Pessoa não encontrada nessa venda'] };
+  if (!Number.isInteger(n) || n < 1 || n > s.people + s.removed_seqs.length || s.removed_seqs.includes(n)) return { erro: [404, 'Pessoa não encontrada nessa venda'] };
   if (!OCUPAM.includes(s.status)) return { erro: [409, 'Essa venda está cancelada'] };
   const a = (await q('SELECT name, qr_ver FROM shows_attendees WHERE sale_id=$1 AND seq=$2', [s.id, n])).rows[0] || {};
   const nomes = String(s.guests || '').split('\n').map((l) => l.trim()).filter(Boolean);
