@@ -144,4 +144,18 @@ export function registerContatosRoutes(r, wrap, { custPhone, digits }) {
     if (tipo) await q(`UPDATE customers SET client_kinds = CASE WHEN $2 = ANY(client_kinds) THEN client_kinds ELSE array_append(client_kinds, $2) END, updated_at=now() WHERE id=$1`, [ins.id, tipo.key]);
     res.status(ins.created ? 201 : 200).json({ ok: true, id: ins.id, created: ins.created, message: `Contato atualizado${assunto ? ` (${cfg.subject_label}: ${assunto})` : ''}${tipo ? `, tipo ${tipo.label}` : ''}. Não avise o cliente.` });
   }));
+
+  // A agente avisa que o cliente pediu para não receber mais mensagens: o contato vira "Não enviar" e fica fora das campanhas.
+  // Não tem relação com cancelar reserva ou ingresso.
+  r.post('/customers/opt-out', wrap(async (req, res) => {
+    const b = req.body || {};
+    const phone = custPhone(b.phone);
+    if (digits(phone).length < 10) return res.json({ ok: false, message: 'Não consegui identificar o telefone do cliente.' });
+    const ins = (await q(
+      `INSERT INTO customers (name,phone,chat_id,source,status) VALUES (NULLIF($1,''),$2,$3,'ia','lead')
+       ON CONFLICT (phone) DO UPDATE SET chat_id = COALESCE(customers.chat_id, EXCLUDED.chat_id), updated_at = now() RETURNING id`,
+      [String(b.name ?? '').trim().slice(0, 120), phone, b.chat_id ? String(b.chat_id).slice(0, 80) : null])).rows[0];
+    await q(`INSERT INTO campaign_exclusions (phone, note) VALUES ($1, 'Pediu para não receber (pela atendente)') ON CONFLICT (phone) DO NOTHING`, [phone]);
+    res.json({ ok: true, id: ins.id, message: 'Pronto: o contato está marcado como Não enviar e não receberá mais campanhas nem avisos. Confirme ao cliente de forma breve e cordial. Reservas e ingressos continuam como estão; isto não cancela nada.' });
+  }));
 }

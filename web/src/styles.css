@@ -5,8 +5,9 @@
 :root[data-mode='dark'] input, :root[data-mode='dark'] select, :root[data-mode='dark'] textarea { background: var(--bg); color: var(--text); }
 :root[data-mode='dark'] .modal { background: var(--card); }
 :root[data-mode='dark'] .badge.client, :root[data-mode='dark'] .badge.attended { background: #123524; }
-:root[data-mode='dark'] .badge.lead, :root[data-mode='dark'] .badge.pending { background: #3a2c10; }
-:root[data-mode='dark'] .badge.no_show { background: #3d1a1a; }
+:root[data-mode='dark'] .badge.lead, :root[data-mode='dark'] .badge.optout { background: #fde8e8; color: var(--bad); }
+.badge.pending { background: #3a2c10; }
+:root[data-mode='dark'] .badge.optout, :root[data-mode='dark'] .badge.no_show { background: #3d1a1a; }
 :root[data-mode='dark'] .badge.cancelled { background: #2a3140; }
 :root[data-mode='dark'] .error { background: #3d1a1a; }
 :root[data-mode='dark'] select option { background: var(--card); color: var(--text); }

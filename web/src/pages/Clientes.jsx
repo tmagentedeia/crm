@@ -16,7 +16,9 @@ const SITUACAO = { member: 'Membro', former: 'Ex-membro', supporter: 'Contribuin
 const GENERO = { female: 'Feminino', male: 'Masculino', other: 'Outro' };
 const dm = (d, m, y) => (d && m ? String(d).padStart(2, '0') + '/' + String(m).padStart(2, '0') + (y ? '/' + y : '') : '');
 const COLUNAS = ['Nome', 'Sobrenome', 'Telefone', 'Tipo', 'Origem', 'Cidade', 'Estado', 'Data de nascimento', 'Gênero', 'Situação no programa', 'Nível', 'Última visita', 'Cadastrado em', 'Atualizado em', 'Observações', 'Assunto'];
-const linhas = (rows) => rows.map((c) => [c.name, c.last_name, c.phone, c.status === 'client' ? 'Cliente' : 'Lead', c.source === 'ia' ? 'Agente IA' : 'Manual', c.city, c.state, dm(c.birth_day, c.birth_month, c.birth_year), GENERO[c.gender], SITUACAO[c.club_status], c.club_level_name, dataBr(c.last_visit_at), dataBr(c.created_at), dataBr(c.updated_at), c.notes, c.subject].map(cel));
+const tipoDe = (c) => (c.campaign_excluded ? 'optout' : c.status);
+const ROTULO_TIPO = { lead: 'Lead', client: 'Cliente', optout: 'Não enviar' };
+const linhas = (rows) => rows.map((c) => [c.name, c.last_name, c.phone, ROTULO_TIPO[tipoDe(c)], c.source === 'ia' ? 'Agente IA' : 'Manual', c.city, c.state, dm(c.birth_day, c.birth_month, c.birth_year), GENERO[c.gender], SITUACAO[c.club_status], c.club_level_name, dataBr(c.last_visit_at), dataBr(c.created_at), dataBr(c.updated_at), c.notes, c.subject].map(cel));
 // aceita 25/09 ou 25/09/1990; devolve o que o servidor entende
 const nomeCompleto = (c) => [c.name, c.last_name].filter(Boolean).join(' ');
 
@@ -85,11 +87,11 @@ export default function Clientes({ company }) {
   return (
     <>
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: 16 }}>
-        <div><h1><Nome id="clientes">Clientes e Leads</Nome></h1><p className="muted">Lead = só conversou · Cliente = já comprou / contratou / compareceu</p></div>
+        <div><h1><Nome id="clientes">Clientes e Leads</Nome></h1><p className="muted">Lead = só conversou · Cliente = já comprou / contratou / compareceu · Não enviar = pediu para não receber mensagens</p></div>
         <div className="row"><ImportarAqui tipo="customers" onFeito={load} /><button className="btn" onClick={() => setPersonalizando(true)} title="Nome do campo de assunto, tipos de cliente e registro pela atendente"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: '-2px', marginRight: 6 }}><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>Personalizar</button><button className="btn primary" onClick={() => setAdding(true)}>+ Cadastrar cliente ou lead</button></div>
       </div>
       <div className="row" style={{ marginBottom: 12 }}>
-        {[['', 'Todos'], ['lead', 'Leads'], ['client', 'Clientes']].map(([v, l]) => (
+        {[['', 'Todos'], ['lead', 'Leads'], ['client', 'Clientes'], ['optout', 'Não enviar']].map(([v, l]) => (
           <button key={v} className={'btn' + (tab === v ? ' primary' : '')} onClick={() => setTab(v)}>{l}</button>
         ))}
         {temTipos && (
@@ -138,7 +140,7 @@ export default function Clientes({ company }) {
                 <CelulaLinha s={sel} id={c.id} />
                 <td>{nomeCompleto(c) || <span className="muted">Sem nome</span>}</td>
                 <td>{fmtPhone(c.phone)}</td>
-                <td><span className={'badge ' + c.status}>{c.status === 'client' ? 'Cliente' : 'Lead'}</span>{(c.client_kinds || []).map((k) => <span key={k} className="muted"> · {PERFIL[k] || k}</span>)}</td>
+                <td><span className={'badge ' + tipoDe(c)}>{ROTULO_TIPO[tipoDe(c)]}</span>{(c.client_kinds || []).map((k) => <span key={k} className="muted"> · {PERFIL[k] || k}</span>)}</td>
                 {col.assunto && <td title={c.subject || ''}>{c.subject ? (c.subject.length > 50 ? c.subject.slice(0, 50) + '…' : c.subject) : <span className="muted">—</span>}</td>}
                 {clube && col.clube && <td>{c.club_status ? <span className="badge">{SITUACAO[c.club_status]}{c.club_level_name ? ' · ' + c.club_level_name : ''}</span> : <span className="muted">—</span>}</td>}
                 {col.cidade && <td>{[c.city, c.state].filter(Boolean).join(' / ') || <span className="muted">—</span>}</td>}
@@ -236,7 +238,7 @@ function EditarSelecionados({ s, rotuloAssunto, onDone }) {
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h2>Editar {s.count} contato(s)</h2>
             <p className="muted">Marque o que quer mudar. O valor vale para todos os selecionados; o que não for marcado fica como está. Deixar um campo marcado e vazio apaga o conteúdo dele.</p>
-            {campo('status', 'o tipo', <select value={v.status || 'client'} onChange={(e) => setV({ ...v, status: e.target.value })}><option value="client">Cliente</option><option value="lead">Lead</option></select>)}
+            {campo('status', 'o tipo', <select value={v.status || 'client'} onChange={(e) => setV({ ...v, status: e.target.value })}><option value="client">Cliente</option><option value="lead">Lead</option><option value="optout">Não enviar</option></select>)}
             {campo('subject', rotuloAssunto.toLowerCase(), <input value={v.subject} maxLength={300} onChange={(e) => setV({ ...v, subject: e.target.value })} placeholder="Ex.: Baile do Miranda" />)}
             {campo('city', 'a cidade', <input value={v.city} maxLength={100} onChange={(e) => setV({ ...v, city: e.target.value })} />)}
             {campo('state', 'o estado', <input value={v.state} maxLength={2} onChange={(e) => setV({ ...v, state: e.target.value.toUpperCase() })} placeholder="MG" style={{ maxWidth: 90 }} />)}
@@ -254,7 +256,7 @@ function EditarSelecionados({ s, rotuloAssunto, onDone }) {
 }
 
 function Detail({ c, PERFIL, rotuloAssunto, perfis, nomePedidos, clube, club, onClose, onSaved, onDeleted }) {
-  const [f, setF] = useState({ name: c.name || '', last_name: c.last_name || '', phone: c.phone || '', status: c.status, notes: c.notes || '', subject: c.subject || '', ...fichaInicial(c) });
+  const [f, setF] = useState({ name: c.name || '', last_name: c.last_name || '', phone: c.phone || '', status: tipoDe(c), notes: c.notes || '', subject: c.subject || '', ...fichaInicial(c) });
   const [extra, setExtra] = useState(c.extra || {});
   const [hist, setHist] = useState(null);
   const verHistorico = () => api(`/customers/${c.id}/subjects`).then(setHist).catch((e) => setErr(e.message));
@@ -274,6 +276,7 @@ function Detail({ c, PERFIL, rotuloAssunto, perfis, nomePedidos, clube, club, on
       if (semCamp) await api('/campaigns/exclusions/remove', { method: 'POST', body: { phone: c.phone } });
       else await api('/campaigns/exclusions', { method: 'POST', body: { phones: c.phone } });
       setSemCamp(!semCamp);
+      setF((x) => ({ ...x, status: semCamp ? c.status : 'optout' }));
     } catch (e) { setErr(e.message); }
   };
   const remove = async () => {
@@ -285,7 +288,7 @@ function Detail({ c, PERFIL, rotuloAssunto, perfis, nomePedidos, clube, club, on
     <div className="modal-bg" onClick={onClose}>
       <div className="modal" style={{ maxWidth: 600 }} onClick={(e) => e.stopPropagation()}>
         <div className="row" style={{ justifyContent: 'space-between' }}>
-          <h2>{nomeCompleto(c) || 'Sem nome'}</h2><span className={'badge ' + c.status}>{c.status === 'client' ? 'Cliente' : 'Lead'}</span>
+          <h2>{nomeCompleto(c) || 'Sem nome'}</h2><span className={'badge ' + (semCamp ? 'optout' : c.status)}>{semCamp ? 'Não enviar' : c.status === 'client' ? 'Cliente' : 'Lead'}</span>
         </div>
         {semCamp && <p className="muted" style={{ color: 'var(--bad)' }}>Este contato não recebe campanhas.</p>}
         <p className="muted">{fmtPhone(c.phone)} · primeiro contato em {fmtDate(c.first_contact_at)} · {attended.length} visita(s) · gasto total {money(attended.reduce((s, h) => s + Number(h.price), 0))}{c.age != null ? ` · ${c.age} anos` : ''} · ficha atualizada em {fmtDate(c.updated_at)}</p>
@@ -298,7 +301,7 @@ function Detail({ c, PERFIL, rotuloAssunto, perfis, nomePedidos, clube, club, on
           <div className="field" style={{ flex: 2 }}><label>Telefone (com DDD)</label><input value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} /></div>
           <div className="field"><label>Tipo</label>
             <select value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
-              <option value="lead">Lead</option><option value="client">Cliente</option>
+              <option value="lead">Lead</option><option value="client">Cliente</option><option value="optout">Não enviar</option>
             </select></div>
         </div>
         {perfis && (
@@ -390,7 +393,7 @@ function AddCustomer({ clube, club, onClose, onSaved }) {
         </div>
         <div className="field"><label>Telefone (com DDD) *</label><input value={f.phone} onChange={set('phone')} required /></div>
         <div className="field"><label>Tipo</label>
-          <select value={f.status} onChange={set('status')}><option value="client">Cliente</option><option value="lead">Lead</option></select></div>
+          <select value={f.status} onChange={set('status')}><option value="client">Cliente</option><option value="lead">Lead</option><option value="optout">Não enviar</option></select></div>
         <FichaCampos f={f} setF={setF} clube={clube} club={club} />
         <div className="field"><label>Observações</label><textarea rows={2} value={f.notes} onChange={set('notes')} /></div>
         <div className="row"><button className="btn primary">Salvar</button><button type="button" className="btn" onClick={onClose}>Cancelar</button></div>

@@ -31,6 +31,10 @@ import { registerCasaDeShowsRoutes, historicoCasaDeShows } from './casa_de_shows
 
 const digits = (s) => String(s || '').replace(/\D/g, '');
 const custPhone = normPhone;
+// "Não enviar" é um tipo do contato (ao lado de lead e cliente): vale a mesma lista de números que não recebem campanhas.
+const TIPOS_OK = ['lead', 'client', 'optout'];
+const marcarNaoEnviar = async (ids) => { await q('UPDATE customers SET mirror_pending=true WHERE id = ANY($1::bigint[])', [ids]); return q(`INSERT INTO campaign_exclusions (phone, note) SELECT phone, 'Marcado como Não enviar' FROM customers WHERE id = ANY($1::bigint[]) AND phone IS NOT NULL ON CONFLICT (phone) DO NOTHING`, [ids]); };
+const liberarEnvio = async (ids) => { await q('UPDATE customers SET mirror_pending=true WHERE id = ANY($1::bigint[])', [ids]); return q('DELETE FROM campaign_exclusions WHERE phone IN (SELECT phone FROM customers WHERE id = ANY($1::bigint[]))', [ids]); };
 // ids vindos do corpo de uma exclusão em massa: inteiros positivos, sem repetir, no máximo 2000
 const idsDe = (body) => [...new Set((Array.isArray(body?.ids) ? body.ids : []).map(Number).filter((n) => Number.isInteger(n) && n > 0))].slice(0, 2000);
 const wrap = (fn) => (req, res) => fn(req, res).catch((e) => {
@@ -602,7 +606,8 @@ export function buildRouter() {
                   END AS age
                 FROM customers c LEFT JOIN loyalty_levels l ON l.id=c.club_level_id`;
   // filtros da listagem: tipo, busca, situação no Clube ('member','former','supporter','none') e nível
-  const FILTRO = `($1::text IS NULL OR c.status=$1)
+  const NAO_ENVIAR = 'EXISTS (SELECT 1 FROM campaign_exclusions x WHERE x.phone=c.phone)';
+  const FILTRO = `($1::text IS NULL OR ($1='optout' AND ${NAO_ENVIAR}) OR ($1<>'optout' AND c.status=$1 AND NOT ${NAO_ENVIAR}))
        AND ($2::text IS NULL OR NOT EXISTS (SELECT 1 FROM unnest(regexp_split_to_array(btrim($2), '\\s+')) AS t(w)
             WHERE concat_ws(' ', c.name, c.last_name, c.phone, c.subject, c.city) NOT ILIKE '%'||t.w||'%')
             OR ($6::text IS NOT NULL AND c.phone=$6))
@@ -709,7 +714,7 @@ export function buildRouter() {
   // Upsert por telefone: o agente de IA chama isso quando um lead novo conversa
   r.post('/customers', wrap(async (req, res) => {
     const { name, phone, chat_id, source = 'manual', notes, status } = req.body;
-    if (status !== undefined && !['lead', 'client'].includes(status)) return res.status(400).json({ error: 'Tipo inválido' });
+    if (status !== undefined && !TIPOS_OK.includes(status)) return res.status(400).json({ error: 'Tipo inválido' });
     const f = await lerFicha(req.body);
     if (f.erro) return res.status(400).json({ error: f.erro });
     // Cadastro feito por uma pessoa no painel não aceita telefone repetido (a agente continua completando o contato que já existe)
@@ -725,7 +730,9 @@ export function buildRouter() {
          chat_id=COALESCE(EXCLUDED.chat_id,customers.chat_id),
          notes=COALESCE(EXCLUDED.notes,customers.notes)
        RETURNING id`,
-      [name, custPhone(phone), chat_id, source, notes, status ?? null]);
+      [name, custPhone(phone), chat_id, source, notes, status === 'optout' ? null : (status ?? null)]);
+    if (status === 'optout') await marcarNaoEnviar([rows[0].id]);
+    else if (status) await liberarEnvio([rows[0].id]);
     await gravarFicha(rows[0].id, f.campos);
     res.status(201).json((await q(`${CUST} WHERE c.id=$1`, [rows[0].id])).rows[0]);
   }));
@@ -769,7 +776,7 @@ export function buildRouter() {
   }));
   r.put('/customers/:id', wrap(async (req, res) => {
     const { name, phone, notes, status } = req.body;
-    if (status !== undefined && !['lead', 'client'].includes(status)) return res.status(400).json({ error: 'Tipo inválido' });
+    if (status !== undefined && !TIPOS_OK.includes(status)) return res.status(400).json({ error: 'Tipo inválido' });
     if (phone !== undefined && digits(phone).length < 10) return res.status(400).json({ error: 'Telefone inválido (use DDD + número)' });
     const atual = (await q('SELECT club_status FROM customers WHERE id=$1', [req.params.id])).rows[0];
     if (!atual) return res.status(404).json({ error: 'Não encontrado' });
@@ -790,7 +797,9 @@ export function buildRouter() {
       `UPDATE customers SET name=COALESCE($2,name), phone=COALESCE($3,phone), notes=COALESCE($4,notes),
        status=COALESCE($5,status), updated_at=now()
        WHERE id=$1 RETURNING id`,
-      [req.params.id, name, phone ? custPhone(phone) : null, notes, status ?? null]);
+      [req.params.id, name, phone ? custPhone(phone) : null, notes, status === 'optout' ? null : (status ?? null)]);
+    if (status === 'optout') await marcarNaoEnviar([rows[0].id]);
+    else if (status) await liberarEnvio([rows[0].id]);
     await gravarFicha(rows[0].id, f.campos);
     if (perfis) await q(`UPDATE customers SET client_kinds=$2::text[], status = CASE WHEN $2::text[] && ARRAY['buyer','hirer'] THEN 'client' ELSE status END WHERE id=$1`, [rows[0].id, perfis]);
     if (req.body.subject !== undefined) await definirAssunto(rows[0].id, req.body.subject, 'Equipe');
@@ -843,8 +852,9 @@ export function buildRouter() {
     const set = [], args = [ids];
     const campo = (col, val) => { args.push(val); set.push(`${col}=$${args.length}`); };
     if (b.status !== undefined) {
-      if (!['lead', 'client'].includes(b.status)) return res.status(400).json({ error: 'Tipo inválido' });
-      campo('status', b.status);
+      if (!TIPOS_OK.includes(b.status)) return res.status(400).json({ error: 'Tipo inválido' });
+      if (b.status === 'optout') await marcarNaoEnviar(ids);
+      else { await liberarEnvio(ids); campo('status', b.status); }
     }
     if (b.city !== undefined) { const x = livre(b.city, 100, 'Cidade'); if (x.erro) return res.status(400).json({ error: x.erro }); campo('city', x.v); }
     if (b.state !== undefined) {
@@ -858,8 +868,8 @@ export function buildRouter() {
       const x = livre(b.subject, 300, 'Assunto'); if (x.erro) return res.status(400).json({ error: x.erro });
       assunto = x.v;
     }
-    if (!set.length && assunto === undefined) return res.status(400).json({ error: 'Escolha pelo menos um campo para alterar' });
-    let alterados = 0;
+    if (!set.length && assunto === undefined && b.status !== 'optout') return res.status(400).json({ error: 'Escolha pelo menos um campo para alterar' });
+    let alterados = b.status === 'optout' ? (await q('SELECT count(*)::int AS n FROM customers WHERE id = ANY($1::bigint[])', [ids])).rows[0].n : 0;
     if (set.length) alterados = (await q(`UPDATE customers SET ${set.join(', ')}, updated_at=now() WHERE id = ANY($1::bigint[])`, args)).rowCount;
     if (assunto !== undefined) {
       const achados = (await q('SELECT id FROM customers WHERE id = ANY($1::bigint[])', [ids])).rows;

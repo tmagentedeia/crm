@@ -31,7 +31,7 @@ function payload(companyId, c, cfg) {
   return {
     event: 'contact', company_id: Number(companyId), id: Number(c.id), phone: c.phone,
     name: c.name || '', last_name: c.last_name || '', full_name: [c.name, c.last_name].filter(Boolean).join(' '),
-    status: c.status === 'client' ? 'Cliente' : 'Lead', types: tipos,
+    status: c.campaign_excluded ? 'Não enviar' : c.status === 'client' ? 'Cliente' : 'Lead', types: tipos,
     subject_label: cfg.subject_label, subject: c.subject || '', city: c.city || '', notes: c.notes || '',
     club_status: c.club_status || '', plan: c.plan || '', birth_date: nascimento(c), created_at: c.created_at, updated_at: c.updated_at,
   };
@@ -51,7 +51,8 @@ export async function espelharPendentes() {
           // marca como enviado antes de mandar; se falhar, volta a marcar (assim uma edição no meio do envio não se perde)
           const lote = (await t(`SELECT c.id, c.name, c.last_name, c.phone, c.status, c.client_kinds, c.subject, c.city, c.notes, c.club_status,
                                         c.birth_day, c.birth_month, c.birth_year, c.created_at, c.updated_at,
-                                        CASE WHEN c.club_status = 'member' THEN lv.name END AS plan
+                                        CASE WHEN c.club_status = 'member' THEN lv.name END AS plan,
+                                        EXISTS (SELECT 1 FROM campaign_exclusions x WHERE x.phone = c.phone) AS campaign_excluded
                                  FROM customers c LEFT JOIN loyalty_levels lv ON lv.id = c.club_level_id
                                  WHERE c.mirror_pending AND c.phone IS NOT NULL ORDER BY c.id LIMIT $1`, [POR_VEZ()])).rows;
           for (const c of lote) {
