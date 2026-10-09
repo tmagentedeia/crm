@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { api, getToken, fmtPhone } from '../api.js';
 import LeitorQr from './LeitorQr.jsx';
+import { useSelecao, CelulaTodos, CelulaLinha, ApagarSelecionados, resumoApagado } from '../selecao.jsx';
 
 const PAGTO = { paid: 'Pago', partial: 'Parcial', pending: 'Pendente', courtesy: 'Cortesia', no_price: '—' };
-const ACAO = { entrada: 'marcou entrada', entrada_desfeita: 'desfez a entrada', comentario: 'comentou', edicao: 'editou' };
+const ACAO = { entrada: 'marcou entrada', entrada_desfeita: 'desfez a entrada', comentario: 'comentou', edicao: 'editou', exclusao: 'excluiu' };
 const quando = (d) => new Date(d).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
 const hora = (d) => new Date(d).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 const guarda = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* sem espaço: segue sem cópia */ } };
@@ -95,6 +96,9 @@ export default function ListaDoEvento({ eventoId = null, onVoltar = null }) {
     });
   }, [d, busca, filtro]);
 
+  const linhas = useMemo(() => rows.map((r) => ({ ...r, id: r.key })), [rows]);
+  const sel = useSelecao(linhas);
+  const nomeEvento = eventos.find((e) => String(e.id) === String(ev))?.title || d?.event?.title || '';
   const agir = async (fn) => { try { await fn(); await carregar(); } catch (e) { setErro(e.message); } };
   // Marcação com internet vai direto; sem internet fica guardada no aparelho e sobe sozinha quando voltar
   const registrarMarca = async (it) => {
@@ -132,6 +136,7 @@ export default function ListaDoEvento({ eventoId = null, onVoltar = null }) {
   const [paraAdm, setParaAdm] = useState(true);
   const [paraEmpresa, setParaEmpresa] = useState(false);
   const [aviso, setAviso] = useState('');
+  const [apagou, setApagou] = useState('');
   const carregarEnvio = () => api('/event-list-settings').then((x) => { setEnvio(x); setTelefones(x.phones.join('\n')); setParaAdm(x.to_admin); setParaEmpresa(x.to_company); }).catch(() => {});
   useEffect(() => { if (dono) carregarEnvio(); }, [dono]);
   const salvarEnvio = async (enabled) => {
@@ -157,7 +162,7 @@ export default function ListaDoEvento({ eventoId = null, onVoltar = null }) {
   return (
     <>
       <div style={{ marginBottom: 12 }}>
-        <h1>Lista do evento</h1>
+        <h1>Lista do evento{nomeEvento ? ` - ${nomeEvento}` : ''}</h1>
         <p className="muted">
           Todas as pessoas do evento, uma por linha.
           {nivel === 'editor' && ' Você pode editar os dados, marcar a entrada e comentar.'}
@@ -213,12 +218,30 @@ export default function ListaDoEvento({ eventoId = null, onVoltar = null }) {
               <button key={v} className={'btn sm' + (filtro === v ? ' primary' : '')} onClick={() => setFiltro(v)}>{l}</button>
             ))}
           </div>
+          {nivel === 'editor' && (
+            <ApagarSelecionados s={sel} total={rows.length} rotulo="pessoa(s)" rota="/event-list/bulk-delete"
+              onDone={(r) => { setApagou(resumoApagado(r, 'pessoa(s)')); carregar(); }}
+              descreve={(i) => (
+                <>
+                  <p>Cada pessoa apagada sai da lista e libera o lugar na venda do ingresso.</p>
+                  {(i.purchases || []).map((c) => (
+                    <p key={c.id} style={{ margin: '6px 0' }}>
+                      {c.delete_sale
+                        ? <>Atenção: {c.remove === 1 ? 'esta pessoa faz' : 'estas pessoas fazem'} parte da compra de <strong>{c.buyer}</strong> ({c.people} {c.people === 1 ? 'pessoa' : 'pessoas'}). Como {c.remove === 1 ? 'é a única' : 'serão todas'}, a compra inteira será apagada.</>
+                        : <>Atenção: {c.remove === 1 ? 'esta pessoa faz' : 'estas pessoas fazem'} parte da compra de <strong>{c.buyer}</strong> ({c.people} {c.people === 1 ? 'pessoa' : 'pessoas'}). A compra passará a ter {c.people - c.remove}.{c.resend ? ' Os ingressos já enviados das pessoas seguintes deixam de valer: será preciso reenviar.' : ''}</>}
+                    </p>
+                  ))}
+                </>
+              )} />
+          )}
+          {apagou && nivel === 'editor' && <p className="muted" style={{ marginBottom: 8 }}>{apagou}</p>}
           <div className="card table-wrap">
             <table>
-              <thead><tr><th>Entrou</th><th>Nome</th><th>Setor</th><th>Mesa</th>{!d.phone_hidden && <th>Telefone</th>}<th>Valor</th><th>Pagamento</th><th>Observações da casa</th><th>Comentário da equipe</th>{nivel !== 'leitor' && <th></th>}</tr></thead>
+              <thead><tr>{nivel === 'editor' && <CelulaTodos s={sel} />}<th>Entrou</th><th>Nome</th><th>Setor</th><th>Mesa</th>{!d.phone_hidden && <th>Telefone</th>}<th>Valor</th><th>Pagamento</th><th>Observações da casa</th><th>Comentário da equipe</th>{nivel !== 'leitor' && <th></th>}</tr></thead>
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.key} style={r.entered_at ? { opacity: 0.75 } : undefined}>
+                    {nivel === 'editor' && <CelulaLinha s={sel} id={r.key} />}
                     <td style={{ whiteSpace: 'nowrap' }}>
                       {podeMarcar
                         ? <button className={'btn sm' + (r.entered_at ? ' primary' : '')} onClick={() => entrada(r)}>{r.entered_at ? `Entrou ${hora(r.entered_at)}` : 'Marcar'}</button>
@@ -241,7 +264,7 @@ export default function ListaDoEvento({ eventoId = null, onVoltar = null }) {
                     )}
                   </tr>
                 ))}
-                {!rows.length && <tr><td colSpan="10" className="muted">Ninguém na lista com esse filtro.</td></tr>}
+                {!rows.length && <tr><td colSpan="11" className="muted">Ninguém na lista com esse filtro.</td></tr>}
               </tbody>
             </table>
           </div>

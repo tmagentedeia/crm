@@ -131,6 +131,41 @@ check('abertura depois do show é recusada', (await api('PUT', '/events/' + e2.i
 check('abertura pode ser apagada', (await api('PUT', '/events/' + e2.id, { doors_at: null })).body.doors_at === null);
 await api('DELETE', '/events/' + e2.id);
 
+// ---- excluir pessoas da lista (só o editor) ----
+const rm = (itens, extra = {}) => editor('POST', '/event-list/bulk-delete', { ids: itens.map((i) => `${i.sale_id}:${i.seq}`), ...extra });
+const lista = async () => (await api('GET', `/event-list?event_id=${ev.id}`)).body.rows;
+const v3 = await venda({ name: 'Vera', phone: '32988860010', people: 3, guests: 'Vera\nBeto\nCadu', unit_price: 100 });
+await editor('PUT', `/event-list/${v3.id}/2`, { note: 'obs do Beto' });
+await editor('PUT', `/event-list/${v3.id}/3`, { name: 'Cadu Lima' });
+const antes = (await lista()).length;
+check('leitor não exclui', (await leitor('POST', '/event-list/bulk-delete', { ids: [`${v3.id}:2`] })).status === 403);
+check('comentarista não exclui', (await comentarista('POST', '/event-list/bulk-delete', { ids: [`${v3.id}:2`] })).status === 403);
+check('sem escolher ninguém: erro', (await rm([])).status === 400);
+const previa = await rm([{ sale_id: v3.id, seq: 2 }], { dry_run: true });
+check('a prévia mostra de que compra a pessoa faz parte, sem apagar nada', previa.status === 200 && previa.body.purchases.length === 1 && previa.body.purchases[0].buyer === 'Vera' && previa.body.purchases[0].people === 3 && previa.body.purchases[0].remove === 1 && previa.body.purchases[0].delete_sale === false && previa.body.purchases[0].resend === true && (await lista()).length === antes, JSON.stringify(previa.body));
+let xr = await rm([{ sale_id: v3.id, seq: 2 }]);
+check('tira uma pessoa da venda', xr.status === 200 && xr.body.deleted === 1 && xr.body.sales_deleted === 0, JSON.stringify(xr.body));
+let lv = (await lista()).filter((r) => String(r.sale_id) === String(v3.id));
+check('a venda fica com uma pessoa a menos', lv.length === 2 && psql(`select people from company_1.shows_sales where id=${v3.id}`) === '2');
+check('quem vinha depois sobe uma posição, com o nome certo', lv[0].name === 'Vera' && lv[1].name === 'Cadu Lima', JSON.stringify(lv.map((r) => r.name)));
+check('a observação da pessoa tirada vai embora', !lv.some((r) => r.note === 'obs do Beto'));
+check('a lista de nomes da venda perde a linha dela', psql(`select replace(guests, chr(10), '|') from company_1.shows_sales where id=${v3.id}`) === 'Vera|Cadu');
+check('o QR Code antigo das posições que mudaram deixa de valer', Number(psql(`select qr_ver from company_1.shows_attendees where sale_id=${v3.id} and seq=2`)) >= 1);
+check('a exclusão fica no registro de quem mexeu', (await api('GET', `/event-list/log?event_id=${ev.id}`)).body.some((e) => e.action === 'exclusao' && e.person === 'Beto'));
+check('pessoa que não existe mais é pulada, sem derrubar', (await rm([{ sale_id: v3.id, seq: 9 }])).body.skipped.length === 1);
+check('venda de outro lugar/inexistente é pulada', (await rm([{ sale_id: 99999999, seq: 1 }])).body.skipped.length === 1);
+check('pessoa inválida: erro', (await editor('POST', '/event-list/bulk-delete', { ids: ['x'] })).status === 400);
+// várias de uma vez, na mesma venda e em vendas diferentes
+const w2 = await venda({ name: 'Wilson', phone: '32988860011', people: 2, unit_price: 100 });
+xr = await rm([{ sale_id: w2.id, seq: 1 }, { sale_id: w2.id, seq: 2 }, { sale_id: v3.id, seq: 1 }]);
+check('várias de uma vez: apaga a venda que ficou vazia e reduz a outra', xr.body.deleted === 3 && xr.body.sales_deleted === 1, JSON.stringify(xr.body));
+check('a venda sem ninguém some do banco', psql(`select count(*) from company_1.shows_sales where id=${w2.id}`) === '0');
+lv = (await lista()).filter((r) => String(r.sale_id) === String(v3.id));
+check('a outra ficou só com a pessoa que sobrou', lv.length === 1 && lv[0].name === 'Cadu Lima' && psql(`select people from company_1.shows_sales where id=${v3.id}`) === '1');
+xr = await rm([{ sale_id: v3.id, seq: 1 }]);
+check('a última pessoa apaga a venda', xr.body.sales_deleted === 1 && psql(`select count(*) from company_1.shows_sales where id=${v3.id}`) === '0');
+check('o total da lista caiu pelas três pessoas da venda da Vera', (await lista()).length === antes - 3);
+
 // limpeza
 psql("set search_path to company_1, public; delete from shows_attendee_log; delete from shows_attendees; delete from shows_sale_payments; delete from shows_sales where sector_id in (select id from shows_sectors where name = 'Setor Lista'); delete from customers where phone like '%3288860001' or phone like '%3288860002'");
 await api('DELETE', `/casa-de-shows/sectors/${setor.id}`); await api('DELETE', `/casa-de-shows/table-types/${mesa.id}`); await api('DELETE', '/events/' + ev.id);

@@ -1,7 +1,7 @@
 // Lista do evento: uma linha por pessoa que vai ao evento (no lugar da planilha), montada a partir das vendas da Casa de Shows.
 // Cada pessoa pode ter nome, telefone e observações próprios; a portaria marca quem entrou. Toda mudança fica registrada.
 // Acessos (telas da equipe): lista_evento = só consulta · lista_evento_comentarista = marca entrada e comenta · lista_evento_editor = edita tudo.
-import { q, qg, runAs, currentCompany } from './db.js';
+import { q, qg, tx, runAs, currentCompany } from './db.js';
 import { normPhone } from './phone.js';
 import { gerarRef, htmlParaPdf, gotenbergLigado } from './documentos.js';
 import { lerCodigo } from './ingresso_qr.js';
@@ -218,6 +218,70 @@ export function registerListaEventoRoutes(r, wrap) {
     }
     if (mudou.length) await registrar(p.s.event_id, p.s.id, p.seq, p.nome, por, 'edicao', mudou.join(' · '));
     res.json({ ok: true });
+  }));
+
+  // ---- excluir pessoas da lista (editor) ----
+  // Tira a pessoa da venda (a venda passa a ter uma pessoa a menos). Se era a única, a venda inteira é apagada.
+  // Quem vinha depois na mesma venda sobe uma posição; o QR Code antigo dessas posições deixa de valer (o ingresso precisa ser reenviado).
+  async function tirarPessoa(saleId, n) {
+    return tx(currentCompany(), async (t) => {
+      const p = await pessoa(t, saleId, n);
+      const s = p.s;
+      if (s.people <= 1) {
+        try { await t('DELETE FROM shows_sales WHERE id=$1', [s.id]); }
+        catch (e) { if (e.code === '23503') throw erro(409, 'Essa mesa tem convidados. Apague os convidados antes.'); throw e; }
+        return { p, apagouVenda: true };
+      }
+      const nomes = String(s.guests || '').split('\n').map((l) => l.trim()).filter(Boolean);
+      if (nomes.length >= p.seq) nomes.splice(p.seq - 1, 1);
+      await t('UPDATE shows_sales SET people = people - 1, guests = $2, updated_at = now() WHERE id=$1', [s.id, nomes.length ? nomes.join('\n') : null]);
+      await t('DELETE FROM shows_attendees WHERE sale_id=$1 AND seq=$2', [s.id, p.seq]);
+      for (let k = p.seq + 1; k <= s.people; k++) await t('UPDATE shows_attendees SET seq=$2 WHERE sale_id=$1 AND seq=$3', [s.id, k - 1, k]);
+      for (let k = p.seq; k < s.people; k++) await t('INSERT INTO shows_attendees (sale_id, seq, qr_ver) VALUES ($1,$2,1) ON CONFLICT (sale_id, seq) DO UPDATE SET qr_ver = shows_attendees.qr_ver + 1', [s.id, k]);
+      return { p, apagouVenda: false };
+    });
+  }
+  // Mesmo formato das outras exclusões em massa do painel. Corpo: { ids: ['venda:posição', ...], dry_run? }.
+  // dry_run só mostra o que aconteceria (de que compra cada pessoa faz parte); sem ele, exclui.
+  r.post('/event-list/bulk-delete', tratar(async (req, res) => {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+    if (!ids.length) throw erro(400, 'Escolha quem excluir');
+    if (ids.length > 500) throw erro(400, 'Exclua até 500 pessoas por vez');
+    const porVenda = new Map();
+    for (const id of ids) {
+      const [sid, n] = String(id).split(':').map(idOk);
+      if (!sid || !n) throw erro(400, 'Pessoa inválida');
+      if (!porVenda.has(sid)) porVenda.set(sid, new Set());
+      porVenda.get(sid).add(Number(n));
+    }
+    if (req.body?.dry_run) {
+      const compras = [];
+      for (const [sid, posicoes] of porVenda) {
+        const v = (await q('SELECT id, name, people, status FROM shows_sales WHERE id=$1', [sid])).rows[0];
+        if (!v) continue;
+        const tira = [...posicoes].filter((n) => n >= 1 && n <= v.people);
+        if (!tira.length) continue;
+        compras.push({ id: v.id, buyer: v.name, people: v.people, remove: tira.length, delete_sale: tira.length >= v.people,
+          resend: tira.length < v.people && Math.min(...tira) < v.people });
+      }
+      return res.json({ people: ids.length, purchases: compras });
+    }
+    const por = await ator(req);
+    const out = { deleted: 0, sales_deleted: 0, skipped: [] };
+    for (const [sid, posicoes] of porVenda) {
+      // da última posição para a primeira: tirar uma pessoa muda a posição das que vêm depois
+      for (const n of [...posicoes].sort((a, b) => b - a)) {
+        try {
+          const { p, apagouVenda } = await tirarPessoa(sid, n);
+          await registrar(p.s.event_id, p.s.id, p.seq, p.nome, por, 'exclusao', apagouVenda ? 'venda apagada (era a única pessoa)' : `tirada da venda de ${p.s.name}`);
+          out.deleted++; if (apagouVenda) out.sales_deleted++;
+        } catch (e) {
+          if (!e.status) throw e;
+          out.skipped.push({ id: `${sid}:${n}`, name: `pessoa ${n} da venda ${sid}`, motivo: e.message });
+        }
+      }
+    }
+    res.json({ ok: true, ...out });
   }));
 
   // ---- ingresso com QR Code de cada pessoa (editor) ----
