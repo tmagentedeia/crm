@@ -767,20 +767,20 @@ export default function Atendente({ company }) {
     <>
       <h1><Nome id="atendente">Atendente</Nome></h1>
       {temAssistente && (
-        <div style={{ display: 'flex', gap: 8, margin: '12px 0 0' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, margin: '12px 0 0' }}>
           <button className={'btn' + (P === 'agent' ? ' primary' : '')} onClick={() => setQuem('agent')}>Atendente</button>
           <button className={'btn' + (P === 'assistant' ? ' primary' : '')} onClick={() => setQuem('assistant')}>Assistente pessoal</button>
         </div>
       )}
       {assistenteBloqueado && (
-        <div style={{ display: 'flex', gap: 8, margin: '12px 0 0' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, margin: '12px 0 0' }}>
           <button className="btn primary">Atendente</button>
           <button className="btn" style={{ opacity: .55, display: 'inline-flex', alignItems: 'center', gap: 6 }} title="Disponível em outro plano" onClick={() => setUpg(true)}>Assistente pessoal <IconeCadeado size={13} /></button>
         </div>
       )}
       {upg && <UpgradeModal company={company} nome="Assistente pessoal" onClose={() => setUpg(false)} />}
       {P === 'agent' && <NomeAgente />}
-      <div style={{ display: 'flex', gap: 8, margin: '12px 0 16px' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, margin: '12px 0 16px' }}>
         <button className={'btn' + (aba === 'manual' ? ' primary' : '')} onClick={() => setAba('manual')}>Manual</button>
         <button className={'btn' + (aba === 'atualizacoes' ? ' primary' : '')} onClick={() => setAba('atualizacoes')}>Atualizações provisórias</button>
         <button className={'btn' + (aba === 'agendamentos' ? ' primary' : '')} onClick={() => setAba('agendamentos')}>Agendamentos</button>
