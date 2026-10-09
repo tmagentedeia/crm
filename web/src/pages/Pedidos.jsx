@@ -453,23 +453,52 @@ function CreditosExtras({ L, onErro }) {
 }
 
 function NovoCredito({ L, onClose, onSaved }) {
-  const [f, setF] = useState({ phone: '', name: '', qty: '1', note: '' });
+  const [busca, setBusca] = useState('');
+  const [achados, setAchados] = useState([]);
+  const [cli, setCli] = useState(null);
+  const [f, setF] = useState({ qty: '1', note: '' });
   const [err, setErr] = useState('');
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const nomeCli = (c) => [c.name, c.last_name].filter(Boolean).join(' ') || fmtPhone(c.phone);
+  useEffect(() => {
+    if (cli || busca.trim().length < 2) { setAchados([]); return undefined; }
+    const t = setTimeout(() => api('/customers?search=' + encodeURIComponent(busca.trim())).then((r) => setAchados(r.slice(0, 8))).catch(() => {}), 250);
+    return () => clearTimeout(t);
+  }, [busca, cli]);
   async function save(e) {
     e.preventDefault(); setErr('');
-    try { await api('/credits', { method: 'POST', body: { phone: f.phone, name: f.name, qty: Number(f.qty), note: f.note } }); onSaved(); } catch (e2) { setErr(e2.message); }
+    if (!cli) { setErr('Escolha o cliente na lista'); return; }
+    try { await api('/credits', { method: 'POST', body: { customer_id: cli.id, qty: Number(f.qty), note: f.note } }); onSaved(); } catch (e2) { setErr(e2.message); }
   }
   return (
     <div className="modal-bg" onClick={onClose}>
       <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={save}>
         <h2>Dar crédito extra</h2>
         {err && <div className="error">{err}</div>}
-        <div className="field"><label>Telefone (com DDD)</label><input value={f.phone} onChange={set('phone')} /></div>
-        <div className="field"><label>{f.phone.trim() ? 'Nome (ignorado, vale o telefone)' : 'Nome *'}</label><input value={f.name} onChange={set('name')} required={!f.phone.trim()} /></div>
+        {cli ? (
+          <div className="field"><label>Cliente</label>
+            <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+              <strong>{nomeCli(cli)}</strong>{cli.name && cli.phone && <span className="muted">{fmtPhone(cli.phone)}</span>}
+              <button type="button" className="btn sm" onClick={() => { setCli(null); setBusca(''); }}>Trocar</button>
+            </div></div>
+        ) : (
+          <div className="field"><label>Procurar cliente *</label>
+            <input autoFocus value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Digite parte do nome ou do telefone" />
+            {achados.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
+                {achados.map((c) => (
+                  <button type="button" key={c.id} className="btn" style={{ textAlign: 'left', justifyContent: 'space-between' }} onClick={() => setCli(c)}>
+                    {nomeCli(c)}{c.name && c.phone ? <span className="muted"> · {fmtPhone(c.phone)}</span> : null}
+                  </button>
+                ))}
+              </div>
+            )}
+            {busca.trim().length >= 2 && !achados.length && <span className="muted">Ninguém encontrado com esse nome ou telefone.</span>}
+          </div>
+        )}
         <div className="field"><label>Quantidade de {minusc(L.items)} *</label><input type="number" min="1" max="100" value={f.qty} onChange={set('qty')} required /></div>
         <div className="field"><label>Observação (opcional)</label><input value={f.note} onChange={set('note')} maxLength={200} /></div>
-        <div className="row"><button className="btn primary">Dar crédito</button><button type="button" className="btn" onClick={onClose}>Fechar</button></div>
+        <div className="row"><button className="btn primary" disabled={!cli}>Dar crédito</button><button type="button" className="btn" onClick={onClose}>Fechar</button></div>
       </form>
     </div>
   );
