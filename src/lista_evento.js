@@ -288,16 +288,25 @@ export function registerListaEventoRoutes(r, wrap) {
       if (!porVenda.has(sid)) porVenda.set(sid, new Set());
       porVenda.get(sid).add(Number(n));
     }
+    // convidados de mesa reservada primeiro: apagando a mesa toda, o anfitrião já encontra a mesa sem convidados
+    const hosts = new Map((await q('SELECT id, host_sale_id FROM shows_sales WHERE id = ANY($1::bigint[])', [[...porVenda.keys()]])).rows.map((x) => [String(x.id), x.host_sale_id]));
+    const ordem = [...porVenda].sort((a, b) => (hosts.get(b[0]) ? 1 : 0) - (hosts.get(a[0]) ? 1 : 0));
+    // venda dos convidados que sai inteira nesta mesma exclusão
+    const saiInteira = new Set();
+    for (const [sid, posicoes] of porVenda) {
+      const v = (await q('SELECT people, removed_seqs, held FROM shows_sales WHERE id=$1', [sid])).rows[0];
+      if (v && posicoesDe(v).every((n) => posicoes.has(n))) saiInteira.add(String(sid));
+    }
     if (req.body?.dry_run) {
       const compras = [];
-      for (const [sid, posicoes] of porVenda) {
+      for (const [sid, posicoes] of ordem) {
         const v = (await q('SELECT id, name, people, removed_seqs, held, status FROM shows_sales WHERE id=$1', [sid])).rows[0];
         if (!v) continue;
         const vagas = posicoesDe(v);
         const tira = [...posicoes].filter((n) => vagas.includes(n));
         if (!tira.length) continue;
         const restam = vagas.length - tira.length;
-        const convidados = v.held ? Number((await q('SELECT count(*) AS n FROM shows_sales WHERE host_sale_id=$1', [v.id])).rows[0].n) : 0;
+        const convidados = v.held ? (await q('SELECT id FROM shows_sales WHERE host_sale_id=$1', [v.id])).rows.filter((g) => !saiInteira.has(String(g.id))).length : 0;
         compras.push({ id: v.id, buyer: v.name, people: v.people, remove: tira.length, remaining: restam,
           delete_sale: restam === 0 && !convidados, needs_buyer: tira.includes(1) && (restam > 0 || convidados > 0), table_guests: convidados });
       }
@@ -305,7 +314,7 @@ export function registerListaEventoRoutes(r, wrap) {
     }
     const por = await ator(req);
     const out = { deleted: 0, sales_deleted: 0, skipped: [] };
-    for (const [sid, posicoes] of porVenda) {
+    for (const [sid, posicoes] of ordem) {
       try {
         const { s, tiradas, apagouVenda, novoComprador } = await tirarPessoas(sid, [...posicoes], req.body?.buyers?.[sid]);
         for (const x of tiradas) {

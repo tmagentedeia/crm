@@ -185,6 +185,17 @@ check('anfitrião sem novo comprador não é apagado', (await rm([{ sale_id: anf
 xr = await rm([{ sale_id: anf.id, seq: 1 }], { buyers: { [anf.id]: { name: 'Novo Anfitrião', phone: '32988860030' } } });
 const la = (await lista()).filter((r) => String(r.sale_id) === String(anf.id));
 check('o anfitrião é trocado e a mesa continua com os convidados', xr.body.deleted === 1 && la.length === 1 && la[0].name === 'Novo Anfitrião' && psql(`select count(*) from company_1.shows_sales where host_sale_id=${anf.id}`) === '1', JSON.stringify([xr.body, la]));
+// apagar a mesa toda (anfitrião e convidados de uma vez): não pede novo comprador
+const anf2 = await venda({ name: 'Dono da Mesa', phone: '32988860040', people: 2, unit_price: 100 });
+const conv2 = await venda({ name: 'Convidado 2', phone: '32988860041', people: 1, unit_price: 100 });
+psql(`update company_1.shows_sales set held=true where id=${anf2.id}`);
+psql(`update company_1.shows_sales set host_sale_id=${anf2.id} where id=${conv2.id}`);
+const toda = [{ sale_id: anf2.id, seq: 1 }, { sale_id: anf2.id, seq: 2 }, { sale_id: conv2.id, seq: 1 }];
+const pm = await rm(toda, { dry_run: true });
+check('a prévia da mesa toda não pede novo comprador', pm.body.purchases.every((c) => c.needs_buyer === false && c.delete_sale === true), JSON.stringify(pm.body));
+xr = await rm(toda);
+check('apaga a mesa toda de uma vez', xr.body.deleted === 3 && xr.body.sales_deleted === 2 && psql(`select count(*) from company_1.shows_sales where id in (${anf2.id}, ${conv2.id})`) === '0', JSON.stringify(xr.body));
+
 
 // limpeza
 psql("set search_path to company_1, public; delete from shows_attendee_log; delete from shows_attendees; delete from shows_sale_payments; update shows_sales set host_sale_id = null; delete from shows_sales where sector_id in (select id from shows_sectors where name = 'Setor Lista'); delete from customers where phone like '%3288860001' or phone like '%3288860002'");
