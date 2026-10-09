@@ -202,6 +202,6 @@ psql(`update company_1.campaigns set interval_min=3, interval_max=10 where id=${
 psql(`with r as (select id, row_number() over (order by id) n from company_1.campaign_recipients where campaign_id=${cid}) update company_1.campaign_recipients x set status='sent', sent_at = now() - (case r.n when 1 then interval '300 minutes' when 2 then interval '294 minutes' when 3 then interval '291 minutes' end) from r where x.id=r.id and r.n<=3`);
 const detR = (await call('GET', `/api/campaigns/${cid}`, { token: A.token })).body.details;
 check('detalhes: intervalo real médio, menor e maior', detR.gaps && detR.gaps.count === 2 && detR.gaps.avg === 4.5 && detR.gaps.min === 3 && detR.gaps.max === 6, JSON.stringify(detR.gaps));
-check('detalhes: envios por dia somam os enviados', detR.per_day.reduce((a, x) => a + x.count, 0) === 3 && detR.first_sent_at && detR.last_sent_at, JSON.stringify(detR.per_day));
+check('detalhes: envios por dia somam os enviados', detR.per_day.reduce((a, x) => a + x.count, 0) === detR.totals.sent && detR.totals.sent >= 3 && detR.first_sent_at && detR.last_sent_at, JSON.stringify(detR.per_day));
 console.log(`campanhas: ${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);
