@@ -7,6 +7,7 @@ const quando = (d) => (d ? new Date(d).toLocaleString('pt-BR', { dateStyle: 'sho
 const paraInput = (d) => { if (!d) return ''; const x = new Date(d); x.setMinutes(x.getMinutes() - x.getTimezoneOffset()); return x.toISOString().slice(0, 16); };
 const nomeDe = (o) => [o.customer_name, o.customer_last_name].filter(Boolean).join(' ') || fmtPhone(o.customer_phone);
 const COBRANCA = { franchise: 'Franquia', paid: 'Pago', courtesy: 'Cortesia' };
+const cobrancaDe = (o) => (o.from_extra ? 'Crédito extra' : COBRANCA[o.kind]);
 const mesLabel = (m) => { const [y, mo] = m.split('-'); return new Date(+y, +mo - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }); };
 const mesAtual = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); };
 
@@ -27,6 +28,7 @@ export default function Pedidos({ company }) {
   const [edit, setEdit] = useState(null);
   const [liveEdit, setLiveEdit] = useState(null);
   const [aviso, setAviso] = useState('');
+  const [trava, setTrava] = useState(null);   // trava de música repetida: { block_repeat, salvo }
   const selOrders = useSelecao(orders);
   const selFila = useSelecao(fila);
   const selLives = useSelecao(lives);
@@ -40,7 +42,12 @@ export default function Pedidos({ company }) {
   const loadOrders = () => (liveId ? api('/orders?live_id=' + liveId).then(setOrders) : setOrders([]));
   const loadResumo = () => api('/orders/summary?month=' + mes).then(setResumo);
   const tudo = () => { loadLives(); loadFila(); };
-  useEffect(() => { tudo(); }, []);
+  useEffect(() => { tudo(); api('/orders/config').then((c) => setTrava({ block_repeat: c.block_repeat })).catch(() => {}); }, []);
+  async function mudaTrava(v) {
+    setTrava({ block_repeat: v, salvando: true });
+    try { const c = await api('/orders/config', { method: 'PUT', body: { block_repeat: v } }); setTrava({ block_repeat: c.block_repeat, salvo: true }); }
+    catch (e) { setTrava({ block_repeat: !v, erro: e.message }); }
+  }
   useEffect(() => { loadOrders(); }, [liveId]);
   useEffect(() => { if (tab === 'resumo') loadResumo(); }, [tab, mes]);
   const recarrega = () => { tudo(); loadOrders(); if (tab === 'resumo') loadResumo(); };
@@ -84,8 +91,24 @@ export default function Pedidos({ company }) {
         <div><h1>{L.items}</h1><p className="muted">{L.items} por {g}, franquia do programa de assinaturas e resumo do mês.</p></div>
         <button className="btn primary" onClick={() => setNovo(true)}>+ Anotar {i}</button>
       </div>
+      {trava && (
+        <div className="card" style={{ marginBottom: 12 }}>
+          <label className="row" style={{ gap: 8, alignItems: 'center', cursor: 'pointer' }}>
+            <input type="checkbox" checked={trava.block_repeat} onChange={(e) => mudaTrava(e.target.checked)} />
+            <span>Não permitir {minusc(L.song)} repetida da {minusc(L.group)} anterior</span>
+            {trava.salvando && <span className="muted">Salvando…</span>}
+            {trava.salvo && <span className="muted">Salvo</span>}
+          </label>
+          <p className="muted" style={{ marginTop: 4 }}>
+            {trava.block_repeat
+              ? `Quem pedir uma ${minusc(L.song)} que já foi pedida na última ${minusc(L.group)} recebe o aviso de que ela só pode repetir depois de uma ${minusc(L.group)} sem ela.`
+              : `Desligado: a mesma ${minusc(L.song)} pode ser pedida em ${minusc(L.groups)} seguidas.`}
+          </p>
+          {trava.erro && <p className="error">{trava.erro}</p>}
+        </div>
+      )}
       <div className="row" style={{ marginBottom: 12 }}>
-        {[['pedidos', L.items], ['fila', `${L.queue}${fila.length ? ` (${fila.length})` : ''}`], ['sugestoes', 'Sugestões'], ['resumo', 'Resumo do mês'], ['lives', L.groups]].map(([v, l]) => (
+        {[['pedidos', L.items], ['fila', `${L.queue}${fila.length ? ` (${fila.length})` : ''}`], ['sugestoes', 'Sugestões'], ['creditos', 'Créditos extras'], ['resumo', 'Resumo do mês'], ['lives', L.groups]].map(([v, l]) => (
           <button key={v} className={'btn' + (tab === v ? ' primary' : '')} onClick={() => setTab(v)}>{l}</button>
         ))}
       </div>
@@ -116,6 +139,8 @@ export default function Pedidos({ company }) {
 
       {tab === 'sugestoes' && <Sugestoes L={L} onErro={setAviso} />}
 
+      {tab === 'creditos' && <CreditosExtras L={L} onErro={setAviso} />}
+
       {tab === 'resumo' && (
         <>
           <div className="row" style={{ marginBottom: 8 }}>
@@ -124,23 +149,23 @@ export default function Pedidos({ company }) {
           </div>
           <div className="card table-wrap">
             <table>
-              <thead><tr><th>Cliente</th><th>Nível</th><th>Franquia</th><th>Usada</th><th>Restam</th><th>Pagos</th><th>Total pago</th></tr></thead>
+              <thead><tr><th>Cliente</th><th>Nível</th><th>Franquia</th><th>Usada</th><th>Extras usados</th><th>Restam</th><th>Pagos</th><th>Total pago</th></tr></thead>
               <tbody>
                 {resumo?.rows.map((r) => (
                   <tr key={r.customer_id}>
                     <td>{[r.name, r.last_name].filter(Boolean).join(' ') || fmtPhone(r.phone)}</td>
                     <td>{r.level_name || <span className="muted">—</span>}</td>
-                    <td>{r.franchise}</td><td>{r.used}</td><td>{r.remaining}</td><td>{r.paid_count}</td><td>{money(r.paid_total)}</td>
+                    <td>{r.franchise}</td><td>{r.used}</td><td>{r.extra_used || <span className="muted">—</span>}</td><td>{r.remaining}</td><td>{r.paid_count}</td><td>{money(r.paid_total)}</td>
                   </tr>
                 ))}
-                {resumo && !resumo.rows.length && <tr><td colSpan="7" className="muted">Nada registrado neste mês.</td></tr>}
+                {resumo && !resumo.rows.length && <tr><td colSpan="8" className="muted">Nada registrado neste mês.</td></tr>}
               </tbody>
               {resumo?.rows.length > 0 && (
-                <tfoot><tr><th colSpan="3">Total do mês</th><th>{resumo.totals.franchise}</th><th></th><th>{resumo.totals.paid}</th><th>{money(resumo.totals.paid_total)}</th></tr></tfoot>
+                <tfoot><tr><th colSpan="3">Total do mês</th><th>{resumo.totals.franchise}</th><th>{resumo.totals.extra}</th><th></th><th>{resumo.totals.paid}</th><th>{money(resumo.totals.paid_total)}</th></tr></tfoot>
               )}
             </table>
           </div>
-          {resumo?.rows.length > 0 && <p className="muted" style={{ marginTop: 6 }}>{resumo.totals.orders} registro(s) no mês: {resumo.totals.franchise} pela franquia e {resumo.totals.paid} pago(s).</p>}
+          {resumo?.rows.length > 0 && <p className="muted" style={{ marginTop: 6 }}>{resumo.totals.orders} registro(s) no mês: {resumo.totals.franchise} pela franquia, {resumo.totals.extra} por crédito extra e {resumo.totals.paid} pago(s).</p>}
         </>
       )}
 
@@ -198,7 +223,7 @@ function TabelaPedidos({ L, rows, sel, fila, vazio, onEdit, onDel, onServe }) {
               <CelulaLinha s={sel} id={o.id} />
               <td>{nomeDe(o)}</td><td>{o.song}</td><td>{o.dedication || <span className="muted">—</span>}</td>
               <td>{o.level_name || <span className="muted">—</span>}</td>
-              {!fila && <td><span className="badge">{o.kind === 'paid' && o.amount_paid == null ? 'Aguardando pagamento' : (COBRANCA[o.kind] || '—') + (o.kind === 'paid' ? ' · ' + money(o.amount_paid) : '')}</span></td>}
+              {!fila && <td><span className="badge">{o.kind === 'paid' && o.amount_paid == null ? 'Aguardando pagamento' : (cobrancaDe(o) || '—') + (o.kind === 'paid' ? ' · ' + money(o.amount_paid) : '')}</span></td>}
               <td>{quando(o.created_at)}</td>
               <td className="row">{!fila && onServe && (o.served_at ? <button className="btn" title="Clique para desmarcar" onClick={() => onServe(o, false)}>✓ Atendido</button> : <button className="btn primary" onClick={() => onServe(o, true)}>Atendido</button>)}<button className="btn" onClick={() => onEdit(o)}>Editar</button><button className="btn bad" onClick={() => onDel(o)}>Apagar</button></td>
             </tr>
@@ -243,8 +268,9 @@ function NovoPedido({ L, lives, onClose, onSaved }) {
         {ok && (
           <p className="muted" style={{ marginBottom: 8 }}>
             {ok.status === 'queued' ? 'Anotado na fila: nada marcado ainda.'
-              : `Anotado para ${quando(ok.live.starts_at)} · ${ok.kind === 'franchise' ? 'pela franquia' : ok.kind === 'courtesy' ? 'cortesia' : 'pago'}.`}
+              : `Anotado para ${quando(ok.live.starts_at)} · ${ok.extra ? 'por crédito extra' : ok.kind === 'franchise' ? 'pela franquia' : ok.kind === 'courtesy' ? 'cortesia' : 'pago'}.`}
             {ok.balance.franchise > 0 ? ` Franquia do mês: ${ok.balance.used} de ${ok.balance.franchise}.` : ''}
+            {ok.balance.extra_remaining > 0 ? ` Crédito extra restante: ${ok.balance.extra_remaining}.` : ''}
           </p>
         )}
         <div className="field"><label>Telefone (com DDD)</label><input value={f.phone} onChange={set('phone')} /></div>
@@ -379,5 +405,72 @@ function Sugestoes({ L, onErro }) {
         </table>
       </div>
     </>
+  );
+}
+
+function CreditosExtras({ L, onErro }) {
+  const [lista, setLista] = useState([]);
+  const [novo, setNovo] = useState(false);
+  const [aviso, setAviso] = useState('');
+  const carrega = () => api('/credits').then(setLista).catch((e) => onErro(e.message));
+  useEffect(() => { carrega(); }, []);
+  const ajusta = async (c, qty) => {
+    try { await api('/credits', { method: 'POST', body: { customer_id: c.customer_id, qty } }); setAviso(''); carrega(); } catch (e) { setAviso(c.customer_id + '|' + e.message); }
+  };
+  const zerar = async (c) => {
+    if (!confirm('Tirar todo o crédito extra deste cliente?')) return;
+    try { await api('/credits/' + c.customer_id, { method: 'DELETE' }); carrega(); } catch (e) { onErro(e.message); }
+  };
+  return (
+    <>
+      <div className="card" style={{ marginBottom: 12 }}>
+        <p className="muted">Crédito extra é {minusc(L.item)} grátis dado antecipadamente a um cliente, além da franquia do mês. Ele só é usado depois que a franquia acaba, sem prazo para vencer, e volta se o {minusc(L.item)} for apagado.</p>
+        <div className="row" style={{ marginTop: 8 }}><button className="btn primary" onClick={() => setNovo(true)}>+ Dar crédito extra</button></div>
+      </div>
+      <div className="card table-wrap">
+        <table>
+          <thead><tr><th>Cliente</th><th>Concedidos</th><th>Usados</th><th>Restam</th><th></th></tr></thead>
+          <tbody>
+            {lista.map((c) => (
+              <tr key={c.customer_id}>
+                <td>{[c.name, c.last_name].filter(Boolean).join(' ') || fmtPhone(c.phone)}</td>
+                <td>{c.granted}</td><td>{c.used}</td><td><strong>{c.remaining}</strong></td>
+                <td className="row">
+                  <button className="btn" onClick={() => ajusta(c, 1)}>+ 1</button>
+                  <button className="btn" onClick={() => ajusta(c, -1)}>− 1</button>
+                  <button className="btn bad" onClick={() => zerar(c)}>Tirar tudo</button>
+                  {aviso.startsWith(c.customer_id + '|') && <span className="error">{aviso.split('|')[1]}</span>}
+                </td>
+              </tr>
+            ))}
+            {!lista.length && <tr><td colSpan="5" className="muted">Nenhum cliente com crédito extra.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      {novo && <NovoCredito L={L} onClose={() => setNovo(false)} onSaved={() => { setNovo(false); carrega(); }} />}
+    </>
+  );
+}
+
+function NovoCredito({ L, onClose, onSaved }) {
+  const [f, setF] = useState({ phone: '', name: '', qty: '1', note: '' });
+  const [err, setErr] = useState('');
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  async function save(e) {
+    e.preventDefault(); setErr('');
+    try { await api('/credits', { method: 'POST', body: { phone: f.phone, name: f.name, qty: Number(f.qty), note: f.note } }); onSaved(); } catch (e2) { setErr(e2.message); }
+  }
+  return (
+    <div className="modal-bg" onClick={onClose}>
+      <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={save}>
+        <h2>Dar crédito extra</h2>
+        {err && <div className="error">{err}</div>}
+        <div className="field"><label>Telefone (com DDD)</label><input value={f.phone} onChange={set('phone')} /></div>
+        <div className="field"><label>{f.phone.trim() ? 'Nome (ignorado, vale o telefone)' : 'Nome *'}</label><input value={f.name} onChange={set('name')} required={!f.phone.trim()} /></div>
+        <div className="field"><label>Quantidade de {minusc(L.items)} *</label><input type="number" min="1" max="100" value={f.qty} onChange={set('qty')} required /></div>
+        <div className="field"><label>Observação (opcional)</label><input value={f.note} onChange={set('note')} maxLength={200} /></div>
+        <div className="row"><button className="btn primary">Dar crédito</button><button type="button" className="btn" onClick={onClose}>Fechar</button></div>
+      </form>
+    </div>
   );
 }

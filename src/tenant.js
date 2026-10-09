@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { pool, schemaOf } from './db.js';
-import { PEDIDOS_SQL, CORTESIA_SQL, ATENDIDO_SQL, SUGESTOES_SQL, ATENDIDO_FIX_SQL } from './pedidos.js';
+import { PEDIDOS_SQL, CORTESIA_SQL, ATENDIDO_SQL, SUGESTOES_SQL, ATENDIDO_FIX_SQL, CREDITO_EXTRA_SQL } from './pedidos.js';
 import { EVENTOS_SQL, EVENTOS_ABERTURA_SQL } from './eventos.js';
 import { ASSISTENTE_SQL } from './assistente.js';
 import { PRODUTOS_SQL } from './produtos.js';
@@ -312,6 +312,8 @@ export const TENANT_STEPS = [
   { version: 64, sql: DOC_VERSOES_SQL },
   // 65: serviço e produto que as variáveis {servico} e {produto} da mensagem de aniversário representam
   { version: 65, sql: ANIVERSARIO_VARIAVEIS_SQL },
+  // 66: crédito extra de pedidos e trava de música repetida
+  { version: 66, sql: CREDITO_EXTRA_SQL },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 
@@ -331,6 +333,7 @@ export async function createCompanySchema(cx, companyId) {
   await cx.query(VENDA_SQL);
   await cx.query(ATENDIDO_SQL);
   await cx.query(SUGESTOES_SQL);
+  await cx.query(CREDITO_EXTRA_SQL);
   await cx.query(FINANCEIRO_ORIGEM_SQL);
   await cx.query(FINANCEIRO_DEDUP_SQL);
   await cx.query(ASSISTENTE_SQL);

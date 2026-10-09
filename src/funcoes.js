@@ -52,7 +52,7 @@ export const ROTAS_DA_TELA = {
   bloqueios: ['blocks'],
   campanhas: ['campaigns'],
   clube: ['club'],
-  pedidos: ['orders', 'lives', 'suggestions'],
+  pedidos: ['orders', 'lives', 'suggestions', 'credits'],
   eventos: ['events'],
   financeiro: ['finance', 'payments'],
   comissoes: ['commissions', 'product-sales'],
