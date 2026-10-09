@@ -345,30 +345,36 @@ function FormLive({ L, l, onClose, onSaved }) {
 
 function Sugestoes({ L, onErro }) {
   const [lista, setLista] = useState([]);
-  const [texto, setTexto] = useState('');
+  const [musica, setMusica] = useState('');
+  const [aviso, setAviso] = useState('');
+  const sel = useSelecao(lista);
   const carrega = () => api('/suggestions').then(setLista).catch((e) => onErro(e.message));
   useEffect(() => { carrega(); }, []);
-  async function salvar() {
-    try { await api('/suggestions', { method: 'PUT', body: { text: texto } }); setTexto(''); carrega(); onErro(''); } catch (e) { onErro(e.message); }
+  async function adicionar(e) {
+    e.preventDefault();
+    if (!musica.trim()) return;
+    try { await api('/suggestions', { method: 'POST', body: { song: musica } }); setMusica(''); setAviso(''); carrega(); onErro(''); } catch (e2) { setAviso(e2.message); }
   }
   return (
     <>
       <div className="card" style={{ marginBottom: 12 }}>
-        <p className="muted">Cole as músicas de hoje, uma por linha. Isso substitui a lista anterior. Quem pedir sugestão recebe uma de cada vez; a que for escolhida vira pedido e sai daqui.</p>
-        <textarea rows={6} value={texto} onChange={(e) => setTexto(e.target.value)} placeholder={'Música 1\nMúsica 2\nMúsica 3'} />
-        <div className="row" style={{ marginTop: 8 }}>
-          <button className="btn primary" onClick={salvar}>{texto.trim() ? 'Salvar nova lista' : 'Limpar lista'}</button>
-        </div>
+        <p className="muted">Digite uma música por vez. Ela entra na lista de sugestões e fica lá, junto com as anteriores, até alguém pedir. Quem pedir sugestão recebe uma de cada vez; a que for escolhida vira pedido e sai daqui.</p>
+        <form className="row" onSubmit={adicionar} style={{ gap: 8 }}>
+          <input style={{ flex: 1 }} value={musica} onChange={(e) => { setMusica(e.target.value); setAviso(''); }} placeholder="Nome da música" maxLength={200} />
+          <button className="btn primary">Adicionar</button>
+        </form>
+        {aviso && <p className="error" style={{ marginTop: 6 }}>{aviso}</p>}
       </div>
+      <ApagarSelecionados s={sel} total={lista.length} rotulo="sugestão(ões)" rota="/suggestions/bulk-delete" onDone={(r) => { setAviso(resumoApagado(r, 'sugestão(ões)')); carrega(); }} />
       <div className="card table-wrap">
         <table>
-          <thead><tr><th>Sugestão</th><th>Já oferecida</th><th></th></tr></thead>
+          <thead><tr><CelulaTodos s={sel} /><th>Sugestão</th><th>Já oferecida</th><th></th></tr></thead>
           <tbody>
             {lista.map((x) => (
-              <tr key={x.id}><td>{x.song}</td><td>{x.offered}x</td>
+              <tr key={x.id}><CelulaLinha s={sel} id={x.id} /><td>{x.song}</td><td>{x.offered}x</td>
                 <td><button className="btn bad" onClick={() => api('/suggestions/' + x.id, { method: 'DELETE' }).then(carrega).catch((e) => onErro(e.message))}>Tirar</button></td></tr>
             ))}
-            {!lista.length && <tr><td colSpan="3" className="muted">Nenhuma sugestão cadastrada.</td></tr>}
+            {!lista.length && <tr><td colSpan="4" className="muted">Nenhuma sugestão cadastrada.</td></tr>}
           </tbody>
         </table>
       </div>

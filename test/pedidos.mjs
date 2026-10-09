@@ -241,8 +241,8 @@ check('desmarcar atendido', un.status === 200 && un.body.served_at === null);
 check('empresa 2 não marca pedido da 1', (await T('PUT', `/api/orders/${oa[1]}`, { served: true }, B)).status === 404);
 
 // ---- sugestões da live ----
-const sg = await T('PUT', '/api/suggestions', { text: 'Sugestão Um\nSugestão Dois\n\nSugestão Um\nSugestão Três' });
-check('cola lista de sugestões (sem repetidas/vazias)', sg.status === 200 && sg.body.length === 3, JSON.stringify(sg.body));
+const sg = await T('POST', '/api/suggestions', { text: 'Sugestão Um\nSugestão Dois\n\nSugestão Um\nSugestão Três' });
+check('cola lista de sugestões (sem repetidas/vazias)', sg.status === 201 && sg.body.list.length === 3, JSON.stringify(sg.body));
 const n1 = (await T('GET', '/api/suggestions/next')).body, n2s = (await T('GET', '/api/suggestions/next')).body, n3 = (await T('GET', '/api/suggestions/next')).body, n4 = (await T('GET', '/api/suggestions/next')).body;
 check('oferece uma a uma sem repetir até passar todas', new Set([n1.suggestion.song, n2s.suggestion.song, n3.suggestion.song]).size === 3 && n4.suggestion.song === n1.suggestion.song, JSON.stringify([n1, n2s, n3, n4]));
 await T('POST', '/api/orders', { phone: '553288880092', name: 'Escolheu', song: ' sugestão dois ', live_id: lA.id, kind: 'courtesy' });
@@ -250,7 +250,12 @@ const rest = (await T('GET', '/api/suggestions')).body;
 check('escolhida sai da lista de sugestões', rest.length === 2 && !rest.some((x) => x.song === 'Sugestão Dois'), JSON.stringify(rest));
 check('empresa 2 não vê sugestões da 1', (await T('GET', '/api/suggestions', null, B)).body.length === 0);
 check('apagar sugestão', (await T('DELETE', `/api/suggestions/${rest[0].id}`)).status === 200);
-await T('PUT', '/api/suggestions', { text: '' });
+const antes = (await T('GET', '/api/suggestions')).body.length;
+const umaSug = await T('POST', '/api/suggestions', { song: ' Sugestão Quatro ' });
+check('uma música por vez: acrescenta sem apagar as anteriores', umaSug.status === 201 && umaSug.body.list.length === antes + 1 && umaSug.body.list.some((x) => x.song === 'Sugestão Quatro'), JSON.stringify(umaSug.body));
+check('música já na lista é recusada (sem diferenciar maiúsculas)', (await T('POST', '/api/suggestions', { song: 'sugestão quatro' })).status === 409);
+check('sem nome é recusado', (await T('POST', '/api/suggestions', { song: '  ' })).status === 400);
+await T('POST', '/api/suggestions/bulk-delete', { ids: (await T('GET', '/api/suggestions')).body.map((x) => x.id) });
 check('sem sugestões: next vazio', (await T('GET', '/api/suggestions/next')).body.suggestion === null);
 console.log(`pedidos: ${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);

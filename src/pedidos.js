@@ -447,15 +447,28 @@ export function registerOrderRoutes(r, wrap) {
   r.get('/suggestions', wrap(async (req, res) => {
     res.json((await q('SELECT id, song, offered FROM song_suggestions ORDER BY id')).rows);
   }));
-  // troca a lista inteira (uma música por linha) — a cada live o apresentador cola a nova
-  r.put('/suggestions', wrap(async (req, res) => {
-    const itens = Array.isArray(req.body?.songs) ? req.body.songs : String(req.body?.text ?? '').split('\n');
-    const songs = [...new Set(itens.map((x) => txt(String(x ?? ''), 200)).filter(Boolean))].slice(0, 300);
+  // acrescenta música(s) à lista: uma por vez (song) ou várias coladas (text, uma por linha). Nada é apagado; a música só sai quando é pedida.
+  r.post('/suggestions', wrap(async (req, res) => {
+    const itens = req.body?.song !== undefined ? [req.body.song] : String(req.body?.text ?? '').split('\n');
+    const songs = [...new Set(itens.map((x) => txt(String(x ?? ''), 200)).filter(Boolean))];
+    if (!songs.length) return res.status(400).json({ error: 'Digite o nome da música' });
+    let added = 0;
     await run(async (t) => {
-      await t('DELETE FROM song_suggestions');
-      for (const s of songs) await t('INSERT INTO song_suggestions (song) VALUES ($1)', [s]);
+      const total = (await t('SELECT count(*)::int AS n FROM song_suggestions')).rows[0].n;
+      for (const sg of songs) {
+        if (total + added >= 500) break;
+        if ((await t('SELECT 1 FROM song_suggestions WHERE lower(btrim(song)) = lower(btrim($1))', [sg])).rowCount) continue;
+        await t('INSERT INTO song_suggestions (song) VALUES ($1)', [sg]); added++;
+      }
     });
-    res.json((await q('SELECT id, song, offered FROM song_suggestions ORDER BY id')).rows);
+    if (!added) return res.status(409).json({ error: songs.length > 1 ? 'Essas músicas já estão na lista' : 'Esta música já está na lista' });
+    res.status(201).json({ added, list: (await q('SELECT id, song, offered FROM song_suggestions ORDER BY id')).rows });
+  }));
+  r.post('/suggestions/bulk-delete', wrap(async (req, res) => {
+    const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : []).map(Number).filter((n) => Number.isInteger(n) && n > 0))].slice(0, 2000);
+    if (!ids.length) return res.status(400).json({ error: 'Nenhum item selecionado' });
+    if (req.body.dry_run === true) return res.json({ found: (await q('SELECT count(*)::int AS n FROM song_suggestions WHERE id = ANY($1::bigint[])', [ids])).rows[0].n });
+    res.json({ deleted: (await q('DELETE FROM song_suggestions WHERE id = ANY($1::bigint[])', [ids])).rowCount });
   }));
   r.delete('/suggestions/:id', wrap(async (req, res) => {
     const { rowCount } = await q('DELETE FROM song_suggestions WHERE id=$1', [req.params.id]);
