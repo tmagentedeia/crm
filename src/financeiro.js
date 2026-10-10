@@ -1,6 +1,6 @@
 // Financeiro: chaves Pix que valem para a conferência e o registro/baixa dos comprovantes recebidos.
 // O atendente só manda o que leu do comprovante; as regras ficam aqui (não no prompt).
-import { q, qg, tx, currentCompany } from './db.js';
+import { q, qg, tx, runAs, currentCompany } from './db.js';
 import { normPhone } from './phone.js';
 import { provedores, avisarAdm, responderAviso } from './decisoes_adm.js';
 
@@ -119,6 +119,33 @@ export const PIX_ENVIADAS_SQL = `
 // Aviso ao responsável quando um comprovante não pôde ser aceito sozinho: ele responde "sim" ou "não" pelo WhatsApp
 export const ALERTA_PAGAMENTO_SQL = `ALTER TABLE payments ADD COLUMN IF NOT EXISTS alerted_at TIMESTAMPTZ`;
 
+// Pagamento aceito que ficou sem venda (a atendente validou o comprovante mas a conversa terminou sem cadastrar): o responsável é avisado uma vez
+export const PAGAMENTO_SEM_VENDA_SQL = `ALTER TABLE payments ADD COLUMN IF NOT EXISTS orphan_alerted_at TIMESTAMPTZ`;
+export async function avisarPagamentosSemVenda(qq = q) {
+  const rows = (await qq(`SELECT p.id, p.amount::float AS amount, c.phone, COALESCE(NULLIF(btrim(concat_ws(' ', c.name, c.last_name)),''), p.payer_name) AS nome,
+      to_char(p.created_at AT TIME ZONE 'America/Sao_Paulo', 'DD/MM HH24:MI') AS quando
+    FROM payments p JOIN customers c ON c.id = p.customer_id
+    WHERE EXISTS (SELECT 1 FROM shows_sales) AND p.status = 'accepted' AND p.source = 'comprovante' AND p.order_id IS NULL AND p.orphan_alerted_at IS NULL
+      AND p.created_at < now() - interval '25 minutes' AND p.created_at > now() - interval '24 hours'
+      AND NOT EXISTS (SELECT 1 FROM shows_sale_payments sp WHERE sp.payment_id = p.id)
+    ORDER BY p.id LIMIT 10`)).rows;
+  if (!rows.length) return 0;
+  const brl = (n) => 'R$ ' + Number(n).toFixed(2).replace('.', ',');
+  const texto = `Atenção: pagamento recebido SEM venda cadastrada (o cliente não está na lista do evento):\n${rows.map((x) => `- ${x.nome || 'cliente'} · ${x.phone} · ${brl(x.amount)} · ${x.quando}`).join('\n')}\n\nConfira a conversa e cadastre a venda pelo painel (Casa de Shows > Vendas).`;
+  if (!(await avisarAdm(texto))) return 0;
+  await qq('UPDATE payments SET orphan_alerted_at = now() WHERE id = ANY($1::bigint[])', [rows.map((x) => x.id)]);
+  return rows.length;
+}
+export function startPagamentoSemVenda() {
+  const passo = async () => {
+    try {
+      const empresas = (await qg("SELECT id FROM companies WHERE COALESCE(modules->>'casa_de_shows','true') <> 'false' AND wa_api_url IS NOT NULL AND wa_api_token IS NOT NULL")).rows;
+      for (const e of empresas) await runAs(e.id, () => avisarPagamentosSemVenda()).catch((x) => { if (!/does not exist/.test(x.message)) console.error('pagamento sem venda:', x.message); });
+    } catch (x) { console.error('pagamento sem venda:', x.message); }
+  };
+  setInterval(passo, 5 * 60 * 1000).unref();
+}
+
 // Situação do cliente entregue ao atendente a cada mensagem: o que o painel REALMENTE tem registrado (pagamentos, vendas, chaves enviadas).
 // Vale acima do que o atendente "lembra" da conversa.
 export async function textoSituacaoCliente(q, telefone) {
@@ -134,7 +161,7 @@ export async function textoSituacaoCliente(q, telefone) {
     const livres = pg.filter((x) => x.status === 'accepted' && !x.usado);
     const usados = pg.filter((x) => x.status === 'accepted' && x.usado);
     const analise = pg.filter((x) => ['review', 'wrong_key', 'low_amount'].includes(x.status));
-    L.push(livres.length ? `Pagamento confirmado AINDA NÃO USADO em venda: ${livres.map((x) => `${brl(x.amount)} (${dh(x.created_at)})`).join('; ')}.` : 'Pagamento confirmado ainda não usado em venda: NENHUM. Sem pagamento confirmado, não cadastre venda nem envie ingressos. Se não há comprovante aguardando conferência da equipe, NÃO diga que vai confirmar com o financeiro: peça ao cliente o comprovante do pagamento que falta.');
+    L.push(livres.length ? `Pagamento confirmado AINDA NÃO USADO em venda: ${livres.map((x) => `${brl(x.amount)} (${dh(x.created_at)})`).join('; ')}. A venda deste cliente ainda NÃO está cadastrada e ele NÃO está na lista do evento: cadastre a venda (Cadastrar Venda) assim que tiver os nomes, usando os que ele já informou na conversa. Peça só os nomes que faltam, não peça de novo os que já recebeu, e não encerre a conversa sem cadastrar nem avise que está tudo certo antes disso.` : 'Pagamento confirmado ainda não usado em venda: NENHUM. Sem pagamento confirmado, não cadastre venda nem envie ingressos. Se não há comprovante aguardando conferência da equipe, NÃO diga que vai confirmar com o financeiro: peça ao cliente o comprovante do pagamento que falta.');
     if (usados.length) L.push(`Pagamentos confirmados que já viraram venda: ${usados.map((x) => brl(x.amount)).join('; ')}. Não os conte de novo.`);
     if (analise.length) L.push(`Comprovantes aguardando conferência da equipe (NÃO são pagamento confirmado): ${analise.map((x) => `${brl(x.amount)} (${dh(x.created_at)})`).join('; ')}.`);
   } catch { /* empresa sem recebimentos */ }

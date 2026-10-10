@@ -19,6 +19,7 @@ import { startCampaignScheduler, verificarHistorico, TETO_ADMIN, progressoDaEmpr
 import { registerEspelhoAdmin, startEspelhoContatos } from './espelho_contatos.js';
 import { registerPlanilhaAdmin } from './planilha_contatos.js';
 import { startListaScheduler } from './lista_evento.js';
+import { startPagamentoSemVenda } from './financeiro.js';
 import { startLembretes } from './lembretes.js';
 import { startLimpezaIngressos } from './documentos.js';
 import { birthdayTickAll } from './aniversario.js';
@@ -576,6 +577,7 @@ app.listen(process.env.PORT || 3000, () => console.log('CRM rodando na porta', p
 startCampaignScheduler();
 startEspelhoContatos();
 startListaScheduler();
+startPagamentoSemVenda();
 startLembretes();
 startLimpezaIngressos();
 // aniversariantes: confere de hora em hora (a fila de cada empresa é montada no máximo uma vez por dia)

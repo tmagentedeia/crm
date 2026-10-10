@@ -225,6 +225,21 @@ r = await ia('POST', '/payments/adm-reply', { text: 'Sim' });
 check('"sim" cancela e libera as vagas', r.body.handled === true && r.body.kind === 'cancel' && r.body.decision === 'approved' && psql(`select status from company_1.shows_sales where id=${vc.body.sale_id}`) === 'cancelled', JSON.stringify(r.body));
 check('o pagamento da venda cancelada continua registrado', psql(`select count(*) from company_1.shows_sale_payments where sale_id=${vc.body.sale_id}`) === '1');
 check('pagamento aprovado devolve o tipo payment', true);
+// ---- pagamento aceito que ficou sem venda: o responsável é avisado uma vez ----
+{
+  const { runAs } = await import('../src/db.js');
+  const { avisarPagamentosSemVenda } = await import('../src/financeiro.js');
+  const foneTn = foneT.replace(/^(55\d{2})9/, '$1');
+  psql("update company_1.payments set created_at = now() - interval '40 minutes' where customer_id = (select id from company_1.customers where phone='" + foneTn + "')");
+  psql("update company_1.payments set orphan_alerted_at = now() where orphan_alerted_at is null and customer_id is distinct from (select id from company_1.customers where phone='" + foneTn + "')");
+  recebidos.length = 0;
+  const n1 = await runAs(1, () => avisarPagamentosSemVenda());
+  const av = recebidos.find((x) => x.url === '/send/text');
+  check('pagamento sem venda avisa o responsável', n1 === 1 && av && /SEM venda cadastrada/.test(av.body.text) && /R\$ 150,00/.test(av.body.text), JSON.stringify(recebidos));
+  recebidos.length = 0;
+  check('o aviso não se repete', (await runAs(1, () => avisarPagamentosSemVenda())) === 0 && !recebidos.length);
+  check('a situação manda cadastrar a venda', /cadastre a venda/i.test(await sit(foneT)));
+}
 fake.close();
 await api('DELETE', `/finance/keys/${chave.id}`);
 console.log(`shows_venda_ia: ${ok} ok, ${fail} falhas`);

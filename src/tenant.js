@@ -20,7 +20,7 @@ import { DOCUMENTOS_SQL, DOC_FILES_VENDA_SQL, DOC_BLOCOS_SQL, DOC_VAGAS_SQL } fr
 import { DELIVERY_SQL } from './delivery.js';
 import { RESTAURANTE_SQL } from './restaurante.js';
 import { CONTRATACOES_SQL } from './contratacoes.js';
-import { FINANCEIRO_SQL, FINANCEIRO_ORIGEM_SQL, FINANCEIRO_DEDUP_SQL, PIX_ENVIADAS_SQL, ALERTA_PAGAMENTO_SQL } from './financeiro.js';
+import { FINANCEIRO_SQL, FINANCEIRO_ORIGEM_SQL, FINANCEIRO_DEDUP_SQL, PIX_ENVIADAS_SQL, ALERTA_PAGAMENTO_SQL, PAGAMENTO_SEM_VENDA_SQL } from './financeiro.js';
 
 const AGENDA_UNICA_SQL = 'ALTER TABLE professionals ADD COLUMN IF NOT EXISTS is_default BOOLEAN NOT NULL DEFAULT false';
 // Duas telas abriam ao mesmo tempo e cada uma criava a agenda da empresa: junta as repetidas e passa a permitir só uma.
@@ -323,6 +323,8 @@ export const TENANT_STEPS = [
   { version: 69, sql: TELEFONE_SQL + TELEFONE_ACERTO_SQL },
   // 70: faixa de horário de cada campanha
   { version: 70, sql: JANELA_CAMPANHA_SQL },
+  // 71: aviso de pagamento aceito que ficou sem venda
+  { version: 71, sql: PAGAMENTO_SEM_VENDA_SQL },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 
@@ -387,6 +389,7 @@ export async function createCompanySchema(cx, companyId) {
   await cx.query(EDICOES_AGENDAMENTO_SQL);
   await cx.query(PIX_ENVIADAS_SQL);
   await cx.query(ALERTA_PAGAMENTO_SQL);
+  await cx.query(PAGAMENTO_SEM_VENDA_SQL);
   await cx.query(SHOWS_CANCELAMENTOS_SQL);
   await cx.query(SHOWS_LISTA_RETIRADOS_SQL);
   await cx.query('SET LOCAL search_path TO public');
