@@ -133,9 +133,10 @@ check('telefone sem pedidos devolve lista vazia', ((await T('GET', '/api/orders?
 const PC = '55328888' + String(Math.floor(1000 + Math.random() * 9000));   // telefone novo: a cortesia só vale para contato novo
 const c1 = (await T('POST', '/api/orders', { phone: PC, name: 'Cliente Cortesia', song: 'Primeira' })).body;
 check('1º pedido sem pagamento avisa o prazo da cortesia', c1.courtesy_in_minutes === 15 && c1.kind === 'paid', JSON.stringify(c1));
+check('1º pedido traz o texto pronto da cortesia para a agente', typeof c1.instruction === 'string' && c1.instruction.includes('fica como cortesia') && c1.instruction.includes('Não peça o comprovante'), JSON.stringify(c1));
 check('dentro do prazo ainda aguarda pagamento', ((await T('GET', '/api/orders?phone=' + PC)).body.orders[0] || {}).kind === 'paid');
 const c2 = (await T('POST', '/api/orders', { phone: PC, song: 'Segunda' })).body;
-check('2º pedido não tem cortesia', c2.courtesy_in_minutes === null, JSON.stringify(c2));
+check('2º pedido não tem cortesia', c2.courtesy_in_minutes === null && c2.instruction === null, JSON.stringify(c2));
 psql(`update company_1.song_orders set created_at = now() - interval '20 minutes' where id in (${c1.id}, ${c2.id})`);
 const depois = (await T('GET', '/api/orders?phone=' + PC)).body.orders;
 check('passado o prazo, só o 1º vira cortesia', depois.find((x) => String(x.id) === String(c1.id)).kind === 'courtesy' && depois.find((x) => String(x.id) === String(c2.id)).kind === 'paid', JSON.stringify(depois));

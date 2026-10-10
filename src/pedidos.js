@@ -428,6 +428,10 @@ export function registerOrderRoutes(r, wrap) {
       live: out.live ? { id: out.live.id, title: out.live.title, starts_at: out.live.starts_at } : null,
       balance: out.balance,
       courtesy_in_minutes: out.elegivel ? CORTESIA_MIN : null,   // preenchido = 1º pedido: sem comprovante nesse prazo vira cortesia
+      // texto pronto para a agente: no 1º pedido ela diz que, sem comprovante, fica como cortesia (e não cobra nem pede Pix agora)
+      instruction: out.elegivel
+        ? `É o primeiro pedido do cliente e já está anotado. Responda apenas: "Pedido anotado! Se tiver o comprovante, é só enviar por aqui. Se preferir não contribuir agora, tudo bem: este primeiro pedido fica como cortesia." Não peça o comprovante nem ofereça a chave Pix agora e não cobre nada. Se ele enviar o comprovante depois, siga o fluxo normal de pagamento.`
+        : null,
     });
   }));
   // Saldo de franquia e situação do cliente (a agente usa para responder "quantos pedidos eu ainda tenho?")
