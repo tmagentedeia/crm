@@ -61,6 +61,7 @@ r = await T('POST', '/api/casa-de-shows/sales', { event_id: ev.id, sector_id: s3
 check('setor lotado recusa venda automática (409)', r.status === 409, JSON.stringify(r));
 const av = (await T('GET', `/api/casa-de-shows/availability?event_id=${ev.id}&people=2`)).body;
 check('disponibilidade para um grupo diz onde cabe', av.sectors_with_room.length === 1 && av.sectors_with_room[0] === s4.name, JSON.stringify(av.sectors_with_room));
+check('disponibilidade orienta o tamanho final do grupo', /tamanho FINAL/.test(av.note || ''), String(av.note));
 check('o outro setor continua livre e é independente', (await free(s4.id)).free === 30);
 
 // edição não conflita consigo mesma

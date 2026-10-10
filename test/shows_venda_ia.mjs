@@ -240,6 +240,7 @@ check('pagamento aprovado devolve o tipo payment', true);
   check('o aviso não se repete', (await runAs(1, () => avisarPagamentosSemVenda())) === 0 && !recebidos.length);
   check('a situação manda cadastrar a venda', /cadastre a venda/i.test(await sit(foneT)));
 }
+check('venda da atendente mostra a chave Pix do comprovante', psql("select count(*) from company_1.shows_sale_payments sp join company_1.payments p on p.id=sp.payment_id where sp.method='pix' and p.pix_key_id is not null and sp.pix_key_id is distinct from p.pix_key_id") === '0' && Number(psql("select count(*) from company_1.shows_sale_payments sp where sp.method='pix' and sp.payment_id is not null and sp.pix_key_id is not null")) > 0);
 fake.close();
 await api('DELETE', `/finance/keys/${chave.id}`);
 console.log(`shows_venda_ia: ${ok} ok, ${fail} falhas`);

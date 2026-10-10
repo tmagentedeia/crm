@@ -10,7 +10,7 @@ import { PRODUTOS_SQL } from './produtos.js';
 import { VENDAS_SQL } from './vendas.js';
 import { COMISSOES_SQL } from './comissoes.js';
 import { SHOWS_LISTA_SQL, SHOWS_LISTA_ENVIO_SQL, SHOWS_LISTA_QR_SQL, SHOWS_LISTA_RETIRADOS_SQL } from './lista_evento.js';
-import { CASA_DE_SHOWS_SQL, SHOWS_MEDIA_SQL, SHOWS_PAGAMENTOS_SQL, SHOWS_RENOMEAR_SQL, SHOWS_LOCAIS_SQL, SHOWS_LOCAL_PADRAO_SQL, SHOWS_PIX_EVENTO_SQL, SHOWS_LOTES_SQL, SHOWS_VENDAS_SQL, SHOWS_MESA_RESERVADA_SQL, SHOWS_CLUBE_SQL, SHOWS_FICHA_SETOR_SQL, SHOWS_CANCELAMENTOS_SQL, SHOWS_CORTESIA_SQL } from './casa_de_shows.js';
+import { CASA_DE_SHOWS_SQL, SHOWS_MEDIA_SQL, SHOWS_PAGAMENTOS_SQL, SHOWS_RENOMEAR_SQL, SHOWS_LOCAIS_SQL, SHOWS_LOCAL_PADRAO_SQL, SHOWS_PIX_EVENTO_SQL, SHOWS_LOTES_SQL, SHOWS_VENDAS_SQL, SHOWS_MESA_RESERVADA_SQL, SHOWS_CLUBE_SQL, SHOWS_FICHA_SETOR_SQL, SHOWS_CANCELAMENTOS_SQL, SHOWS_CORTESIA_SQL, SHOWS_CHAVE_VENDA_SQL } from './casa_de_shows.js';
 import { ANIVERSARIO_SQL, ANIVERSARIO_VARIAVEIS_SQL } from './aniversario.js';
 import { CONTATOS_SQL } from './contatos.js';
 import { ESPELHO_SQL } from './espelho_contatos.js';
@@ -325,6 +325,8 @@ export const TENANT_STEPS = [
   { version: 70, sql: JANELA_CAMPANHA_SQL },
   // 71: aviso de pagamento aceito que ficou sem venda
   { version: 71, sql: PAGAMENTO_SEM_VENDA_SQL },
+  // 72: vendas feitas pela atendente passam a mostrar a chave Pix do comprovante (antes apareciam "sem chave")
+  { version: 72, sql: SHOWS_CHAVE_VENDA_SQL },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 

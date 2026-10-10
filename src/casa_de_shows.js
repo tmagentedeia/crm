@@ -259,6 +259,7 @@ export const SHOWS_LOCAIS_SQL = `
   END $n$;
 `;
 // Quantos lugares da venda saíram do saldo de cortesias do cliente (volta ao saldo se a venda for cancelada)
+export const SHOWS_CHAVE_VENDA_SQL = `UPDATE shows_sale_payments sp SET pix_key_id = p.pix_key_id FROM payments p WHERE sp.payment_id = p.id AND sp.pix_key_id IS NULL AND sp.method = 'pix' AND p.pix_key_id IS NOT NULL;`;
 export const SHOWS_CORTESIA_SQL = `ALTER TABLE shows_sales ADD COLUMN IF NOT EXISTS courtesy_used INT NOT NULL DEFAULT 0;`;
 const FORMAS = ['pix', 'dinheiro', 'cartao', 'parceiro', 'cortesia', 'outro'];
 const MIDIA_MAX_BYTES = 2.5 * 1024 * 1024, FOTOS_POR_SETOR = 8;
@@ -441,7 +442,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     // trava: a venda só nasce com pagamento ACEITO (comprovante validado ou aprovado pela equipe) ainda não usado em outra venda
     const valor = porCortesia ? null : (b.amount === undefined || b.amount === null || b.amount === '' ? null : dinheiro(b.amount));
     if (!porCortesia && (!valor || valor <= 0)) return nao('Informe o valor pago. A venda só é cadastrada com pagamento confirmado.');
-    const livres = (await q(`SELECT p.id, p.amount::float AS amount FROM payments p JOIN customers c ON c.id = p.customer_id
+    const livres = (await q(`SELECT p.id, p.amount::float AS amount, p.pix_key_id FROM payments p JOIN customers c ON c.id = p.customer_id
       WHERE c.phone = $1 AND p.status = 'accepted' AND p.source <> 'pedido' AND NOT EXISTS (SELECT 1 FROM shows_sale_payments sp WHERE sp.payment_id = p.id)
       ORDER BY p.id`, [phone])).rows;
     let usar = [];
@@ -463,7 +464,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     let falta = valor;
     for (const x of usar) {
       const parte = Math.min(x.amount, Math.max(falta, 0.01));
-      await q('INSERT INTO shows_sale_payments (sale_id, method, amount, payment_id, note) VALUES ($1,$2,$3,$4,$5)', [id, forma, parte, x.id, nota]);
+      await q('INSERT INTO shows_sale_payments (sale_id, method, amount, payment_id, note, pix_key_id) VALUES ($1,$2,$3,$4,$5,$6)', [id, forma, parte, x.id, nota, forma === 'pix' ? x.pix_key_id : null]);
       falta -= parte;
     }
     if (porCortesia) {
@@ -474,7 +475,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     const v = (await q(`${VENDA} WHERE v.id=$1`, [id])).rows[0];
     res.status(201).json({
       ok: true, sale_id: v.id, event: ev.title, sector: v.sector_name, people: v.people, tables: v.tables, table: v.table_name, seats_each: v.seats_each, unit_price: v.unit_price, paid: v.paid,
-      message: `Venda registrada: ${ev.title}, ${v.sector_name}, ${v.people} pessoa(s) em ${v.tables} mesa(s) de ${v.seats_each} lugares.${pagto} Os ${v.people} nome(s) já estão na lista, e é isso que vale para entrar: a portaria dá presença pelo nome. O ingresso em PDF é só uma comodidade; para enviá-lo, use a tool Enviar Ingressos.`,
+      message: `Venda registrada: ${ev.title}, ${v.sector_name}, ${v.people} pessoa(s) em ${v.tables} mesa(s) de ${v.seats_each} lugares.${pagto} Os ${v.people} nome(s) já estão na lista, e é isso que vale para entrar: a portaria dá presença pelo nome. O ingresso em PDF é só uma comodidade; para enviá-lo, use a tool Enviar Ingressos. Se o cliente ainda vai trazer mais pessoas, não reserve lugar sem pagamento: cadastrado só quem pagou, os demais entram em nova venda, no mesmo setor, quando confirmarem e pagarem.`,
     });
   }));
 
@@ -1065,6 +1066,7 @@ export function registerCasaDeShowsRoutes(r, wrap) {
       event: oc.event ? { id: oc.event.id, title: oc.event.title, starts_at: oc.event.starts_at } : null,
       date: oc.date, venue: cfg.venue, layout: cfg.layout, people, sectors,
       ...(people ? {
+        note: 'Consulta feita para ' + people + ' pessoa(s). Se o cliente avisou que o grupo vai crescer, consulte pelo tamanho FINAL do grupo e ofereça só setores que comportem esse tamanho de mesa; a venda é cadastrada apenas com quem já pagou (sem reserva sem compra).',
         sectors_with_room: sectors.filter((s) => s.can_fit).map((s) => s.name),
         // ordem para oferecer: primeiro os setores ideais para esse tamanho de grupo, depois os demais, e por último os "só se não houver outro"
         suggested_sectors: sectors.filter((s) => s.can_fit).map((s, i) => ({ s, i, rank: s.last_resort ? 2 : ((s.ideal_min != null || s.ideal_max != null) && (s.ideal_min == null || people >= s.ideal_min) && (s.ideal_max == null || people <= s.ideal_max)) ? 0 : 1 }))
