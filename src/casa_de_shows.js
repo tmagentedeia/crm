@@ -479,6 +479,72 @@ export function registerCasaDeShowsRoutes(r, wrap) {
     });
   }));
 
+  // ---------- ampliar uma venda: mais pessoas na mesma mesa (o grupo avisou que ia crescer) ----------
+  // Corpo: { phone (de quem comprou), event, names: ["Novo Nome Sobrenome", ...] (só quem entra agora), amount (total pago por eles), method, payment_id (opcional), sale_id (opcional) }
+  // Só entra quem pagou: precisa de pagamento aceito ainda não usado, que cubra o valor. Se a mesa não comporta, a venda original não muda.
+  r.post('/casa-de-shows/sales/extend', comTratamento(async (req, res) => {
+    const b = req.body || {};
+    const nao = (message) => res.json({ ok: false, message });
+    const novos = nomesDe(b.names);
+    if (!novos.length) return nao('Faltam os nomes de quem entra: peça nome e sobrenome de cada pessoa.');
+    if (novos.length > 50 || novos.some((n) => txt(n, 120) === null)) return nao('Algum nome está inválido. Peça de novo os nomes, um por linha.');
+    const phone = b.phone ? normPhone(b.phone) : null;
+    if (!phone || !/^\d{8,15}$/.test(phone)) return nao('Informe o telefone de quem comprou a mesa.');
+    let venda;
+    if (b.sale_id && idOk(b.sale_id)) venda = (await q(`${VENDA} WHERE v.id=$1 AND v.status = ANY($2)`, [idOk(b.sale_id), OCUPAM])).rows[0];
+    else {
+      const a = [phone, OCUPAM]; let w = 'v.phone = $1 AND v.status = ANY($2) AND v.host_sale_id IS NULL';
+      if (semAcento(b.event)) { const e = await eventoPorTexto(b.event); if (e.erro) return nao(e.erro); a.push(e.id); w += ` AND v.event_id = $${a.length}`; }
+      venda = (await q(`${VENDA} WHERE ${w} ORDER BY v.id DESC LIMIT 1`, a)).rows[0];
+    }
+    if (!venda) return nao('Não achei venda confirmada de quem comprou a mesa. Confira o telefone e o evento; para quem ainda não tem venda, use Cadastrar Venda.');
+    if (venda.host_sale_id || venda.held) return nao('Esta venda é de uma mesa reservada ou de convidado e não pode ser ampliada por aqui.');
+    const nomesAtuais = nomesDe(venda.guests);
+    while (nomesAtuais.length < venda.people) nomesAtuais.push(nomesAtuais.length === 0 ? venda.name : `Acompanhante de ${venda.name}`);
+    const norm = (n) => semAcento(n).toLowerCase();
+    if (novos.every((n) => nomesAtuais.some((x) => norm(x) === norm(n)))) return res.json({ ok: true, duplicate: true, sale_id: venda.id, message: 'Esses nomes já estavam na venda. Não cadastre de novo; siga com a confirmação ao cliente.' });
+    const total = venda.people + novos.length;
+    // pagamento dos que entram: mesma trava do cadastro (aceito, ainda não usado em venda, cobrindo o valor)
+    const texto = semAcento(b.method || 'pix');
+    const forma = (FORMA_ALIAS.find(([re]) => re.test(texto)) || [null, 'pix'])[1];
+    if (forma === 'cortesia') return nao('Para ampliar com cortesia, use o painel.');
+    const valor = b.amount === undefined || b.amount === null || b.amount === '' ? null : dinheiro(b.amount);
+    if (!valor || valor <= 0) return nao('Informe o valor pago por quem entra. Só entra quem pagou.');
+    const livres = (await q(`SELECT p.id, p.amount::float AS amount, p.pix_key_id FROM payments p JOIN customers c ON c.id = p.customer_id
+      WHERE c.phone = $1 AND p.status = 'accepted' AND p.source <> 'pedido' AND NOT EXISTS (SELECT 1 FROM shows_sale_payments sp WHERE sp.payment_id = p.id) ORDER BY p.id`, [phone])).rows;
+    let usar = [];
+    if (b.payment_id && idOk(b.payment_id)) usar = livres.filter((x) => String(x.id) === String(idOk(b.payment_id)));
+    else { let soma = 0; for (const x of livres) { if (soma >= valor - 0.005) break; usar.push(x); soma += x.amount; } }
+    const coberto = usar.reduce((a, x) => a + x.amount, 0);
+    if (!usar.length) return nao('NÃO há pagamento confirmado para estas pessoas. Não amplie a venda e não diga que o pagamento foi recebido: se o cliente mandou comprovante, avise que a equipe vai conferir e aguarde.');
+    if (coberto < valor - 0.005) return nao(`O pagamento confirmado é de ${dinheiroBr(coberto)}, menor que os ${dinheiroBr(valor)} de quem entra. Avise o cliente que falta completar o pagamento.`);
+    // tenta uma mesa só que comporte o grupo; se não houver, mantém o tipo da mesa e soma mesas. Só grava se couber.
+    const atual = (await q('SELECT *, occasion_date::text AS occasion_date FROM shows_sales WHERE id=$1', [venda.id])).rows[0];
+    const guests = [...nomesAtuais, ...novos].join('\n');
+    const tipos = (await q(`${TIPO} WHERE active AND seats >= $1 ORDER BY space, seats`, [total])).rows;
+    const tentativas = [...tipos.map((t) => ({ table_type_id: t.id, tables: 1 })), {}];
+    let gravou = false, ultimo = null;
+    for (const t of tentativas) {
+      const p = await preparar({ people: total, guests, ...t }, atual, quem(req));
+      if (p.erro) { ultimo = p.erro; continue; }
+      try { await gravar({ ...p.v, id: atual.id }); gravou = true; break; }
+      catch (e) { if (!e.status) throw e; ultimo = e.message; }
+    }
+    if (!gravou) return nao(`Não consegui ampliar a mesa de ${venda.sector_name} para ${total} pessoas: ${ultimo || 'sem espaço'}. A venda original continua como estava. Avise o cliente e ofereça outro setor com nova venda; o pagamento dele continua válido.`);
+    const nota = /mercado\s*pago|link/.test(texto) ? 'Mercado Pago' : null;
+    let falta = valor;
+    for (const x of usar) {
+      const parte = Math.min(x.amount, Math.max(falta, 0.01));
+      await q('INSERT INTO shows_sale_payments (sale_id, method, amount, payment_id, note, pix_key_id) VALUES ($1,$2,$3,$4,$5,$6)', [venda.id, forma, parte, x.id, nota, forma === 'pix' ? x.pix_key_id : null]);
+      falta -= parte;
+    }
+    const v = (await q(`${VENDA} WHERE v.id=$1`, [venda.id])).rows[0];
+    res.status(201).json({
+      ok: true, sale_id: v.id, sector: v.sector_name, people: v.people, tables: v.tables, table: v.table_name, seats_each: v.seats_each, paid: v.paid,
+      message: `Venda ampliada: agora são ${v.people} pessoa(s) em ${v.tables} mesa(s) de ${v.seats_each} lugares no ${v.sector_name}. Pagamento de ${dinheiroBr(valor)} registrado e os nomes novos já estão na lista. Para enviar os ingressos de todos, use Enviar Ingressos.`,
+    });
+  }));
+
   // Ingressos em PDF de uma venda, um por pessoa, enviados pelo WhatsApp. O ingresso é uma comodidade: se falhar, o nome continua na lista.
   // Corpo: { number: conversa do cliente, phone: telefone do comprador (acha a venda), event, sale_id (opcional) }
   const SEM_PDF = 'Não consegui emitir o ingresso agora, mas o nome já está salvo na lista e isso basta: na portaria a presença é dada pelo nome. Avise o cliente sem alarme: ele pode pedir o ingresso de novo outro dia, ou nem precisar dele.';

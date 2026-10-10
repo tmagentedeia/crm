@@ -225,6 +225,27 @@ r = await ia('POST', '/payments/adm-reply', { text: 'Sim' });
 check('"sim" cancela e libera as vagas', r.body.handled === true && r.body.kind === 'cancel' && r.body.decision === 'approved' && psql(`select status from company_1.shows_sales where id=${vc.body.sale_id}`) === 'cancelled', JSON.stringify(r.body));
 check('o pagamento da venda cancelada continua registrado', psql(`select count(*) from company_1.shows_sale_payments where sale_id=${vc.body.sale_id}`) === '1');
 check('pagamento aprovado devolve o tipo payment', true);
+// ---- ampliar a venda: o grupo avisou que ia crescer ----
+{
+  const foneE = '5532955' + String(marca).padStart(6, '0').slice(-6);
+  await pagar(foneE, 200);
+  let x = await ia('POST', '/casa-de-shows/sales/register', { event: ev2.title, sector: setor2.name, names: ['Eva Lima', 'Gil Lima'], phone: foneE, amount: 200, method: 'Pix' });
+  check('venda de 2 cadastrada', x.body.ok === true && x.body.people === 2, JSON.stringify(x.body));
+  const idE = x.body.sale_id;
+  x = await ia('POST', '/casa-de-shows/sales/extend', { event: ev2.title, phone: foneE, names: ['Hugo Lima', 'Iris Lima'], amount: 200, method: 'Pix' });
+  check('sem pagamento novo não amplia', x.body.ok === false && /NÃO há pagamento confirmado/.test(x.body.message), JSON.stringify(x.body));
+  check('venda original intacta sem pagamento', psql(`select people from company_1.shows_sales where id=${idE}`) === '2');
+  await pagar(foneE, 200);
+  x = await ia('POST', '/casa-de-shows/sales/extend', { event: ev2.title, phone: foneE, names: ['Hugo Lima', 'Iris Lima'], amount: 200, method: 'Pix' });
+  check('com pagamento a venda vira 4 pessoas', x.status === 201 && x.body.ok === true && x.body.people === 4 && String(x.body.sale_id) === String(idE), JSON.stringify(x.body));
+  check('os 4 nomes ficam na lista', psql(`select guests from company_1.shows_sales where id=${idE}`).split('\n').length === 4 && /Iris Lima/.test(psql(`select guests from company_1.shows_sales where id=${idE}`)));
+  check('pagamentos somam 400 e têm chave', psql(`select sum(amount)::int || '/' || count(*) filter (where pix_key_id is not null) from company_1.shows_sale_payments where sale_id=${idE}`) === '400/2');
+  x = await ia('POST', '/casa-de-shows/sales/extend', { event: ev2.title, phone: foneE, names: ['Hugo Lima'], amount: 100, method: 'Pix' });
+  check('repetir o nome não duplica', x.body.duplicate === true, JSON.stringify(x.body));
+  await pagar(foneE, 100);
+  x = await ia('POST', '/casa-de-shows/sales/extend', { event: ev2.title, phone: foneE, names: ['Jose Lima'], amount: 100, method: 'Pix' });
+  check('mesa cheia: ampliar ou recusar sem estragar a venda', (x.body.ok === true && x.body.people === 5) || (x.body.ok === false && psql(`select people from company_1.shows_sales where id=${idE}`) === '4'), JSON.stringify(x.body));
+}
 // ---- pagamento aceito que ficou sem venda: o responsável é avisado uma vez ----
 {
   const { runAs } = await import('../src/db.js');
