@@ -94,6 +94,9 @@ export function takeFromBag(bag, list) {
 export const hasLink = (messages) => (messages || []).some((m) => LINK.test(String(m || '')));
 
 // Devolve texto de erro (em português simples) ou null se estiver tudo certo.
+// Faixa de horário da campanha (a escolhida, ou o limite inteiro)
+export const janelaDe = (c) => ({ start: c?.window_start ?? LIMITS.START_HOUR, end: c?.window_end ?? LIMITS.END_HOUR });
+
 export function validateConfig(c, L = LIMITS) {
   const n = (v) => Number.isInteger(v);
   if (!c.name || !String(c.name).trim()) return 'Dê um nome para a campanha';
@@ -113,13 +116,18 @@ export function validateConfig(c, L = LIMITS) {
     return `A pausa entre lotes é de pelo menos ${LIMITS.BATCH_PAUSE_MIN} minutos`;
   if (!n(c.daily_limit) || c.daily_limit < 1 || c.daily_limit > L.DAILY_MAX)
     return `O limite por dia vai de 1 a ${L.DAILY_MAX} envios`;
+  if (c.window_start != null || c.window_end != null) {
+    if (!n(c.window_start) || !n(c.window_end) || c.window_start < LIMITS.START_HOUR || c.window_end > LIMITS.END_HOUR || c.window_end <= c.window_start)
+      return `A faixa de horário precisa ficar entre ${LIMITS.START_HOUR}h e ${LIMITS.END_HOUR}h, com o fim depois do início`;
+  }
   return null;
 }
 
 // Previsão de ritmo (usa a média dos intervalos). Devolve envios por dia e dias necessários.
 export function simulate(c, total) {
   const avg = (c.interval_min + c.interval_max) / 2;
-  const window = (LIMITS.END_HOUR - LIMITS.START_HOUR) * 60;
+  const j = janelaDe(c);
+  const window = (j.end - j.start) * 60;
   let t = 0, sent = 0, inBatch = 0;
   while (sent < c.daily_limit) {
     t += avg;
@@ -184,7 +192,7 @@ const hourOf = (tz, d = new Date()) => {
   return Number(fmtCache.get(tz).format(d)) % 24;
 };
 const dayOf = (tz, d) => d.toLocaleDateString('en-CA', { timeZone: tz });
-export const inWindow = (tz, d) => { const h = hourOf(tz, d); return h >= LIMITS.START_HOUR && h < LIMITS.END_HOUR; };
+export const inWindow = (tz, d, ini = LIMITS.START_HOUR, fim = LIMITS.END_HOUR) => { const h = hourOf(tz, d); return h >= ini && h < fim; };
 
 // Números da campanha para a tela de detalhes: o que foi configurado e o que realmente aconteceu (envios, intervalos de verdade, dias).
 // Intervalo "entre mensagens" = distância entre dois envios seguidos dentro de um lote; distâncias bem maiores são as pausas (lote, noite, limite do dia).
@@ -206,7 +214,7 @@ async function detalhesDaCampanha(c, rec) {
   for (const x of rec) if (['failed', 'cancelled'].includes(x.status) && x.error) motivos.set(x.error, (motivos.get(x.error) || 0) + 1);
   return {
     timezone: tz,
-    window: { start: LIMITS.START_HOUR, end: LIMITS.END_HOUR, free: !!c.allow_excluded },
+    window: { ...janelaDe(c), free: !!c.allow_excluded },
     daily_limit_set: c.daily_limit,
     daily_limit_applied: Math.min(c.daily_limit, empresaMax),
     totals: { sent: rec.filter((x) => x.status === 'sent').length, failed: rec.filter((x) => x.status === 'failed').length, cancelled: rec.filter((x) => x.status === 'cancelled').length, waiting: rec.filter((x) => ['pending', 'sending'].includes(x.status)).length, all: rec.length },
@@ -223,7 +231,8 @@ const toCampaign = (c) => ({ ...c, messages: c.messages || [] });
 
 // Quando sai o próximo envio de uma campanha em andamento, já considerando a janela de envio e o limite do dia.
 // motivo: 'sorteado' (horário já definido), 'fora_do_horario', 'limite_do_dia' ou null (é só esperar a próxima rodada).
-export function proximoEnvio({ nextSendAt, sentToday, dailyLimit, tz, now = new Date(), semJanela = false }) {
+export function proximoEnvio({ nextSendAt, sentToday, dailyLimit, tz, now = new Date(), semJanela = false, janela = null }) {
+  const ini = janela?.start ?? LIMITS.START_HOUR, fim = janela?.end ?? LIMITS.END_HOUR;
   let t = nextSendAt && new Date(nextSendAt) > now ? new Date(nextSendAt) : now;
   const sorteado = t > now;
   let motivo = sorteado ? 'sorteado' : null;
@@ -236,7 +245,7 @@ export function proximoEnvio({ nextSendAt, sentToday, dailyLimit, tz, now = new 
     andar(() => dayOf(tz, t) === hoje);
     motivo = 'limite_do_dia';
   }
-  if (!semJanela && !inWindow(tz, t)) { andar(() => !inWindow(tz, t)); motivo = motivo === 'limite_do_dia' ? motivo : 'fora_do_horario'; }
+  if (!semJanela && !inWindow(tz, t, ini, fim)) { andar(() => !inWindow(tz, t, ini, fim)); motivo = motivo === 'limite_do_dia' ? motivo : 'fora_do_horario'; }
   return { at: motivo ? t.toISOString() : (sorteado ? t.toISOString() : null), motivo };
 }
 
@@ -246,7 +255,6 @@ const companyCfg = async (id) => (await qg('SELECT timezone, whatsapp_instance, 
 export async function claimNext(companyId) {
   const cfg = await companyCfg(companyId);
   const tz = cfg.timezone || 'America/Sao_Paulo';
-  const foraDaJanela = !inWindow(tz); // a campanha de teste é a única que envia fora do horário
   const intervaloMin = (await limitesDaEmpresa(companyId)).INTERVAL_MIN;
   const teto = Math.max(LIMITS.DAILY_MAX, cfg.campaign_daily_max ?? 0);   // campanha criada com um limite maior não é cortada
   const out = await tx(companyId, async (t) => {
@@ -257,7 +265,8 @@ export async function claimNext(companyId) {
       `SELECT * FROM campaigns WHERE status='running' AND (next_send_at IS NULL OR next_send_at <= now())
        ORDER BY id FOR UPDATE SKIP LOCKED`)).rows;
     for (const c of cs) {
-      if (foraDaJanela && !c.allow_excluded) continue;
+      // cada campanha respeita a própria faixa de horário; a de teste é a única que envia fora do horário
+      if (!c.allow_excluded) { const j = janelaDe(c); if (!inWindow(tz, undefined, j.start, j.end)) continue; }
       const sentToday = (await t(
         `SELECT COUNT(*)::int AS n FROM campaign_recipients WHERE sent_at IS NOT NULL
            AND (sent_at AT TIME ZONE $1)::date = (now() AT TIME ZONE $1)::date`, [tz])).rows[0].n;
@@ -270,7 +279,13 @@ export async function claimNext(companyId) {
       if (colada) continue;
       // quem entrou na lista de exceções depois de a campanha ser montada não recebe
       if (!c.allow_excluded) await t(`UPDATE campaign_recipients SET status='cancelled', error='Na lista de exceções'
-               WHERE campaign_id=$1 AND status='pending' AND phone IN (SELECT phone FROM campaign_exclusions)`, [c.id]);
+               WHERE campaign_id=$1 AND status='pending' AND norm_phone_br(phone) IN (SELECT norm_phone_br(phone) FROM campaign_exclusions)`, [c.id]);
+      // o mesmo número (com ou sem o 9 extra) nunca recebe duas vezes na mesma campanha
+      await t(`UPDATE campaign_recipients r SET status='cancelled', error='Número repetido na campanha'
+               WHERE r.campaign_id=$1 AND r.status='pending' AND EXISTS (
+                 SELECT 1 FROM campaign_recipients o WHERE o.campaign_id=r.campaign_id AND o.id<>r.id
+                   AND norm_phone_br(o.phone)=norm_phone_br(r.phone)
+                   AND (o.status IN ('sent','sending') OR (o.status='pending' AND o.id<r.id)))`, [c.id]);
       // a ordem de envio é sorteada (não segue a ordem do cadastro)
       const rec = (await t(
         `SELECT * FROM campaign_recipients WHERE campaign_id=$1 AND status='pending'
@@ -424,8 +439,12 @@ export function registerCampaignRoutes(r, wrap) {
       if (where !== null) todos = (await q(`SELECT id, btrim(concat_ws(' ', name, last_name)) AS name, phone, chat_id FROM customers ${where}`)).rows;
     }
     if (!todos.length) return Object.assign([], { ignorados: 0 });
-    const fora = new Set((await q('SELECT phone FROM campaign_exclusions WHERE phone = ANY($1)', [todos.map((x) => x.phone)])).rows.map((x) => x.phone));
-    return Object.assign(todos.filter((x) => !fora.has(x.phone)), { ignorados: fora.size ? todos.filter((x) => fora.has(x.phone)).length : 0 });
+    const fora = new Set((await q('SELECT phone FROM campaign_exclusions')).rows.map((x) => normPhone(x.phone)));
+    // o mesmo número (com ou sem o 9 extra) entra uma vez só
+    const vistos = new Set();
+    const unicos = todos.filter((x) => { const k = normPhone(x.phone); if (vistos.has(k)) return false; vistos.add(k); return true; });
+    const lista = unicos.filter((x) => !fora.has(normPhone(x.phone)));
+    return Object.assign(lista, { ignorados: unicos.length - lista.length });
   }
 
   const cheio = async (t) => {
@@ -440,6 +459,8 @@ export function registerCampaignRoutes(r, wrap) {
     interval_min: Number(b.interval_min), interval_max: Number(b.interval_max),
     batch_size: Number(b.batch_size), batch_pause_min: Number(b.batch_pause_min),
     daily_limit: Number(b.daily_limit),
+    window_start: b.window_start === undefined || b.window_start === null || b.window_start === '' ? null : Number(b.window_start),
+    window_end: b.window_end === undefined || b.window_end === null || b.window_end === '' ? null : Number(b.window_end),
   });
 
   // Saudações e cumprimentos da empresa (sem lista própria, valem os padrões).
@@ -547,7 +568,7 @@ export function registerCampaignRoutes(r, wrap) {
       const sentToday = (await q(
         `SELECT COUNT(*)::int AS n FROM campaign_recipients WHERE sent_at IS NOT NULL
            AND (sent_at AT TIME ZONE $1)::date = (now() AT TIME ZONE $1)::date`, [tz])).rows[0].n;
-      proximo = proximoEnvio({ nextSendAt: c.next_send_at, sentToday, dailyLimit: Math.min(c.daily_limit, Math.max(LIMITS.DAILY_MAX, cfg.campaign_daily_max ?? 0)), tz, semJanela: !!c.allow_excluded });
+      proximo = proximoEnvio({ nextSendAt: c.next_send_at, sentToday, dailyLimit: Math.min(c.daily_limit, Math.max(LIMITS.DAILY_MAX, cfg.campaign_daily_max ?? 0)), tz, semJanela: !!c.allow_excluded, janela: janelaDe(c) });
     }
     res.json({ ...toCampaign(c), recipients: rec, proximo_envio: proximo, ...simulate(c, rec.filter((x) => ['pending', 'sending'].includes(x.status)).length), details: await detalhesDaCampanha(c, rec) });
   }));
@@ -566,17 +587,17 @@ export function registerCampaignRoutes(r, wrap) {
         if (!cur) return { code: 404, error: 'Não encontrada' };
         if (!['draft', 'paused'].includes(cur.status)) return { code: 409, error: 'Só dá para editar uma campanha que ainda não começou ou que está pausada' };
         await t(`UPDATE campaigns SET name=$2,messages=$3,greeting_random=$4,interval_min=$5,interval_max=$6,
-                 batch_size=$7,batch_pause_min=$8,daily_limit=$9,allow_excluded=$10 WHERE id=$1`,
-          [cid, c.name, JSON.stringify(c.messages), c.greeting_random, c.interval_min, c.interval_max, c.batch_size, c.batch_pause_min, c.daily_limit, req.body?.recipients?.mode === 'exceptions']);
+                 batch_size=$7,batch_pause_min=$8,daily_limit=$9,allow_excluded=$10,window_start=$11,window_end=$12 WHERE id=$1`,
+          [cid, c.name, JSON.stringify(c.messages), c.greeting_random, c.interval_min, c.interval_max, c.batch_size, c.batch_pause_min, c.daily_limit, req.body?.recipients?.mode === 'exceptions', c.window_start, c.window_end]);
         if (cur.status === 'draft') await t('DELETE FROM campaign_recipients WHERE campaign_id=$1', [cid]);
         // pausada: quem já foi tratado (enviado, falha, enviando) fica como está; só a fila de quem ainda não recebeu muda
         else await t(`DELETE FROM campaign_recipients WHERE campaign_id=$1 AND status IN ('pending','cancelled') AND NOT (phone = ANY($2))`, [cid, recips.map((p) => p.phone)]);
       } else {
         const lotado = await cheio(t);
         if (lotado) return { code: 409, error: lotado };
-        cid = (await t(`INSERT INTO campaigns (name,messages,greeting_random,interval_min,interval_max,batch_size,batch_pause_min,daily_limit,allow_excluded)
-                        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
-          [c.name, JSON.stringify(c.messages), c.greeting_random, c.interval_min, c.interval_max, c.batch_size, c.batch_pause_min, c.daily_limit, req.body?.recipients?.mode === 'exceptions'])).rows[0].id;
+        cid = (await t(`INSERT INTO campaigns (name,messages,greeting_random,interval_min,interval_max,batch_size,batch_pause_min,daily_limit,allow_excluded,window_start,window_end)
+                        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+          [c.name, JSON.stringify(c.messages), c.greeting_random, c.interval_min, c.interval_max, c.batch_size, c.batch_pause_min, c.daily_limit, req.body?.recipients?.mode === 'exceptions', c.window_start, c.window_end])).rows[0].id;
       }
       for (const p of recips) {
         await t(`INSERT INTO campaign_recipients (campaign_id,customer_id,name,phone,chat_id) VALUES ($1,$2,$3,$4,$5)
@@ -607,9 +628,9 @@ export function registerCampaignRoutes(r, wrap) {
       // restantes: continuação de uma campanha parada — só quem não recebeu (e não está na lista de exceções)
       const restantes = req.body?.restantes === true;
       if (restantes && c.status === 'running') return { error: 'Pare a campanha antes de continuar de onde ela parou' };
-      const nid = (await t(`INSERT INTO campaigns (name,messages,greeting_random,interval_min,interval_max,batch_size,batch_pause_min,daily_limit)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
-        [`${c.name} (${restantes ? 'continuação' : 'cópia'})`.slice(0, 120), JSON.stringify(c.messages), c.greeting_random, c.interval_min, c.interval_max, c.batch_size, c.batch_pause_min, c.daily_limit])).rows[0].id;
+      const nid = (await t(`INSERT INTO campaigns (name,messages,greeting_random,interval_min,interval_max,batch_size,batch_pause_min,daily_limit,window_start,window_end)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+        [`${c.name} (${restantes ? 'continuação' : 'cópia'})`.slice(0, 120), JSON.stringify(c.messages), c.greeting_random, c.interval_min, c.interval_max, c.batch_size, c.batch_pause_min, c.daily_limit, c.window_start, c.window_end])).rows[0].id;
       await t(`INSERT INTO campaign_recipients (campaign_id,customer_id,name,phone,chat_id)
                SELECT $2, x.id, x.name, x.phone, x.chat_id FROM campaign_recipients r JOIN customers x ON x.id=r.customer_id
                WHERE r.campaign_id=$1

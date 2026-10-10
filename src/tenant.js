@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { pool, schemaOf } from './db.js';
+import { TELEFONE_SQL, TELEFONE_ACERTO_SQL } from './phone.js';
 import { PEDIDOS_SQL, CORTESIA_SQL, ATENDIDO_SQL, SUGESTOES_SQL, ATENDIDO_FIX_SQL, CORTESIAS_SQL, PADRONIZA_TITULOS_SQL, CORTESIAS_RENOMEIA_SQL } from './pedidos.js';
 import { EVENTOS_SQL, EVENTOS_ABERTURA_SQL } from './eventos.js';
 import { ASSISTENTE_SQL } from './assistente.js';
@@ -14,7 +15,7 @@ import { ANIVERSARIO_SQL, ANIVERSARIO_VARIAVEIS_SQL } from './aniversario.js';
 import { CONTATOS_SQL } from './contatos.js';
 import { ESPELHO_SQL } from './espelho_contatos.js';
 import { CAMPOS_EXTRA_SQL } from './planilha_contatos.js';
-import { GRUPOS_CAMPANHA_SQL } from './grupos_campanha.js';
+import { GRUPOS_CAMPANHA_SQL, JANELA_CAMPANHA_SQL } from './grupos_campanha.js';
 import { DOCUMENTOS_SQL, DOC_FILES_VENDA_SQL, DOC_BLOCOS_SQL, DOC_VAGAS_SQL } from './documentos.js';
 import { DELIVERY_SQL } from './delivery.js';
 import { RESTAURANTE_SQL } from './restaurante.js';
@@ -318,6 +319,10 @@ export const TENANT_STEPS = [
   { version: 67, sql: PADRONIZA_TITULOS_SQL },
   // 68: o saldo vira "cortesias" e vale também para ingressos da Casa de Shows
   { version: 68, sql: CORTESIAS_RENOMEIA_SQL + SHOWS_CORTESIA_SQL },
+  // 69: telefone sempre sem o 9 extra, por qualquer caminho (trava no cadastro de clientes + acerto dos antigos)
+  { version: 69, sql: TELEFONE_SQL + TELEFONE_ACERTO_SQL },
+  // 70: faixa de horário de cada campanha
+  { version: 70, sql: JANELA_CAMPANHA_SQL },
 ];
 export const TENANT_VERSION = 1 + TENANT_STEPS.length;
 
@@ -347,6 +352,8 @@ export async function createCompanySchema(cx, companyId) {
   await cx.query(COMISSOES_SQL);
   await cx.query(CASA_DE_SHOWS_SQL);
   await cx.query(SHOWS_CORTESIA_SQL);
+  await cx.query(TELEFONE_SQL);
+  await cx.query(JANELA_CAMPANHA_SQL);
   await cx.query(ANIVERSARIO_SQL);
   await cx.query(ANIVERSARIO_VARIAVEIS_SQL);
   await cx.query(CONTRATACOES_SQL);

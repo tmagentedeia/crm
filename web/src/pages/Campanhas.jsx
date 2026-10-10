@@ -15,7 +15,7 @@ const STATUS = {
 const STATUS_ENVIO = { pending: 'Na fila', sending: 'Enviando', sent: 'Enviada', failed: 'Não enviada', cancelled: 'Cancelada' };
 const PADRAO = {
   name: '', messages: ['', '', ''],
-  interval_min: 10, interval_max: 15, batch_size: 20, batch_pause_min: 60, daily_limit: 50,
+  interval_min: 10, interval_max: 15, batch_size: 20, batch_pause_min: 60, daily_limit: 50, window_start: 7, window_end: 22,
   mode: 'clients', ids: [], allow_excluded: false,
 };
 const AVISO = 'Os limites definidos aqui são baseados em critérios subjetivos. O risco varia muito de acordo com o seu histórico de interações com os contatos e de número para número: já houve relatos de bloqueio com apenas 10 envios por dia, assim como números que fizeram mais de 100 envios por dia sem nenhum bloqueio. Por isso, recomendamos sempre o mínimo possível de envios com o máximo intervalo possível, para reduzir o risco de o WhatsApp bloquear o seu número. Não nos responsabilizamos por eventuais bloqueios nem pela sua decisão.';
@@ -112,7 +112,7 @@ function Form({ id, voltar, abrir, frases, lim }) {
   const doServidor = () => api('/campaigns/' + id).then((c) => setF({
     name: c.name, messages: c.messages,
     interval_min: c.interval_min, interval_max: c.interval_max, batch_size: c.batch_size,
-    batch_pause_min: c.batch_pause_min, daily_limit: c.daily_limit,
+    batch_pause_min: c.batch_pause_min, daily_limit: c.daily_limit, window_start: c.window_start ?? 7, window_end: c.window_end ?? 22,
     mode: c.allow_excluded ? 'exceptions' : 'selected', ids: c.recipients.map((r) => r.customer_id).filter(Boolean), allow_excluded: !!c.allow_excluded,
   }));
 
@@ -154,6 +154,7 @@ function Form({ id, voltar, abrir, frases, lim }) {
     name: f.name, messages: f.messages,
     interval_min: Number(f.interval_min), interval_max: Number(f.interval_max),
     batch_size: Number(f.batch_size), batch_pause_min: Number(f.batch_pause_min), daily_limit: Number(f.daily_limit),
+    window_start: Number(f.window_start), window_end: Number(f.window_end),
     recipients: { mode: f.mode, ids: f.ids },
   });
 
@@ -244,7 +245,7 @@ function Form({ id, voltar, abrir, frases, lim }) {
 
       <div className="card" style={{ marginBottom: 14 }}>
         <h3>Ritmo de envio</h3>
-        <p className="muted">Os envios acontecem só entre 7h e 22h. O tempo entre uma mensagem e outra é sorteado dentro da faixa que você escolher.</p>
+        <p className="muted">Os envios acontecem só entre 7h e 22h; dentro disso você escolhe a faixa de horário em que esta campanha roda. O tempo entre uma mensagem e outra é sorteado dentro da faixa que você escolher.</p>
         <p style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 9, padding: '8px 12px', fontSize: 14 }}>
           <strong>Atenção:</strong> não nos responsabilizamos por eventuais bloqueios. Os valores aqui seguem uma prática de equilíbrio e razoabilidade, mas o risco varia muito de número para número.
         </p>
@@ -254,6 +255,19 @@ function Form({ id, voltar, abrir, frases, lim }) {
           {num('batch_size', 1, 30, 'Envios seguidos', 'máximo 30')}
           {num('batch_pause_min', 60, 1440, 'Pausa depois deles', 'mínimo 60 minutos', 'minutos')}
           {num('daily_limit', 1, lim.daily_max, 'Limite por dia', `máximo ${lim.daily_max}`)}
+        </div>
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 10 }}>
+          <label className="field" style={{ flex: '0 0 auto', minWidth: 150 }}>Começar a enviar às
+            <select value={f.window_start} onChange={(e) => { const v = Number(e.target.value); setF({ ...f, window_start: v, window_end: Math.max(Number(f.window_end), v + 1) }); }}>
+              {Array.from({ length: 15 }, (_, i) => 7 + i).map((h) => <option key={h} value={h}>{h}h</option>)}
+            </select>
+          </label>
+          <label className="field" style={{ flex: '0 0 auto', minWidth: 150 }}>Parar de enviar às
+            <select value={f.window_end} onChange={(e) => { const v = Number(e.target.value); setF({ ...f, window_end: v, window_start: Math.min(Number(f.window_start), v - 1) }); }}>
+              {Array.from({ length: 15 }, (_, i) => 8 + i).map((h) => <option key={h} value={h}>{h}h</option>)}
+            </select>
+          </label>
+          <p className="muted" style={{ alignSelf: 'end', margin: 0 }}>Fora dessa faixa a campanha espera e continua no dia seguinte.</p>
         </div>
         {sim && (
           <p style={{ marginTop: 10 }}>
@@ -374,7 +388,7 @@ function Detalhe({ id, voltar, editar, irPara }) {
         {c.status === 'running' && c.proximo_envio?.at && (
           <p className="muted">
             Próximo envio previsto para {new Date(c.proximo_envio.at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
-            {c.proximo_envio.motivo === 'fora_do_horario' && ' (os envios acontecem só entre 7h e 22h)'}
+            {c.proximo_envio.motivo === 'fora_do_horario' && ` (os envios acontecem só entre ${c.window_start ?? 7}h e ${c.window_end ?? 22}h)`}
             {c.proximo_envio.motivo === 'limite_do_dia' && ' (o limite de envios do dia foi atingido)'}.
           </p>
         )}

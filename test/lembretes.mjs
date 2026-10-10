@@ -41,7 +41,7 @@ const instOrig = psql("select coalesce(whatsapp_instance,'') from public.compani
 psql("update public.companies set chat_table='chat_lembrete_teste', whatsapp_instance='demo-lembrete' where id=1");
 
 // desligado e sem conexão: nada sai
-const c1 = cli('Maria Souza', '5532988880001'); const a1 = agenda(c1, 120);
+const c1 = cli('Maria Souza', '553255550001'); const a1 = agenda(c1, 120);
 psql("update public.companies set wa_api_url=null, wa_api_token=null, reminder_minutes=120, reminder_text=null where id=1");
 await espera(1200);
 check('sem conexão do WhatsApp: nada é enviado', recebidos.length === 0 && psql(`select reminder_sent_at is null from company_1.appointments where id=${a1}`) === 't');
@@ -49,21 +49,21 @@ check('sem conexão do WhatsApp: nada é enviado', recebidos.length === 0 && psq
 // com conexão: envia uma vez, com a mensagem padrão
 psql(`update public.companies set wa_api_url='http://127.0.0.1:${porta}/', wa_api_token='chave-lembrete' where id=1`);
 await espera(1800);
-let m = enviouPara('5532988880001');
+let m = enviouPara('553255550001');
 check('lembrete enviado ao cliente', m.length === 1 && m[0].token === 'chave-lembrete', JSON.stringify(recebidos));
 check('mensagem padrão com nome, dia e hora', m[0] && /Maria/.test(m[0].corpo.text) && /hoje|amanhã|dia \d\d\/\d\d/.test(m[0].corpo.text) && /\d\dh\d\d/.test(m[0].corpo.text) && !/\{/.test(m[0].corpo.text), m[0]?.corpo.text);
 check('marca o agendamento como avisado', psql(`select reminder_sent_at is not null from company_1.appointments where id=${a1}`) === 't');
 check('lembrete registrado como enviado, com o texto', psql(`select status||'|'||left(coalesce(sent_text,''),4) from company_1.appointment_reminders where appointment_id=${a1}`) === 'sent|Olá,');
 await espera(1200);
-check('a mensagem entrou no histórico da conversa do atendente', Number(psql("select count(*) from chat_lembrete_teste where session_id='demo-lembrete 5532988880001 chats' and message->>'type'='ai' and message->>'content' like 'Olá, Maria%'")) === 1);
+check('a mensagem entrou no histórico da conversa do atendente', Number(psql("select count(*) from chat_lembrete_teste where session_id='demo-lembrete 553255550001 chats' and message->>'type'='ai' and message->>'content' like 'Olá, Maria%'")) === 1);
 check('lembrete registra que gravou na memória', psql(`select memory_saved from company_1.appointment_reminders where appointment_id=${a1}`) === 't');
-check('não repete o aviso', enviouPara('5532988880001').length === 1);
+check('não repete o aviso', enviouPara('553255550001').length === 1);
 
 // lista de agendados e enviados, edição individual
-const c9 = cli('Edita Prado', '5532988880009'); const a9 = agenda(c9, 410);
-const c10 = cli('Cancela Neves', '5532988880010'); agenda(c10, 420);
-const c11 = cli('Lote Rocha', '5532988880011'); agenda(c11, 430);
-const c12 = cli('Lote Duarte', '5532988880012'); agenda(c12, 440);
+const c9 = cli('Edita Prado', '553255550009'); const a9 = agenda(c9, 410);
+const c10 = cli('Cancela Neves', '553255550010'); agenda(c10, 420);
+const c11 = cli('Lote Rocha', '553255550011'); agenda(c11, 430);
+const c12 = cli('Lote Duarte', '553255550012'); agenda(c12, 440);
 let lst = (await api('GET', '/reminders')).body;
 check('lista traz o que está agendado', lst.enabled === true && lst.connected === true && lst.scheduled.length === 4 && lst.scheduled.every((x) => /^Olá, /.test(x.preview)), JSON.stringify(lst.scheduled.map((x) => x.customer_name)));
 check('lista traz o que já foi enviado, com o texto', lst.history.some((x) => x.status === 'sent' && x.customer_name === 'Maria Souza' && /Maria/.test(x.sent_text)));
@@ -76,7 +76,7 @@ check('texto grande demais é recusado', (await api('PUT', `/reminders/${idDe('E
 check('cancela o aviso de um cliente', (await api('POST', `/reminders/${idDe('Cancela Neves')}/cancel`)).status === 200);
 check('cancelar de novo é recusado', (await api('POST', `/reminders/${idDe('Cancela Neves')}/cancel`)).status === 409);
 check('enviar agora', (await api('POST', `/reminders/${idDe('Edita Prado')}/send`)).status === 200);
-m = enviouPara('5532988880009');
+m = enviouPara('553255550009');
 check('saiu com o texto editado, antes da hora', m.length === 1 && /^Oi Edita, nos vemos/.test(m[0].corpo.text), m[0]?.corpo.text);
 lst = (await api('GET', '/reminders')).body;
 check('cancelado e enviado vão para o histórico', lst.history.some((x) => x.customer_name === 'Cancela Neves' && x.status === 'cancelled') && lst.history.some((x) => x.customer_name === 'Edita Prado' && x.status === 'sent') && lst.scheduled.length === 2);
@@ -93,40 +93,40 @@ psql("delete from company_1.appointments where starts_at > now() + interval '300
 await api('PUT', '/company', { reminder_text: '{nome}, te esperamos {dia} às {hora} na {empresa}!' });
 check('mensagem personalizada fica salva', (await api('GET', '/company')).body.reminder_text === '{nome}, te esperamos {dia} às {hora} na {empresa}!');
 check('mensagem grande demais é recusada', (await api('PUT', '/company', { reminder_text: 'x'.repeat(801) })).status === 400);
-const c2 = cli('Joana Lima', '5532988880002'); agenda(c2, 95);
+const c2 = cli('Joana Lima', '553255550002'); agenda(c2, 95);
 await espera(1800);
-m = enviouPara('5532988880002');
+m = enviouPara('553255550002');
 check('usa a mensagem personalizada', m.length === 1 && /^Joana, te esperamos .* às \d\dh\d\d na /.test(m[0].corpo.text), m[0]?.corpo.text);
 
 // quem não deve receber
-const c3 = cli('Recente Silva', '5532988880003');
+const c3 = cli('Recente Silva', '553255550003');
 psql(`insert into company_1.appointments (professional_id, customer_id, service_id, starts_at, ends_at, price, source, status, created_at) values (${prof}, ${c3}, ${serv}, now() + interval '99 minutes', now() + interval '102 minutes', 50, 'manual', 'scheduled', now())`);
-const c4 = cli('Cancelado Souza', '5532988880004'); agenda(c4, 103, 'cancelled');
-const c5 = cli('Longe Costa', '5532988880005'); agenda(c5, 600);
-const c6 = cli('Aguardando Reis', '5532988880006'); agenda(c6, 107, 'pending');
+const c4 = cli('Cancelado Souza', '553255550004'); agenda(c4, 103, 'cancelled');
+const c5 = cli('Longe Costa', '553255550005'); agenda(c5, 600);
+const c6 = cli('Aguardando Reis', '553255550006'); agenda(c6, 107, 'pending');
 await espera(1500);
-check('quem acabou de marcar não recebe', enviouPara('5532988880003').length === 0);
-check('cancelado não recebe', enviouPara('5532988880004').length === 0);
-check('horário distante não recebe agora', enviouPara('5532988880005').length === 0);
-check('aguardando confirmação não recebe', enviouPara('5532988880006').length === 0);
+check('quem acabou de marcar não recebe', enviouPara('553255550003').length === 0);
+check('cancelado não recebe', enviouPara('553255550004').length === 0);
+check('horário distante não recebe agora', enviouPara('553255550005').length === 0);
+check('aguardando confirmação não recebe', enviouPara('553255550006').length === 0);
 
 // lembrete desligado
 await api('PUT', '/company', { reminder_minutes: null });
-const c7 = cli('Desligado Dias', '5532988880007'); agenda(c7, 111);
+const c7 = cli('Desligado Dias', '553255550007'); agenda(c7, 111);
 await espera(1200);
-check('lembrete desligado: nada sai', enviouPara('5532988880007').length === 0);
+check('lembrete desligado: nada sai', enviouPara('553255550007').length === 0);
 await api('PUT', '/company', { reminder_minutes: 120 });
 
 // o WhatsApp falha: tenta de novo, no máximo 3 vezes
 falhar = true;
-const c8 = cli('Falha Alves', '5532988880008'); const a8 = agenda(c8, 115);
+const c8 = cli('Falha Alves', '553255550008'); const a8 = agenda(c8, 115);
 await espera(3000);
-check('falha: tenta no máximo 3 vezes', enviouPara('5532988880008').length === 3, String(enviouPara('5532988880008').length));
+check('falha: tenta no máximo 3 vezes', enviouPara('553255550008').length === 3, String(enviouPara('553255550008').length));
 check('depois das tentativas fica como não enviado, com o motivo', psql(`select status||'|'||coalesce(note,'') from company_1.appointment_reminders where appointment_id=${a8}`).startsWith('failed|'));
 falhar = false;
 
 // corrigir o horário de um agendamento (fica registrado; lembrete e aviso ao cliente acompanham)
-const cE = cli('Edita Lima', '5532988880020'); const aE = agenda(cE, 777);
+const cE = cli('Edita Lima', '553255550020'); const aE = agenda(cE, 777);
 await espera(1500);
 const alvo = new Date(Date.now() + 1111 * 60000).toISOString();
 const antes = psql(`select extract(epoch from (ends_at - starts_at)) from company_1.appointments where id=${aE}`);
@@ -137,13 +137,13 @@ const hist = await api('GET', `/appointments/${aE}/edits`);
 check('histórico guarda quem, de e para', hist.body?.length === 1 && hist.body[0].edited_by && hist.body[0].notified === true, JSON.stringify(hist.body));
 check('lista de agendamentos informa quantas vezes foi alterado', (await api('GET', '/appointments?from=' + new Date().toISOString())).body.find((x) => String(x.id) === aE)?.edits === 1);
 check('lembrete ainda não enviado acompanha o novo horário', psql(`select abs(extract(epoch from (starts_at - '${alvo}'::timestamptz))) < 1 and abs(extract(epoch from (send_at - ('${alvo}'::timestamptz - interval '120 minutes')))) < 1 from company_1.appointment_reminders where appointment_id=${aE}`) === 't');
-const av = enviouPara('5532988880020').filter((x) => /alterado/.test(x.corpo.text));
+const av = enviouPara('553255550020').filter((x) => /alterado/.test(x.corpo.text));
 check('cliente avisado da mudança', av.length === 1 && /Edita/.test(av[0].corpo.text) && !/\{/.test(av[0].corpo.text), JSON.stringify(av));
 await espera(1000);
 check('o aviso entrou no histórico da conversa', Number(psql("select count(*) from chat_lembrete_teste where message->>'content' like '%foi alterado%'")) === 1);
 ed = await api('POST', `/appointments/${aE}/edit`, { starts_at: new Date(Date.now() + 1222 * 60000).toISOString() });
-check('sem pedir aviso, o cliente não recebe mensagem', ed.status === 200 && ed.body.notified === false && enviouPara('5532988880020').filter((x) => /alterado/.test(x.corpo.text)).length === 1);
-const cF = cli('Outro Cliente', '5532988880021'); const aF = agenda(cF, 2000);
+check('sem pedir aviso, o cliente não recebe mensagem', ed.status === 200 && ed.body.notified === false && enviouPara('553255550020').filter((x) => /alterado/.test(x.corpo.text)).length === 1);
+const cF = cli('Outro Cliente', '553255550021'); const aF = agenda(cF, 2000);
 ed = await api('POST', `/appointments/${aF}/edit`, { starts_at: new Date(Date.now() + 1222 * 60000).toISOString() });
 check('horário já ocupado: recusa (409)', ed.status === 409, JSON.stringify(ed.body));
 psql(`update company_1.appointments set status='cancelled' where id=${aF}`);

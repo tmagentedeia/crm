@@ -13,6 +13,12 @@ export const GRUPOS_CAMPANHA_SQL = `
   ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS allow_excluded BOOLEAN NOT NULL DEFAULT false;
 `;
 
+// Faixa de horário escolhida para a campanha rodar (horas cheias, dentro do limite das 7h às 22h); vazio = o limite inteiro
+export const JANELA_CAMPANHA_SQL = `
+  ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS window_start INT;
+  ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS window_end INT;
+`;
+
 export function registerGruposCampanha(r, wrap) {
   // grupos com os contatos que ainda existem
   r.get('/campaign-groups', wrap(async (req, res) => {
